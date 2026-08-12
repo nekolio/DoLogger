@@ -50,10 +50,10 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test -p dologger-core --all-features
 
-  # ── Build release artifacts ──────────────────────────────────────
+  # ── Build release artifacts (parallel with tests/benchmarks — the
+  #    create-release job is the gate that requires all three) ──────
   build:
     name: Build ${{ matrix.target }}
-    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -155,10 +155,9 @@ jobs:
           path: release-artifacts/*
           if-no-files-found: warn
 
-  # ── Benchmarks (per-release, live results) ───────────────────────
+  # ── Benchmarks (per-release, live results; parallel with tests) ──
   benchmarks:
     name: Benchmarks (Linux x86_64)
-    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -242,7 +241,7 @@ jobs:
   # ── Create GitHub Release ────────────────────────────────────────
   create-release:
     name: Create GitHub Release
-    needs: [build, benchmarks]
+    needs: [test, build, benchmarks]
     runs-on: ubuntu-latest
     permissions:
       contents: write

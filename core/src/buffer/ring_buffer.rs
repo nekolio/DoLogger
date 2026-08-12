@@ -199,11 +199,26 @@ impl<T> RingBuffer<T> {
             let index = (consumer_seq & self.mask) as usize;
             let slot = &self.slots[index];
 
-            // Wait for the producer to publish this slot
+            // Wait for the producer to publish this slot — but abort the wait
+            // as soon as `consumer_sequence` moves past `consumer_seq`: a
+            // cooperative helper has claimed this slot already (the slot's
+            // sequence becomes consumer_seq + capacity, which can NEVER equal
+            // `expected`), so waiting for the publish would spin forever.
+            // This was the CI hang: a helper snatched the slot the consumer
+            // was waiting on and the consumer never re-checked the cursor.
             let expected = consumer_seq + 1;
             let mut spins = 0u32;
+            let mut snatched = false;
             while slot.sequence.load(Ordering::Acquire) != expected {
+                if self.consumer_sequence.load(Ordering::Acquire) != consumer_seq {
+                    snatched = true;
+                    break;
+                }
                 Self::spin_wait(&mut spins);
+            }
+            if snatched {
+                // The helper processed the slot — retry with a fresh cursor.
+                continue;
             }
 
             // Try to claim with CAS — may race with cooperative helpers
