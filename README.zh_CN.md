@@ -73,34 +73,33 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 <details open>
 <summary>架构总览</summary>
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    应用程序（APPLICATION）               │
-│  dologger_log() / dologger_logv()  ← C ABI (FFI)        │
-└────────────────────┬────────────────────────────────────┘
-                     │ 102ns P50（CAS 推入）
-┌────────────────────▼────────────────────────────────────┐
-│              无锁 MPSC 环形缓冲区                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │
-│  │ 普通分区  │  │ 审计分区 │   │ 协作式帮助           │   │
-│  │  (90%)   │  │  (10%)   │  │（生产者侧排空）       │   │
-│  └──────────┘  └──────────┘  └──────────────────────┘   │
-└────────────────────┬────────────────────────────────────┘
-                     │ 批量排空（Batch drain）
-┌────────────────────▼────────────────────────────────────┐
-│                  7 级管道（PIPELINE）                    │
-│  PreFilter → Filter → FieldProvider → Assembly          │
-│  → Processing → Formatting → Sink Fan-out               │
-│                                                         │
-│  Assembly: LSN 分配 + Ed25519 签名 + prev_hash 链        │
-│  Processing: CRC32C 校验 + 密钥检测                      │
-└────────────────────┬────────────────────────────────────┘
-                     │ io_pool 线程分发
-┌────────────────────▼────────────────────────────────────┐
-│                    接收器层（SINK）                      │
-│  Console │ File │ Kafka │ Syslog │ Webhook │ SQLite     │
-│  WORM │ Shared Memory │ OpenTelemetry │ Security File   │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    APP["应用程序（APPLICATION）<br/>dologger_log() / dologger_logv()<br/>← C ABI (FFI)"]
+    APP -->|"102ns P50（CAS 推入）"| RB
+
+    subgraph RB["无锁 MPSC 环形缓冲区"]
+        direction LR
+        R1["普通分区（90%）"]
+        R2["审计分区（10%）"]
+        R3["协作式帮助<br/>（生产者侧排空）"]
+    end
+
+    RB -->|"批量排空（Batch drain）"| PIPE
+
+    subgraph PIPE["7 级管道（PIPELINE）"]
+        direction TB
+        P0["PreFilter → Filter → FieldProvider → Assembly<br/>→ Processing → Formatting → Sink Fan-out"]
+        P1["Assembly：LSN 分配 + Ed25519 签名<br/>+ prev_hash 链"]
+        P2["Processing：CRC32C 校验 + 密钥检测"]
+    end
+
+    PIPE -->|"io_pool 线程<br/>（channel 分发）"| SINK
+
+    subgraph SINK["接收器层（SINK）"]
+        direction LR
+        S0["Console | File | Kafka | Syslog<br/>Webhook | SQLite | WORM<br/>Shared Memory | OpenTelemetry<br/>Security File"]
+    end
 ```
 
 </details>
@@ -238,8 +237,7 @@ DoLogger/
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS 合规模板
 ├── Docs/                       # 技术文档
 │   ├── zh_CN/                  # 中文文档
-│   ├── en_US/                  # 英文文档
-│   └── wiki/                   # GitHub Wiki
+│   └── en_US/                  # 英文文档（自动同步至 GitHub wiki）
 ├── tests/                      # 集成与安全测试
 └── scripts/                    # 开发环境搭建脚本
 ```

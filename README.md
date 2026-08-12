@@ -77,35 +77,33 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 <details open>
 <summary>Architecture overview</summary>
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    APPLICATION                          │
-│  dologger_log() / dologger_logv()  ← C ABI (FFI)        │
-└────────────────────┬────────────────────────────────────┘
-                     │ 102ns P50 (CAS push)
-┌────────────────────▼────────────────────────────────────┐
-│         LOCK-FREE MPSC RING BUFFER                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐   │
-│  │  Normal  │  │  Audit   │  │ Cooperative Helping  │   │
-│  │ Partition│  │ Partition│  │ (producer-side drain)│   │
-│  │  (90%)   │  │   (10%)  │  │                      │   │
-│  └──────────┘  └──────────┘  └──────────────────────┘   │
-└────────────────────┬────────────────────────────────────┘
-                     │ Batch drain
-┌────────────────────▼────────────────────────────────────┐
-│              7-STAGE PIPELINE                           │
-│  PreFilter → Filter → FieldProvider → Assembly          │
-│  → Processing → Formatting → Sink Fan-out               │
-│                                                         │
-│  Assembly: LSN assign + Ed25519 sign + prev_hash chain  │
-│  Processing: CRC32C verify + secret detection           │
-└────────────────────┬────────────────────────────────────┘
-                     │ io_pool thread (channel dispatch)
-┌────────────────────▼────────────────────────────────────┐
-│                   SINK LAYER                            │
-│  Console │ File │ Kafka │ Syslog │ Webhook │ SQLite     │
-│  WORM │ Shared Memory │ OpenTelemetry │ Security File   │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    APP["APPLICATION<br/>dologger_log() / dologger_logv()<br/>← C ABI (FFI)"]
+    APP -->|"102ns P50 (CAS push)"| RB
+
+    subgraph RB["LOCK-FREE MPSC RING BUFFER"]
+        direction LR
+        R1["Normal partition (90%)"]
+        R2["Audit partition (10%)"]
+        R3["Cooperative helping<br/>(producer-side drain)"]
+    end
+
+    RB -->|"Batch drain"| PIPE
+
+    subgraph PIPE["7-STAGE PIPELINE"]
+        direction TB
+        P0["PreFilter → Filter → FieldProvider → Assembly<br/>→ Processing → Formatting → Sink Fan-out"]
+        P1["Assembly: LSN assign + Ed25519 sign<br/>+ prev_hash chain"]
+        P2["Processing: CRC32C verify + secret detection"]
+    end
+
+    PIPE -->|"io_pool thread<br/>(channel dispatch)"| SINK
+
+    subgraph SINK["SINK LAYER"]
+        direction LR
+        S0["Console | File | Kafka | Syslog<br/>Webhook | SQLite | WORM<br/>Shared Memory | OpenTelemetry<br/>Security File"]
+    end
 ```
 
 </details>
@@ -243,8 +241,7 @@ DoLogger/
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS compliance templates
 ├── Docs/                       # Technical documentation
 │   ├── zh_CN/                  # Chinese docs
-│   ├── en_US/                  # English docs
-│   └── wiki/                   # GitHub Wiki
+│   └── en_US/                  # English docs (auto-synced to the GitHub wiki)
 ├── tests/                      # Integration and security tests
 └── scripts/                    # Dev environment setup scripts
 ```
