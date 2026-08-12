@@ -102,6 +102,25 @@ impl<T> RingBuffer<T> {
         self.capacity
     }
 
+    /// Bounded spin for slot-state waits.
+    ///
+    /// The common case resolves within a few thousand iterations, so burn
+    /// CPU first; after that, yield to the scheduler. A pure `spin_loop`
+    /// starves the very thread we are waiting for when the machine is CPU
+    /// saturated (e.g. parallel test binaries) — observed as a multi-minute
+    /// hang of the cooperative-helping test under load.
+    #[inline]
+    fn spin_wait(iterations: &mut u32) {
+        const SPIN_LIMIT: u32 = 4096;
+        if *iterations < SPIN_LIMIT {
+            *iterations += 1;
+            std::hint::spin_loop();
+        } else {
+            *iterations = 0;
+            std::thread::yield_now();
+        }
+    }
+
     /// Try to push an item into the ring buffer.
     ///
     /// Returns `true` if the item was enqueued, `false` if the buffer is full.
@@ -134,8 +153,9 @@ impl<T> RingBuffer<T> {
                     let slot = &self.slots[index];
 
                     // Wait until the slot is ready for writing
+                    let mut spins = 0u32;
                     while slot.sequence.load(Ordering::Acquire) != producer_seq {
-                        std::hint::spin_loop();
+                        Self::spin_wait(&mut spins);
                     }
 
                     // SAFETY: We have exclusive write access to this slot because
@@ -181,8 +201,9 @@ impl<T> RingBuffer<T> {
 
             // Wait for the producer to publish this slot
             let expected = consumer_seq + 1;
+            let mut spins = 0u32;
             while slot.sequence.load(Ordering::Acquire) != expected {
-                std::hint::spin_loop();
+                Self::spin_wait(&mut spins);
             }
 
             // Try to claim with CAS — may race with cooperative helpers
