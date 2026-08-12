@@ -37,8 +37,14 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-release
 
-      - name: Cargo test (all targets)
-        run: cargo test --workspace --all-targets
+      # Match the CI workflow's proven command — NOT --all-targets: criterion
+      # benches would run as tests and take 20+ minutes on CI Windows.
+      - name: Cargo test (lib + integration + doc)
+        run: cargo test --workspace -- --test-threads=4
+
+      # filter_level plugin uses global statics — must run single-threaded
+      - name: Cargo test (filter_level — serial)
+        run: cargo test -p dologger-plugin-filter-level -- --test-threads=1
 
       - name: Cargo test with all features (Linux)
         if: runner.os == 'Linux'

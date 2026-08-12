@@ -186,6 +186,18 @@ pub extern "C" fn plugin_shutdown() -> i32 {
 mod tests {
     use super::*;
     use std::ffi::CString;
+    use std::sync::Mutex;
+
+    // cargo test runs test functions on parallel threads. The tests below
+    // mutate the process-wide MIN_LEVEL static, so they must hold this lock
+    // to avoid racing each other's global state.
+    static TEST_GUARD: Mutex<()> = Mutex::new(());
+
+    fn lock_globals() -> std::sync::MutexGuard<'static, ()> {
+        TEST_GUARD
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn test_plugin_query_returns_valid_info() {
@@ -197,6 +209,7 @@ mod tests {
 
     #[test]
     fn test_filter_drops_trace_when_min_is_warn() {
+        let _guard = lock_globals();
         MIN_LEVEL.store(LEVEL_WARN, Ordering::Relaxed);
         let trace: u8 = LEVEL_TRACE;
         let warn: u8 = LEVEL_WARN;
@@ -222,6 +235,7 @@ mod tests {
 
     #[test]
     fn test_init_parses_level() {
+        let _guard = lock_globals();
         let config = CString::new("{\"min_level\":\"DEBUG\"}").unwrap();
         assert_eq!(
             plugin_init(config.as_ptr() as *const std::ffi::c_void),
