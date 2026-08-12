@@ -188,8 +188,6 @@ fn run_multi_thread(num_threads: usize, pool_size: usize, msg: &str, with_sign: 
         .map(|_| {
             let msg = msg.clone();
             let barrier = Arc::clone(&barrier);
-            let pool_size = pool_size;
-            let with_sign = with_sign;
             std::thread::spawn(move || {
                 let pool = RecordPool::new(pool_size);
                 let rb = RingBuffer::new(pool_size);

@@ -128,8 +128,14 @@ impl SifHeader {
     pub const FRAME_OVERHEAD: usize = 16;
 }
 
+/// Pack a MAJOR.MINOR.PATCH version into the wire `u32` layout
+/// (`MAJOR << 24 | MINOR << 16 | PATCH`).
+const fn sif_version(major: u32, minor: u32, patch: u32) -> u32 {
+    (major << 24) | (minor << 16) | patch
+}
+
 /// Current SIF schema version (1.0.0) as a packed `u32`.
-pub const SIF_VERSION: u32 = (1u32 << 24) | (0u32 << 16) | 0u32;
+pub const SIF_VERSION: u32 = sif_version(1, 0, 0);
 
 // ---------------------------------------------------------------------------
 // Generated FlatBuffers bindings
@@ -220,7 +226,9 @@ mod tests {
 
     #[test]
     fn initial_buffer_size_is_reasonable() {
-        assert!(SIF_INITIAL_BUFFER_SIZE >= SifHeader::FRAME_OVERHEAD + SIF_MAX_PREAMBLE);
-        assert!(SIF_INITIAL_BUFFER_SIZE <= 65536); // upper sanity bound
+        // Constant-folded at compile time — evaluated here so the invariant
+        // is checked on every build, not only when this test runs.
+        const { assert!(SIF_INITIAL_BUFFER_SIZE >= SifHeader::FRAME_OVERHEAD + SIF_MAX_PREAMBLE) };
+        const { assert!(SIF_INITIAL_BUFFER_SIZE <= 65536) }; // upper sanity bound
     }
 }
