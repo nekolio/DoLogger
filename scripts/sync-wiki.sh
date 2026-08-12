@@ -162,6 +162,9 @@ cat > "$SIDEBAR" <<'EOF'
 > 由仓库 `Docs/` 经 Wiki Sync workflow 自动生成 — 请勿在此编辑。
 > Auto-generated from the repository `Docs/` — do not edit here.
 
+- [🏠 Home](Home)
+- [🏠 中文首页](Chinese-Home)
+
 EOF
 {
     echo "## 📖 中文文档"
@@ -177,62 +180,13 @@ EOF
     done
 } >> "$SIDEBAR"
 
-# ── 5. Home.md (中文优先) + English-Home.md (English-first) ────────
+# ── 5. Home.md (English, the default landing page) + Chinese-Home.md ─
+# Each landing page contains ONE language's table of contents; switching
+# happens through the language bar at the top (like the docs' headers).
 cat > "$WORK/wiki/Home.md" <<EOF
 # 🔐 DoLogger Wiki
 
-> 🌐 **语言 / Language**: 中文 · [English](English-Home)
-
-*跨平台、高安全日志引擎 — 像一本书一样阅读的技术文档。*
-
-[![CI](https://img.shields.io/github/actions/workflow/status/${REPO}/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/${REPO}/actions)
-[![Stars](https://img.shields.io/github/stars/${REPO}?style=flat-square&color=yellow)](https://github.com/${REPO}/stargazers)
-[![License](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)](https://github.com/${REPO}/blob/main/LICENSE-APACHE)
-
-> [!NOTE]
-> 本 wiki 由仓库 \`Docs/\` 目录经 Wiki Sync workflow **自动生成** —— 请勿在此直接编辑。修改源文档并推送到 main 即可自动更新。
-
-## 📖 目录 · 按阅读顺序
-
-| # | 章节 | English |
-|:-:|:-:|:-:|
-| 1 | [快速开始](zh_CN-QuickStart) | [QuickStart](en_US-QuickStart) |
-| 2 | [集成指南](zh_CN-IntegrationGuide) | [Integration Guide](en_US-IntegrationGuide) |
-| 3 | [架构参考](zh_CN-ArchitectureReference) | [Architecture Reference](en_US-ArchitectureReference) |
-| 4 | [运维与安全](zh_CN-OperationsAndSecurity) | [Operations & Security](en_US-OperationsAndSecurity) |
-| 5 | [插件开发快速入门](zh_CN-PluginDevelopmentQuickStart) | [Plugin Development QuickStart](en_US-PluginDevelopmentQuickStart) |
-| 6 | [安全白皮书](zh_CN-guides-SecurityWhitepaper) | [Security Whitepaper](en_US-guides-SecurityWhitepaper) |
-| 7 | [dologctl 命令参考](zh_CN-guides-DologctlCommandReference) | [Command Reference](en_US-guides-DologctlCommandReference) |
-| 8 | [版本与废弃策略](zh_CN-guides-VersioningAndDeprecation) | [Versioning & Deprecation](en_US-guides-VersioningAndDeprecation) |
-
-## 📚 进阶章节
-
-| 章节 | English |
-|:-:|:-:|
-| [宿主集成手册](zh_CN-guides-HostIntegrationGuide) | [Host Integration Guide](en_US-guides-HostIntegrationGuide) |
-| [适配器开发指南](zh_CN-guides-AdapterDevelopmentGuide) | [Adapter Development Guide](en_US-guides-AdapterDevelopmentGuide) |
-| [扩展插件类型开发指南](zh_CN-guides-ExtendedPluginTypeGuide) | [Extended Plugin Type Guide](en_US-guides-ExtendedPluginTypeGuide) |
-| [安全开发规范](zh_CN-guides-SecurityDevelopmentSpec) | [Security Development Spec](en_US-guides-SecurityDevelopmentSpec) |
-| [运维手册](zh_CN-guides-OperationsManual) | [Operations Manual](en_US-guides-OperationsManual) |
-| [性能调优指南](zh_CN-guides-PerformanceTuningGuide) | [Performance Tuning Guide](en_US-guides-PerformanceTuningGuide) |
-| [性能基准测试指南](zh_CN-guides-PerformanceBenchmarkGuide) | [Performance Benchmark Guide](en_US-guides-PerformanceBenchmarkGuide) |
-| [官方插件路线图](zh_CN-OfficialPluginRoadmap) | [Official Plugin Roadmap](en_US-OfficialPluginRoadmap) |
-
-## 📎 附录
-
-- [文档总索引](https://github.com/${REPO}/blob/main/Docs/README.md)
-- [GitHub Releases](https://github.com/${REPO}/releases) —— 每个 release 页面即该版本的 changelog
-- [Issue Tracker](https://github.com/${REPO}/issues)
-- [安全政策](https://github.com/${REPO}/blob/main/SECURITY.md)
-
----
-*Synced from [${REPO}](https://github.com/${REPO}) \`Docs/\` — Wiki Sync workflow*
-EOF
-
-cat > "$WORK/wiki/English-Home.md" <<EOF
-# 🔐 DoLogger Wiki
-
-> 🌐 **Language / 语言**: English · [中文](Home)
+> 🌐 **Language / 语言**: English · [中文](Chinese-Home)
 
 *Cross-platform, high-security logging engine — documentation you can read like a book.*
 
@@ -245,29 +199,29 @@ cat > "$WORK/wiki/English-Home.md" <<EOF
 
 ## 📖 Table of Contents — in reading order
 
-| # | Chapter | 中文 |
-|:-:|:-:|:-:|
-| 1 | [QuickStart](en_US-QuickStart) | [快速开始](zh_CN-QuickStart) |
-| 2 | [Integration Guide](en_US-IntegrationGuide) | [集成指南](zh_CN-IntegrationGuide) |
-| 3 | [Architecture Reference](en_US-ArchitectureReference) | [架构参考](zh_CN-ArchitectureReference) |
-| 4 | [Operations & Security](en_US-OperationsAndSecurity) | [运维与安全](zh_CN-OperationsAndSecurity) |
-| 5 | [Plugin Development QuickStart](en_US-PluginDevelopmentQuickStart) | [插件开发快速入门](zh_CN-PluginDevelopmentQuickStart) |
-| 6 | [Security Whitepaper](en_US-guides-SecurityWhitepaper) | [安全白皮书](zh_CN-guides-SecurityWhitepaper) |
-| 7 | [dologctl Command Reference](en_US-guides-DologctlCommandReference) | [命令参考](zh_CN-guides-DologctlCommandReference) |
-| 8 | [Versioning & Deprecation](en_US-guides-VersioningAndDeprecation) | [版本与废弃策略](zh_CN-guides-VersioningAndDeprecation) |
+| # | Chapter |
+|:-:|:-:|
+| 1 | [QuickStart](en_US-QuickStart) |
+| 2 | [Integration Guide](en_US-IntegrationGuide) |
+| 3 | [Architecture Reference](en_US-ArchitectureReference) |
+| 4 | [Operations & Security](en_US-OperationsAndSecurity) |
+| 5 | [Plugin Development QuickStart](en_US-PluginDevelopmentQuickStart) |
+| 6 | [Security Whitepaper](en_US-guides-SecurityWhitepaper) |
+| 7 | [dologctl Command Reference](en_US-guides-DologctlCommandReference) |
+| 8 | [Versioning & Deprecation](en_US-guides-VersioningAndDeprecation) |
 
 ## 📚 Advanced Chapters
 
-| Chapter | 中文 |
-|:-:|:-:|
-| [Host Integration Guide](en_US-guides-HostIntegrationGuide) | [宿主集成手册](zh_CN-guides-HostIntegrationGuide) |
-| [Adapter Development Guide](en_US-guides-AdapterDevelopmentGuide) | [适配器开发指南](zh_CN-guides-AdapterDevelopmentGuide) |
-| [Extended Plugin Type Guide](en_US-guides-ExtendedPluginTypeGuide) | [扩展插件类型开发指南](zh_CN-guides-ExtendedPluginTypeGuide) |
-| [Security Development Spec](en_US-guides-SecurityDevelopmentSpec) | [安全开发规范](zh_CN-guides-SecurityDevelopmentSpec) |
-| [Operations Manual](en_US-guides-OperationsManual) | [运维手册](zh_CN-guides-OperationsManual) |
-| [Performance Tuning Guide](en_US-guides-PerformanceTuningGuide) | [性能调优指南](zh_CN-guides-PerformanceTuningGuide) |
-| [Performance Benchmark Guide](en_US-guides-PerformanceBenchmarkGuide) | [性能基准测试指南](zh_CN-guides-PerformanceBenchmarkGuide) |
-| [Official Plugin Roadmap](en_US-OfficialPluginRoadmap) | [官方插件路线图](zh_CN-OfficialPluginRoadmap) |
+| Chapter |
+|:-:|
+| [Host Integration Guide](en_US-guides-HostIntegrationGuide) |
+| [Adapter Development Guide](en_US-guides-AdapterDevelopmentGuide) |
+| [Extended Plugin Type Guide](en_US-guides-ExtendedPluginTypeGuide) |
+| [Security Development Spec](en_US-guides-SecurityDevelopmentSpec) |
+| [Operations Manual](en_US-guides-OperationsManual) |
+| [Performance Tuning Guide](en_US-guides-PerformanceTuningGuide) |
+| [Performance Benchmark Guide](en_US-guides-PerformanceBenchmarkGuide) |
+| [Official Plugin Roadmap](en_US-OfficialPluginRoadmap) |
 
 ## 📎 Appendix
 
@@ -275,6 +229,57 @@ cat > "$WORK/wiki/English-Home.md" <<EOF
 - [GitHub Releases](https://github.com/${REPO}/releases) — each release page is that version's changelog
 - [Issue Tracker](https://github.com/${REPO}/issues)
 - [Security Policy](https://github.com/${REPO}/blob/main/SECURITY.md)
+
+---
+*Synced from [${REPO}](https://github.com/${REPO}) \`Docs/\` — Wiki Sync workflow*
+EOF
+
+cat > "$WORK/wiki/Chinese-Home.md" <<EOF
+# 🔐 DoLogger Wiki
+
+> 🌐 **语言 / Language**: [English](Home) · 中文
+
+*跨平台、高安全日志引擎 — 像一本书一样阅读的技术文档。*
+
+[![CI](https://img.shields.io/github/actions/workflow/status/${REPO}/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/${REPO}/actions)
+[![Stars](https://img.shields.io/github/stars/${REPO}?style=flat-square&color=yellow)](https://github.com/${REPO}/stargazers)
+[![License](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)](https://github.com/${REPO}/blob/main/LICENSE-APACHE)
+
+> [!NOTE]
+> 本 wiki 由仓库 \`Docs/\` 目录经 Wiki Sync workflow **自动生成** —— 请勿在此直接编辑。修改源文档并推送到 main 即可自动更新。
+
+## 📖 目录 · 按阅读顺序
+
+| # | 章节 |
+|:-:|:-:|
+| 1 | [快速开始](zh_CN-QuickStart) |
+| 2 | [集成指南](zh_CN-IntegrationGuide) |
+| 3 | [架构参考](zh_CN-ArchitectureReference) |
+| 4 | [运维与安全](zh_CN-OperationsAndSecurity) |
+| 5 | [插件开发快速入门](zh_CN-PluginDevelopmentQuickStart) |
+| 6 | [安全白皮书](zh_CN-guides-SecurityWhitepaper) |
+| 7 | [dologctl 命令参考](zh_CN-guides-DologctlCommandReference) |
+| 8 | [版本与废弃策略](zh_CN-guides-VersioningAndDeprecation) |
+
+## 📚 进阶章节
+
+| 章节 |
+|:-:|
+| [宿主集成手册](zh_CN-guides-HostIntegrationGuide) |
+| [适配器开发指南](zh_CN-guides-AdapterDevelopmentGuide) |
+| [扩展插件类型开发指南](zh_CN-guides-ExtendedPluginTypeGuide) |
+| [安全开发规范](zh_CN-guides-SecurityDevelopmentSpec) |
+| [运维手册](zh_CN-guides-OperationsManual) |
+| [性能调优指南](zh_CN-guides-PerformanceTuningGuide) |
+| [性能基准测试指南](zh_CN-guides-PerformanceBenchmarkGuide) |
+| [官方插件路线图](zh_CN-OfficialPluginRoadmap) |
+
+## 📎 附录
+
+- [文档总索引](https://github.com/${REPO}/blob/main/Docs/README.md)
+- [GitHub Releases](https://github.com/${REPO}/releases) —— 每个 release 页面即该版本的 changelog
+- [Issue Tracker](https://github.com/${REPO}/issues)
+- [安全政策](https://github.com/${REPO}/blob/main/SECURITY.md)
 
 ---
 *Synced from [${REPO}](https://github.com/${REPO}) \`Docs/\` — Wiki Sync workflow*
