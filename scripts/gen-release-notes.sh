@@ -16,8 +16,8 @@ BODY="$(mktemp)"
 extract_section() {
     local changelog="$1"
     [ -f "$changelog" ] || return 0
-    awk -v pat="^## \\[${VER}\\]" '
-        !started { if ($0 ~ pat) { started = 1; print; next } next }
+    awk -v pat="## [${VER}]" '
+        !started { if (index($0, pat) == 1) { started = 1; print; next } next }
         started  { if (/^## \[/) exit; print }
     ' "$changelog"
 }
