@@ -1,0 +1,240 @@
+name: Performance Regression
+
+on:
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    name: Benchmark Comparison
+    # Run only when the PR has the "benchmark" label, or on manual dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'benchmark')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # ── Baseline: run benchmarks from the base branch ────────────────
+      - name: Determine base branch
+        id: base
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "ref=origin/main" >> "$GITHUB_OUTPUT"
+          else
+            BASE="${{ github.event.pull_request.base.ref }}"
+            echo "ref=origin/${BASE}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run benchmarks (baseline)
+        run: |
+          git fetch origin "${{ steps.base.outputs.ref }}" --depth=1
+          git checkout "${{ steps.base.outputs.ref }}"
+          cargo bench --bench throughput --bench latency --bench latency_percentiles \
+            -- --output-format bencher 2>&1 | tee /tmp/bench_baseline.txt
+          git checkout -
+
+      # ── Current: run benchmarks from the PR branch ──────────────────
+      - name: Run benchmarks (current branch)
+        run: |
+          cargo bench --bench throughput --bench latency --bench latency_percentiles \
+            -- --output-format bencher 2>&1 | tee /tmp/bench_current.txt
+
+      # ── Compare results ─────────────────────────────────────────────
+      - name: Compare benchmark results
+        run: |
+          python3 << 'PYEOF'
+          import re, sys, os
+          from pathlib import Path
+
+          # Parse bencher output lines like:
+          #   test bench_name ... bench:   123,456 ns/iter (+/- 12,345)
+          RE_BENCH = re.compile(
+              r"^test\s+(?P<name>\S+)\s+\.\.\.\s+bench:\s+(?P<value>[\d,\.]+)\s+(?P<unit>\S+)"
+          )
+
+          def parse(path):
+              results = {}
+              with open(path) as f:
+                  for line in f:
+                      m = RE_BENCH.match(line.strip())
+                      if not m:
+                          continue
+                      name = m.group("name")
+                      raw = m.group("value").replace(",", "")
+                      try:
+                          val = float(raw)
+                      except ValueError:
+                          continue
+                      unit = m.group("unit")
+                      # Normalize to nanoseconds
+                      if unit.startswith("ms"):
+                          val *= 1_000_000
+                      elif unit.startswith("µs") or unit.startswith("us"):
+                          val *= 1_000
+                      elif unit.startswith("s"):
+                          val *= 1_000_000_000
+                      results[name] = val
+              return results
+
+          baseline = parse("/tmp/bench_baseline.txt")
+          current = parse("/tmp/bench_current.txt")
+
+          if not baseline:
+              print("::warning::No baseline benchmark results found.")
+              sys.exit(0)
+          if not current:
+              print("::error::No current benchmark results found.")
+              sys.exit(1)
+
+          # Thresholds
+          THROUGHPUT_THRESHOLD = 5.0   # % — throughput drop (time increase) >= 5%
+          LATENCY_THRESHOLD    = 10.0  # % — P99/latency increase >= 10%
+
+          # Name patterns for throughput benchmarks
+          THROUGHPUT_PATTERNS = ["throughput", "push_batch", "ring_buffer_push"]
+
+          regressions = []
+          improvements = []
+          all_diffs = []
+
+          for name, cur in sorted(current.items()):
+              if name not in baseline:
+                  continue
+
+              base_val = baseline[name]
+              if base_val == 0.0:
+                  continue
+
+              pct = ((cur - base_val) / base_val) * 100.0
+              direction = "faster" if pct < 0 else "slower"
+              all_diffs.append((name, pct, base_val, cur))
+
+              is_throughput = any(p in name.lower() for p in THROUGHPUT_PATTERNS)
+              threshold = THROUGHPUT_THRESHOLD if is_throughput else LATENCY_THRESHOLD
+              bench_type = "throughput" if is_throughput else "latency"
+
+              if pct > threshold:
+                  regressions.append((name, pct, base_val, cur, bench_type, threshold))
+              elif pct < -threshold:
+                  improvements.append((name, pct, base_val, cur, bench_type))
+
+          # Print summary table
+          print()
+          print("=" * 78)
+          print("  DoLogger Benchmark Comparison Report")
+          print("=" * 78)
+          print(f"  {'Benchmark':<40} {'Change':>10}  {'Baseline':>12}  {'Current':>12}")
+          print("-" * 78)
+          for name, pct, base_val, cur in all_diffs:
+              arrow = "▲" if pct > 0 else "▼"
+              sign = "+" if pct > 0 else ""
+              print(f"  {name:<40} {sign}{pct:>8.2f}% {arrow}  {base_val:>10.0f} ns  {cur:>10.0f} ns")
+          print("-" * 78)
+
+          # Report regressions
+          if regressions:
+              print()
+              print("=" * 78)
+              print("  REGRESSIONS DETECTED")
+              print("=" * 78)
+              for name, pct, base_val, cur, btype, threshold in regressions:
+                  print(f"  [{btype.upper()}] {name}: +{pct:.2f}% (threshold: +{threshold:.0f}%)")
+                  print(f"    baseline: {base_val:.0f} ns  →  current: {cur:.0f} ns")
+              print("=" * 78)
+
+          if improvements:
+              print()
+              print("  Improvements:")
+              for name, pct, base_val, cur, btype in improvements:
+                  print(f"  [{btype.upper()}] {name}: {pct:.2f}% faster")
+
+          # Write summary for PR comment
+          summary_path = "/tmp/bench_summary.md"
+          with open(summary_path, "w") as f:
+              f.write("## DoLogger Benchmark Comparison\n\n")
+              f.write("| Benchmark | Change | Baseline (ns) | Current (ns) |\n")
+              f.write("|-----------|--------|---------------|---------------|\n")
+              for name, pct, base_val, cur in all_diffs:
+                  arrow = "🔺" if pct > 0 else "🔻"
+                  sign = "+" if pct > 0 else ""
+                  f.write(f"| `{name}` | {sign}{pct:.2f}% {arrow} | {base_val:.0f} | {cur:.0f} |\n")
+
+              if regressions:
+                  f.write("\n### ⚠️ Regressions Detected\n\n")
+                  for name, pct, base_val, cur, btype, threshold in regressions:
+                      f.write(
+                          f"- **[{btype.upper()}] `{name}`**: +{pct:.2f}% "
+                          f"(threshold: +{threshold:.0f}%, baseline: {base_val:.0f} ns → {cur:.0f} ns)\n"
+                      )
+
+          # Set step output for the comment job
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"regressions={len(regressions)}\n")
+              f.write(f"total={len(all_diffs)}\n")
+
+          # Fail the job if regressions exceed thresholds
+          if regressions:
+              print()
+              print("::error::Performance regression detected! See report above.")
+              sys.exit(1)
+
+          print()
+          print("  No performance regressions detected. All benchmarks within thresholds.")
+          PYEOF
+
+      # ── Post PR comment ─────────────────────────────────────────────
+      - name: Post benchmark report as PR comment
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = '/tmp/bench_summary.md';
+
+            if (!fs.existsSync(path)) {
+              core.warning('Benchmark summary file not found.');
+              return;
+            }
+
+            const body = fs.readFileSync(path, 'utf8');
+
+            // Find existing benchmark comment to update
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const marker = '<!-- dologger-bench-report -->';
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: marker + '\n\n' + body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: marker + '\n\n' + body,
+              });
+            }

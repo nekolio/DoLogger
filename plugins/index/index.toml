@@ -1,0 +1,257 @@
+# =============================================================================
+# DoLogger Plugin Index
+# =============================================================================
+#
+# This is the official local-directory plugin index consumed by:
+#   dologctl plugin install <name>
+#   dologctl plugin search <query>
+#   dologctl plugin update
+#
+# Schema versioning allows the CLI to reject an index whose format it does
+# not understand before attempting any plugin operations.
+#
+# =============================================================================
+# Index metadata
+# =============================================================================
+
+[index]
+schema_version = 1
+description = "DoLogger official plugin index"
+generated_at = "2026-08-12T00:00:00Z"
+
+# Minimum core ABI version required by every plugin in this index.
+# Packed as (major << 16) | (minor << 8) | patch.
+# 0x000100 = 0.1.0
+min_core_abi = 0x000100
+
+# Ed25519 public key (hex-encoded, 32 bytes) used to verify Blue-plugin
+# signatures.  The CLI fetches this key once and caches it.
+[index.signing]
+root_public_key = "0000000000000000000000000000000000000000000000000000000000000000"  # placeholder — provisioned during M4 key infrastructure
+
+# =============================================================================
+# Plugin entries
+# =============================================================================
+#
+# Each [[plugin]] table describes one plugin release.  Multiple releases of
+# the same plugin are represented as multiple [[plugin]] tables.
+#
+# Fields:
+#   name            Unique plugin identifier (matches plugin_query name).
+#   version         Semantic version string (human-readable).
+#   version_encoded Packed uint32 matching the plugin binary's version field.
+#   description     One-line summary of what the plugin does.
+#   plugin_type     One of: filter, field_provider, processor, formatter,
+#                   io_sink, config_provider, key_provider, policy_provider,
+#                   host_info_provider, syscall_broker.
+#   phase           Mount-phase bitmask (OR of DO_LOG_PHASE_* constants).
+#   trust_level     "blue" | "yellow" | "red".
+#   license         SPDX license identifier.
+#   homepage        URL to project homepage or repository (optional).
+#   keywords        Search tags for `dologctl plugin search`.
+#   min_core_abi    Minimum core ABI version this plugin release requires.
+#                   Overrides the index-wide default when stricter.
+#
+#   [[plugin.platform]]
+#       os              "linux" | "macos" | "windows"
+#       arch            "x86_64" | "aarch64"
+#       download_url    URL to fetch the compiled shared library.
+#       sha256          Hex-encoded SHA-256 of the library file.
+#       size_bytes      File size in bytes (informational).
+#       signature       Hex-encoded Ed25519 signature over the SHA-256
+#                       digest (only required for Blue/Yellow plugins).
+#
+#   [[plugin.dependency]]
+#       name            Plugin name this entry depends on.
+#       version_min     Minimum semantic version (inclusive).
+#       version_max     Maximum semantic version (exclusive, optional).
+#       required        Whether the dependency is mandatory.
+
+# =============================================================================
+# Plugin: example_filter — demonstration filter plugin
+# =============================================================================
+
+[[plugin]]
+name = "example-filter"
+version = "0.1.0"
+version_encoded = 0x000100
+description = "Example Filter plugin — drops log records below a configurable severity level"
+plugin_type = "filter"
+phase = 0x0002                          # DO_LOG_PHASE_FILTER
+trust_level = "blue"
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/Nekolio/DoLogger"
+keywords = ["filter", "example", "demo", "severity"]
+min_core_abi = 0x000100                  # 0.1.0
+
+# Linux x86_64
+[[plugin.platform]]
+os = "linux"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/example-filter/0.1.0/linux-x86_64/example_filter.so"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"  # placeholder — replace with real hash after release build
+size_bytes = 0
+signature = ""
+
+# macOS x86_64
+[[plugin.platform]]
+os = "macos"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/example-filter/0.1.0/macos-x86_64/example_filter.dylib"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# macOS aarch64 (Apple Silicon)
+[[plugin.platform]]
+os = "macos"
+arch = "aarch64"
+download_url = "https://plugins.dologger.dev/v1/example-filter/0.1.0/macos-aarch64/example_filter.dylib"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# Windows x86_64
+[[plugin.platform]]
+os = "windows"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/example-filter/0.1.0/windows-x86_64/example_filter.dll"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# =============================================================================
+# Plugin: kafka_sink — Apache Kafka output sink
+# =============================================================================
+
+[[plugin]]
+name = "kafka-sink"
+version = "0.2.0"
+version_encoded = 0x000200
+description = "Publishes log records to an Apache Kafka topic with batching, compression, and TLS support"
+plugin_type = "io_sink"
+phase = 0x0020                          # DO_LOG_PHASE_SINK
+trust_level = "yellow"
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/Nekolio/DoLogger-kafka-sink"
+keywords = ["sink", "kafka", "streaming", "batching", "tls"]
+min_core_abi = 0x000100                  # 0.1.0
+
+# Dependencies: requires fields from host_info provider for proper operation
+[[plugin.dependency]]
+name = "host-info"
+version_min = "0.1.0"
+required = false
+
+# Linux x86_64
+[[plugin.platform]]
+os = "linux"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/kafka-sink/0.2.0/linux-x86_64/kafka_sink.so"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# macOS x86_64
+[[plugin.platform]]
+os = "macos"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/kafka-sink/0.2.0/macos-x86_64/kafka_sink.dylib"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# macOS aarch64 (Apple Silicon)
+[[plugin.platform]]
+os = "macos"
+arch = "aarch64"
+download_url = "https://plugins.dologger.dev/v1/kafka-sink/0.2.0/macos-aarch64/kafka_sink.dylib"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# Windows x86_64
+[[plugin.platform]]
+os = "windows"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/kafka-sink/0.2.0/windows-x86_64/kafka_sink.dll"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# =============================================================================
+# Plugin: gdpr_formatter — GDPR/PII redaction formatter
+# =============================================================================
+
+[[plugin]]
+name = "gdpr-formatter"
+version = "1.0.0"
+version_encoded = 0x010000
+description = "GDPR-compliance formatter — detects and redacts PII (email, IP, phone, IBAN, SSN) before output, with configurable masking strategies"
+plugin_type = "formatter"
+phase = 0x0018                          # DO_LOG_PHASE_PROCESSING | DO_LOG_PHASE_FORMATTING
+trust_level = "blue"
+license = "MIT"
+homepage = "https://github.com/Nekolio/DoLogger-gdpr"
+keywords = ["formatter", "gdpr", "pii", "redaction", "compliance", "privacy", "processor"]
+min_core_abi = 0x000100                  # 0.1.0
+
+# Linux x86_64
+[[plugin.platform]]
+os = "linux"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/gdpr-formatter/1.0.0/linux-x86_64/gdpr_formatter.so"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# macOS x86_64
+[[plugin.platform]]
+os = "macos"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/gdpr-formatter/1.0.0/macos-x86_64/gdpr_formatter.dylib"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# macOS aarch64 (Apple Silicon)
+[[plugin.platform]]
+os = "macos"
+arch = "aarch64"
+download_url = "https://plugins.dologger.dev/v1/gdpr-formatter/1.0.0/macos-aarch64/gdpr_formatter.dylib"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# Windows x86_64
+[[plugin.platform]]
+os = "windows"
+arch = "x86_64"
+download_url = "https://plugins.dologger.dev/v1/gdpr-formatter/1.0.0/windows-x86_64/gdpr_formatter.dll"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size_bytes = 0
+signature = ""
+
+# =============================================================================
+# Phase constant reference (for humans reading this file)
+# =============================================================================
+#
+# DO_LOG_PHASE_PRE_FILTER  = 0x0001   Rate limiting, drop policy
+# DO_LOG_PHASE_FILTER      = 0x0002   Domain-based filtering, custom rules
+# DO_LOG_PHASE_ASSEMBLY    = 0x0004   Signature, LSN, prev_hash
+# DO_LOG_PHASE_PROCESSING  = 0x0008   Transformation, enrichment
+# DO_LOG_PHASE_FORMATTING  = 0x0010   Text/JSON/CSV/SIF encoding
+# DO_LOG_PHASE_SINK        = 0x0020   Console/file/network/WORM output
+# DO_LOG_PHASE_CONFIG      = 0x0040   Configuration loading/saving
+# DO_LOG_PHASE_KEY         = 0x0080   Ed25519 key generation/storage
+# DO_LOG_PHASE_HOSTINFO    = 0x0100   System/process metadata injection
+# DO_LOG_PHASE_SYSCALL     = 0x0200   Platform-specific syscall interception
+#
+# Trust levels:
+#   blue   = 0   Officially signed (root key or enterprise root)
+#   yellow = 1   Self-signed with recognised CA or TOFU-bound
+#   red    = 2   Unsigned — only allowed in dev mode
+#
+# Version encoding:
+#   (major << 16) | (minor << 8) | patch
+#   e.g. 1.2.3 = (1 << 16) | (2 << 8) | 3 = 0x010203

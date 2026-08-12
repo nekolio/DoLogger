@@ -1,0 +1,88 @@
+DoLogger
+Copyright 2026 DoLogger Contributors
+
+This product is licensed under the Apache License 2.0 OR the MIT License,
+at your option.
+
+==============================================================================
+Third-Party Notices
+==============================================================================
+
+This product includes software developed by third parties. Their licenses
+and copyright notices are reproduced below in compliance with their terms.
+
+---
+
+ed25519-dalek (2.2.0) — BSD-3-Clause
+  https://github.com/dalek-cryptography/curve25519-dalek
+  Copyright (c) 2017-2022 isis agora lovecruft, Henry de Valence
+
+sha2 (0.10.9) — MIT OR Apache-2.0
+  https://github.com/RustCrypto/hashes
+  Copyright (c) 2006-2009 Graydon Hoare
+  Copyright (c) 2009-2013 Mozilla Foundation
+  Copyright (c) 2016 Artyom Pavlov
+
+rand (0.8.7) — MIT OR Apache-2.0
+  https://github.com/rust-random/rand
+  Copyright (c) 2014 The Rust Project Developers
+  Copyright (c) 2018 The Rand Project Developers
+
+serde / serde_json (1.0) — MIT OR Apache-2.0
+  https://github.com/serde-rs/serde
+  Copyright (c) 2014-2017 David Tolnay
+
+toml (0.8) — MIT OR Apache-2.0
+  https://github.com/toml-rs/toml
+  Copyright (c) 2014 Alex Crichton
+
+crossbeam-channel (0.5) — MIT OR Apache-2.0
+  https://github.com/crossbeam-rs/crossbeam
+  Copyright (c) 2019 The Crossbeam Project Developers
+
+libloading (0.8) — ISC
+  https://github.com/nagisa/rust_libloading/
+  Copyright (c) 2015 Simonas Kazlauskas
+
+aes-gcm (0.10) — MIT OR Apache-2.0
+  https://github.com/RustCrypto/AEADs
+  Copyright (c) 2019 The RustCrypto Project Developers
+
+libc (0.2) — MIT OR Apache-2.0
+  https://github.com/rust-lang/libc
+  Copyright (c) 2014 The Rust Project Developers
+
+hex (0.4) — MIT OR Apache-2.0
+  https://github.com/KokaKiwi/rust-hex
+  Copyright (c) 2013-2014 The rust-hex Developers
+
+hostname (0.4) — MIT
+  https://github.com/djc/hostname
+  Copyright (c) 2016 Dirkjan Ochtman
+
+clap (4.6) — MIT OR Apache-2.0
+  https://github.com/clap-rs/clap
+  Copyright (c) 2015-2022 Kevin Knapp and Clap Contributors
+
+---
+
+Optional feature dependencies (feature-gated, not linked by default):
+
+rdkafka (0.36) — MIT, feature: sink-kafka
+  https://github.com/fede1024/rust-rdkafka
+  Copyright (c) 2016-2023 Federico Giraud
+
+rusqlite (0.31) — MIT, feature: sink-sqlite
+  https://github.com/rusqlite/rusqlite
+  Copyright (c) 2014-2024 The rusqlite Developers
+
+ureq (2.12) — MIT OR Apache-2.0, feature: sink-webhook
+  https://github.com/algesten/ureq
+  Copyright (c) 2018 Martin Algesten
+
+==============================================================================
+
+For a complete list of all 201 transitive dependencies and their licenses,
+see the license audit report or run:
+
+  cargo metadata --format-version 1 | jq '.packages[] | {name, version, license}'

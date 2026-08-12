@@ -1,0 +1,32 @@
+# Cargo network/registry configuration for DoLogger
+# Applied to all crates in the workspace
+
+[build]
+# Use target-specific directory structure
+# target-dir is set by CMake or defaults to workspace root
+
+[registries]
+# Future: private plugin registry configuration
+
+[net]
+# Retry configuration for network resilience in CI
+retry = 3
+
+[profile.release]
+# Optimize for production performance
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+# Fast compilation for development
+opt-level = 0
+debug = true
+
+[profile.bench]
+# Profile for criterion benchmarks
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = false

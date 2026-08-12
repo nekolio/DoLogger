@@ -1,0 +1,13 @@
+[package]
+name = "dologger-plugin-field-container"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "DoLogger official plugin: inject container orchestration metadata (Docker, Kubernetes, podman)"
+
+[lib]
+name = "field_container"
+crate-type = ["cdylib"]
+
+[dependencies]
+dologger-core = { path = "../../../core" }

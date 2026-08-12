@@ -1,0 +1,30 @@
+# filter_level — Official DoLogger Filter Plugin
+#
+# Drops log records below a configurable severity level with per-domain overrides.
+# Phase: Filter (1), Trust: Blue
+
+[plugin]
+name = "filter-level"
+version = "0.1.0"
+plugin_type = "filter"
+mount_phase = ["filter"]
+abi_version = 1
+min_core_abi = "0.1.0"
+description = "Production-ready"
+
+[plugin.trust]
+color = "blue"
+
+[plugin.author]
+name = "DoLogger Core Team"
+email = "core@dologger.dev"
+url = "https://github.com/Nekolio/DoLogger"
+
+[capabilities]
+file_read = false
+file_write = false
+network = false
+process_create = false
+
+[licenses]
+spdx = "Apache-2.0 OR MIT"

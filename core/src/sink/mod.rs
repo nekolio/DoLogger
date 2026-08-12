@@ -1,0 +1,37 @@
+//! Output sinks for log records.
+//!
+//! Contains the Sink trait, all concrete sink implementations (console,
+//! file, callback, Kafka, syslog, webhook, SQLite, WORM, security, OTel,
+//! shared memory), and the shared-memory infrastructure.
+
+pub mod callback;
+pub mod console;
+pub mod file;
+#[cfg(feature = "sink-kafka")]
+pub mod kafka;
+#[cfg(feature = "sink-webhook")]
+pub mod otel;
+pub mod security_sink;
+pub mod shm;
+#[cfg(feature = "sink-sqlite")]
+pub mod sqlite;
+pub mod syslog;
+#[cfg(feature = "sink-webhook")]
+pub mod webhook;
+pub mod worm;
+
+pub use callback::{CallbackSink, LogCallback};
+pub use console::{ConsoleSink, DurabilityLevel, Sink, SinkError, SinkRef, SinkResult};
+pub use file::{FileSink, FileSinkConfig};
+#[cfg(feature = "sink-kafka")]
+pub use kafka::{KafkaSink, KafkaSinkConfig, KafkaSinkStats};
+#[cfg(feature = "sink-webhook")]
+pub use otel::{OtelSink, OtelSinkConfig};
+pub use security_sink::{SecuritySink, SecuritySinkConfig};
+pub use shm::{ShmFullPolicy, ShmSink, ShmSinkConfig, ShmSinkStats};
+#[cfg(feature = "sink-sqlite")]
+pub use sqlite::{SqliteSink, SqliteSinkConfig};
+pub use syslog::{SyslogFacility, SyslogProtocol, SyslogSink, SyslogSinkConfig};
+#[cfg(feature = "sink-webhook")]
+pub use webhook::{WebhookSink, WebhookSinkConfig};
+pub use worm::{WormDurability, WormSink, WormSinkConfig};

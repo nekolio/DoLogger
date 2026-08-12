@@ -1,0 +1,28 @@
+[package]
+name = "dologctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "DoLogger CLI management tool"
+
+[[bin]]
+name = "dologctl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+toml = "0.8"
+hostname = "0.4"
+libloading = "0.8"
+ed25519-dalek = "2"
+sha2 = "0.10"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dologger-core = { path = "../core" }
+
+[target.'cfg(not(windows))'.dependencies]
+libc = "0.2"

@@ -1,0 +1,22 @@
+# DoLogger Conan Profile: Windows / MSVC 194 (VS 2022) / x86_64
+# Usage: conan install . --profile:host=.conan/profiles/windows-msvc-x86_64 --profile:build=.conan/profiles/windows-msvc-x86_64
+
+[settings]
+os=Windows
+arch=x86_64
+compiler=msvc
+compiler.version=194
+compiler.runtime=dynamic
+compiler.cppstd=17
+build_type=Release
+
+[options]
+librdkafka/*:shared=False
+sqlite3/*:shared=False
+libsodium/*:shared=False
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+
+[buildenv]
+# On Windows, Conan auto-detects MSVC environment from vcvars

@@ -1,0 +1,557 @@
+/**
+ * @file dologger_core.h
+ * @brief DoLogger Core Engine — Public C ABI Header
+ *
+ * This header declares all types, constants, and function signatures
+ * required to integrate the DoLogger logging engine into any C-compatible
+ * host application.
+ *
+ * @version 0.1.0
+ * @date 2026-08-11
+ *
+ * # Usage
+ *
+ * Include this header in your project and link against `libdologger_core`
+ * (or `dologger_core.dll` on Windows).
+ *
+ * # ABI Stability
+ *
+ * The functions and types declared here follow semantic versioning.
+ * Breaking changes will be accompanied by a major version bump.
+ * Fields marked as `_reserved` must be zero-filled and ignored.
+ */
+
+#ifndef DOLOGGER_CORE_H
+#define DOLOGGER_CORE_H
+
+#include <stdint.h>
+#include <stddef.h>   /* size_t */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* =========================================================================
+ * Platform detection & DLL export/import macros
+ * ======================================================================== */
+
+#if defined(_WIN32) || defined(_WIN64)
+#  ifdef DOLOGGER_CORE_BUILDING
+#    define DOLOGGER_API __declspec(dllexport)
+#  else
+#    define DOLOGGER_API __declspec(dllimport)
+#  endif
+#else
+#  define DOLOGGER_API __attribute__((visibility("default")))
+#endif
+
+/* =========================================================================
+ * 128-bit unsigned integer
+ * ======================================================================== */
+
+/**
+ * @brief 128-bit unsigned integer used for record IDs and timestamps.
+ *
+ * Represented as a struct of two 64-bit halves to guarantee C ABI
+ * compatibility across all supported platforms and compilers.
+ */
+typedef struct {
+    uint64_t hi;  /**< High 64 bits */
+    uint64_t lo;  /**< Low 64 bits */
+} dologger_uint128_t;
+
+/* =========================================================================
+ * Log levels
+ * ======================================================================== */
+
+/** @brief Log severity levels. */
+typedef enum {
+    DO_LOG_TRACE = 0,  /**< Trace-level debugging information */
+    DO_LOG_DEBUG = 1,  /**< Debug information */
+    DO_LOG_INFO  = 2,  /**< Informational message */
+    DO_LOG_WARN  = 3,  /**< Warning condition */
+    DO_LOG_ERROR = 4,  /**< Error condition */
+    DO_LOG_FATAL = 5,  /**< Fatal error, system may be unstable */
+    DO_LOG_AUDIT = 6   /**< Non-repudiable audit record */
+} dologger_level_t;
+
+/* =========================================================================
+ * Error codes
+ * ======================================================================== */
+
+/** @brief Error code constants returned by DoLogger API functions. */
+typedef enum {
+    /* --- General / Initialization (0x01xx) --- */
+    DO_LOG_OK                        =  0,       /**< Success */
+    DO_LOG_ERR_INTERNAL              = -0x0101,  /**< Generic internal error */
+    DO_LOG_ERR_INVALID_ARG           = -0x0102,  /**< Invalid argument */
+    DO_LOG_ERR_NOT_SUPPORTED         = -0x0103,  /**< Not supported on this platform */
+    DO_LOG_ERR_NOT_INITIALIZED       = -0x0104,  /**< Core not initialized */
+    DO_LOG_ERR_ALREADY_INITIALIZED   = -0x0105,  /**< Core already initialized */
+    DO_LOG_ERR_OUT_OF_MEMORY         = -0x0106,  /**< Memory allocation failure */
+    DO_LOG_ERR_BUFFER_TOO_SMALL      = -0x0107,  /**< Buffer too small */
+    DO_LOG_ERR_TIMEOUT               = -0x0108,  /**< Operation timed out */
+
+    /* --- Configuration (0x02xx) --- */
+    DO_LOG_ERR_CONFIG_NOT_FOUND      = -0x0201,  /**< Config file not found */
+    DO_LOG_ERR_CONFIG_PERMISSION     = -0x0202,  /**< Config file permission denied */
+    DO_LOG_ERR_CONFIG_PARSE          = -0x0203,  /**< Config parse error */
+    DO_LOG_ERR_CONFIG_VALIDATION     = -0x0204,  /**< Config validation failed */
+    DO_LOG_ERR_CONFIG_MERGE          = -0x0205,  /**< Config merge conflict */
+    DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED = -0x0206, /**< Hot reload failed */
+
+    /* --- Plugin (0x03xx) --- */
+    DO_LOG_ERR_PLUGIN_NOT_FOUND      = -0x0301,  /**< Plugin not found */
+    DO_LOG_ERR_PLUGIN_LOAD_FAILED    = -0x0302,  /**< Plugin load failed */
+    DO_LOG_ERR_PLUGIN_MANIFEST_INVALID = -0x0303, /**< Invalid manifest */
+    DO_LOG_ERR_PLUGIN_VERSION_MISMATCH = -0x0304, /**< Version mismatch */
+    DO_LOG_ERR_PLUGIN_DEPENDENCY_MISSING = -0x0305, /**< Missing dependency */
+    DO_LOG_ERR_PLUGIN_LOCK_MISMATCH  = -0x0306,  /**< Lock file mismatch */
+    DO_LOG_ERR_PLUGIN_SIGNATURE_INVALID = -0x0307, /**< Bad signature */
+
+    /* --- Record / Field (0x04xx) --- */
+    DO_LOG_ERR_FIELD_NOT_FOUND       = -0x0401,  /**< Field not found */
+    DO_LOG_ERR_FIELD_PERMISSION_DENIED = -0x0402, /**< Permission denied */
+    DO_LOG_ERR_FIELD_TYPE_MISMATCH   = -0x0403,  /**< Field type mismatch */
+    DO_LOG_ERR_RECORD_INVALID        = -0x0404,  /**< Record invalid state */
+
+    /* --- Ring Buffer / Pipeline (0x05xx) --- */
+    DO_LOG_ERR_BUFFER_FULL           = -0x0501,  /**< Ring buffer full */
+    DO_LOG_ERR_PIPELINE_STAGE        = -0x0502,  /**< Pipeline stage error */
+
+    /* --- Signature / Audit (0x06xx) --- */
+    DO_LOG_ERR_SIGN_FAILED           = -0x0601,  /**< Signing failed */
+    DO_LOG_ERR_VERIFY_FAILED         = -0x0602,  /**< Verification failed */
+    DO_LOG_ERR_LSN_CHAIN_BROKEN      = -0x0603,  /**< LSN chain broken */
+    DO_LOG_ERR_KEY_NOT_AVAILABLE     = -0x0604,  /**< Key not available */
+
+    /* --- Sink / IO (0x07xx) --- */
+    DO_LOG_ERR_SINK_WRITE_FAILED     = -0x0701,  /**< Sink write failed */
+    DO_LOG_ERR_SINK_CONNECTION_LOST  = -0x0702,  /**< Connection lost */
+    DO_LOG_ERR_WORM_WRITE_FAILED     = -0x0703,  /**< WORM write failed */
+
+    /* --- Sandbox / Security (0x08xx) --- */
+    DO_LOG_ERR_SANDBOX_INIT_FAILED   = -0x0801,  /**< Sandbox init failed */
+    DO_LOG_ERR_SANDBOX_VIOLATION     = -0x0802,  /**< Policy violation */
+
+    /* --- Resource / Quota (0x09xx) --- */
+    DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED = -0x0901,  /**< Memory quota exceeded */
+    DO_LOG_ERR_QUOTA_CPU_EXCEEDED    = -0x0902,  /**< CPU quota exceeded */
+
+    /* --- Compliance (0x0Bxx) --- */
+    DO_LOG_ERR_COMPLIANCE_VIOLATION  = -0x0B01,  /**< Compliance violation */
+    DO_LOG_ERR_CIRCULAR_DEPENDENCY   = -0x0B02   /**< Circular dependency */
+} dologger_error_code_t;
+
+/* =========================================================================
+ * Structured error type
+ * ======================================================================== */
+
+/**
+ * @brief Error information populated by DoLogger API functions.
+ *
+ * When a function returns an error, this struct provides a human-readable
+ * message and source location for diagnostics.
+ */
+typedef struct {
+    int32_t  code;                  /**< Error code (@see dologger_error_code_t) */
+    char     message[256];          /**< Human-readable error message */
+    char     source_file[128];      /**< Source file where error originated */
+    uint32_t source_line;           /**< Source line number */
+    uint8_t  _reserved[12];         /**< Reserved for future use (zero-filled) */
+} dologger_error_t;
+
+/* =========================================================================
+ * Domain event (sysmon)
+ * ======================================================================== */
+
+/** @brief Severity levels for domain events. */
+typedef enum {
+    DO_LOG_EVENT_DEBUG     = 0,  /**< Debug information */
+    DO_LOG_EVENT_INFO      = 1,  /**< Informational, normal operation */
+    DO_LOG_EVENT_WARN      = 2,  /**< Warning, may need attention */
+    DO_LOG_EVENT_ERROR     = 3,  /**< Error, requires investigation */
+    DO_LOG_EVENT_CRITICAL  = 4,  /**< Critical failure, immediate action */
+    DO_LOG_EVENT_EMERGENCY = 5   /**< Emergency, system may be unstable */
+} dologger_event_severity_t;
+
+/**
+ * @brief Structured domain event for diagnostics and audit.
+ */
+typedef struct {
+    int32_t  error_code;            /**< Error code or 0 for info events */
+    char     category[32];          /**< Event category (e.g., "config", "plugin") */
+    char     description[512];      /**< Human-readable description */
+    uint64_t timestamp_ms;          /**< Monotonic milliseconds since engine init */
+    uint8_t  severity;              /**< @see dologger_event_severity_t */
+    uint8_t  _reserved[7];          /**< Reserved for future use */
+} dologger_domain_event_t;
+
+/* =========================================================================
+ * Record parameters (for log submission)
+ * ======================================================================== */
+
+/**
+ * @brief Parameters for creating a log record.
+ *
+ * Passed to dologger_log() to describe the log entry. Only `level` and
+ * `message` are required; all other fields are optional.
+ */
+typedef struct {
+    dologger_level_t level;         /**< Log severity level */
+    const char      *message;       /**< Log message (UTF-8, null-terminated) */
+
+    /* Source location (optional, set to NULL or 0 to omit) */
+    const char      *source_file;
+    const char      *source_function;
+    uint32_t         source_line;
+    uint32_t         source_column;
+
+    /* Context (optional) */
+    const char      *domain;        /**< Logger domain name (NULL = default) */
+    const char      *user_id;
+    const char      *session_id;
+    const char      *request_id;
+
+    uint8_t          _reserved[16]; /**< Reserved, must be zero-filled */
+} dologger_record_params_t;
+
+/* =========================================================================
+ * Opaque handle types (forward declarations)
+ * ======================================================================== */
+
+/** @brief Opaque handle to an initialized DoLogger instance. */
+typedef struct dologger_handle dologger_handle_t;
+
+/** @brief Opaque handle to a log record slot. */
+typedef struct dologger_record dologger_record_t;
+
+/* =========================================================================
+ * Core lifecycle API
+ * ======================================================================== */
+
+/**
+ * @brief Initialize the DoLogger core engine.
+ *
+ * Searches for and loads configuration, initializes the ring buffer,
+ * object pool, background pipeline threads, and loads configured plugins.
+ *
+ * @param config_path  Path to config file, or NULL for auto-discovery.
+ * @param err          Error output (must not be NULL on first call).
+ * @return             Opaque handle on success, NULL on failure.
+ *
+ * @note Must be called exactly once per process. Subsequent calls return
+ *       DO_LOG_ERR_ALREADY_INITIALIZED.
+ */
+DOLOGGER_API dologger_handle_t *dologger_init(
+    const char        *config_path,
+    dologger_error_t  *err
+);
+
+/**
+ * @brief Submit a log record to the pipeline.
+ *
+ * The record is pushed into the lock-free ring buffer and returns
+ * immediately. Background threads handle filtering, processing,
+ * formatting, and sink output asynchronously.
+ *
+ * @param handle  Engine handle from dologger_init().
+ * @param params  Record parameters (level, message, optional context).
+ * @return        DO_LOG_OK (0) on success, negative error code on failure.
+ */
+DOLOGGER_API int32_t dologger_log(
+    dologger_handle_t             *handle,
+    const dologger_record_params_t *params
+);
+
+/**
+ * @brief Gracefully shut down the DoLogger engine.
+ *
+ * Stops accepting new log submissions, drains the pipeline,
+ * flushes all sinks, and frees all resources.
+ *
+ * @param handle  Engine handle from dologger_init().
+ */
+DOLOGGER_API void dologger_shutdown(
+    dologger_handle_t *handle
+);
+
+/* =========================================================================
+ * Error query API
+ * ======================================================================== */
+
+/**
+ * @brief Get the last error from a DoLogger handle.
+ *
+ * Thread-safe: returns the last error for the calling thread.
+ *
+ * @param handle  Engine handle.
+ * @param err     Output: populated with the last error information.
+ * @return        DO_LOG_OK on success, or error code.
+ */
+DOLOGGER_API int32_t dologger_get_last_error(
+    const dologger_handle_t *handle,
+    dologger_error_t        *err
+);
+
+/* =========================================================================
+ * Field access API (record read/write by field name)
+ * ======================================================================== */
+
+/**
+ * @brief Set a field value on a record by name.
+ *
+ * Field access is gated by the permission ring system:
+ * - Ring 0 fields: read-only (this function returns DO_LOG_ERR_FIELD_PERMISSION_DENIED)
+ * - Ring 1 fields: only HostInfoProvider can write
+ * - Ring 2/3 fields: plugins can write based on trust level
+ *
+ * @param record      Target record.
+ * @param field_name  Dot-separated field path (e.g., "user.id").
+ * @param value       Null-terminated string value.
+ * @param err         Error output.
+ * @return            DO_LOG_OK on success.
+ */
+DOLOGGER_API int32_t dologger_field_set(
+    dologger_record_t   *record,
+    const char          *field_name,
+    const char          *value,
+    dologger_error_t    *err
+);
+
+/**
+ * @brief Get a field value from a record by name.
+ *
+ * @param record      Source record.
+ * @param field_name  Dot-separated field path (e.g., "record.id").
+ * @param buffer      Output buffer for the field value (as string).
+ * @param buffer_size Size of the output buffer.
+ * @param err         Error output.
+ * @return            Bytes written (excluding null terminator), or negative error.
+ */
+DOLOGGER_API int32_t dologger_field_get(
+    const dologger_record_t *record,
+    const char              *field_name,
+    char                    *buffer,
+    size_t                   buffer_size,
+    dologger_error_t        *err
+);
+
+/* =========================================================================
+ * Configuration API
+ * ======================================================================== */
+
+/**
+ * @brief Load configuration from a TOML string at runtime.
+ *
+ * Merges with existing configuration. Hot-reload capable: if the engine
+ * is already running, the new config is validated and atomically swapped.
+ *
+ * @param handle     Engine handle.
+ * @param toml_data  Null-terminated TOML configuration string.
+ * @param err        Error output.
+ * @return           DO_LOG_OK on success.
+ */
+DOLOGGER_API int32_t dologger_config_load_from_string(
+    dologger_handle_t  *handle,
+    const char         *toml_data,
+    dologger_error_t   *err
+);
+
+/* =========================================================================
+ * Memory allocation API
+ * ======================================================================== */
+
+/**
+ * @brief Allocate memory through DoLogger's internal allocator.
+ *
+ * Plugins MUST use this function for any memory that crosses the plugin
+ * boundary (e.g., returned to the core or passed to other plugins).
+ *
+ * @param size  Number of bytes to allocate.
+ * @return      Pointer to allocated memory, or NULL.
+ */
+DOLOGGER_API void *dologger_alloc(size_t size);
+
+/**
+ * @brief Free memory allocated by dologger_alloc().
+ *
+ * @param ptr  Pointer previously returned by dologger_alloc().
+ */
+DOLOGGER_API void dologger_free(void *ptr);
+
+/* =========================================================================
+ * Version query
+ * ======================================================================== */
+
+/**
+ * @brief Get the DoLogger core version string.
+ *
+ * @return Null-terminated version string (e.g., "0.1.0").
+ */
+DOLOGGER_API const char *dologger_version(void);
+
+/* =========================================================================
+ * Plugin ABI — Phase identifiers
+ * ======================================================================== */
+
+#define DO_LOG_PHASE_PRE_FILTER  0x0001u
+#define DO_LOG_PHASE_FILTER      0x0002u
+#define DO_LOG_PHASE_ASSEMBLY    0x0004u
+#define DO_LOG_PHASE_PROCESSING  0x0008u
+#define DO_LOG_PHASE_FORMATTING  0x0010u
+#define DO_LOG_PHASE_SINK        0x0020u
+#define DO_LOG_PHASE_CONFIG      0x0040u
+#define DO_LOG_PHASE_KEY         0x0080u
+#define DO_LOG_PHASE_HOSTINFO    0x0100u
+#define DO_LOG_PHASE_SYSCALL     0x0200u
+#define DO_LOG_PHASE_POLICY      0x0400u  /* deprecated, same as PRE_FILTER */
+
+/* =========================================================================
+ * Plugin ABI — PluginInfo + ten VTable types (M2)
+ * ======================================================================== */
+
+/** @brief Opaque handle to a log record passed through the plugin pipeline. */
+typedef struct dologger_record_handle dologger_record_handle_t;
+
+/** @brief Output buffer for Formatter plugins. */
+typedef struct {
+    uint8_t *data;
+    size_t   len;
+    size_t   capacity;
+} dologger_output_buffer_t;
+
+/** @brief Plugin information returned by plugin_query(). */
+typedef struct {
+    const char *name;             /**< Unique plugin identifier (UTF-8) */
+    uint32_t    version;          /**< Encoded binary-compat version */
+    uint32_t    abi_version;      /**< Declared core ABI version (e.g. 0x010200 = 1.2.0) */
+    uint32_t    phase;            /**< Mount point (@see DO_LOG_PHASE_*) */
+    void       *vtable;           /**< Pointer to the VTable for this phase */
+} dologger_plugin_info_t;
+
+/** @brief Multi-phase plugin info list (for plugin_query_multi). */
+typedef struct {
+    uint32_t                  count;
+    dologger_plugin_info_t  **infos;
+} dologger_plugin_info_list_t;
+
+/* --- (1) Filter VTable --- */
+typedef struct {
+    /** Return non-zero to drop the record. MUST NOT perform I/O. */
+    int (*filter)(const dologger_record_handle_t *rec, void *config);
+} dologger_filter_vtable_t;
+
+/* --- (2) FieldProvider VTable --- */
+typedef struct {
+    /**
+     * Provide fields to the record. Returns the number of fields added,
+     * or -1 on error. MUST respect Ring permission limits.
+     */
+    int (*provide)(dologger_record_handle_t *rec, void *config);
+} dologger_field_provider_vtable_t;
+
+/* --- (3) Processor VTable --- */
+typedef struct {
+    /**
+     * Process/transform the record (mask, enrich, sanitise).
+     * Returns 0 on success, non-zero to discard the record.
+     */
+    int (*process)(dologger_record_handle_t *rec, void *config);
+} dologger_processor_vtable_t;
+
+/* --- (4) Formatter VTable --- */
+typedef struct {
+    /**
+     * Format the record into SIF (Standard Intermediate Format).
+     * Output is written to `buf`. Returns 0 on success.
+     */
+    int (*format)(const dologger_record_handle_t *rec,
+                  dologger_output_buffer_t *buf, void *config);
+} dologger_formatter_vtable_t;
+
+/* --- (5) IOSink VTable --- */
+typedef struct {
+    int      (*open)(void *instance, void *config);
+    int      (*write)(void *instance, const uint8_t *data, size_t len);
+    /** Optional batch write — may be NULL if not implemented. */
+    int      (*write_batch)(void *instance, const uint8_t *const *data,
+                            const size_t *lengths, size_t count);
+    int      (*flush)(void *instance);
+    int      (*close)(void *instance);
+    /** Optional — returns last persisted record.id (0 if unavailable). */
+    uint64_t (*get_last_persisted_id)(void *instance);
+} dologger_iosink_vtable_t;
+
+/* --- (6) ConfigProvider VTable --- */
+typedef struct {
+    int         (*open)(void *instance, void *config);
+    /** Returns a TOML string; caller (core) takes ownership. */
+    const char *(*read_config)(void *instance);
+    int         (*close)(void *instance);
+} dologger_config_provider_vtable_t;
+
+/* --- (7) KeyProvider VTable --- */
+typedef struct {
+    int (*open)(void *instance, void *config);
+    /** Write the Ed25519 public key (32 bytes) to out_pubkey. */
+    int (*get_public_key)(void *instance, uint8_t *out_pubkey, size_t *len);
+    /**
+     * Optional detached sign. If NULL, core signs internally.
+     * Returns 0 and writes 64-byte signature to out_sig.
+     */
+    int (*sign_detached)(void *instance, const uint8_t *data, size_t len,
+                         uint8_t *out_sig, size_t *sig_len);
+    int (*close)(void *instance);
+} dologger_key_provider_vtable_t;
+
+/* --- (8) PolicyProvider VTable --- */
+typedef struct {
+    /**
+     * Evaluate whether the record should continue.
+     * Return 0 to allow, non-zero to drop (reason logged to sysmon).
+     * MUST NOT read or modify field contents.
+     */
+    int (*evaluate)(const dologger_record_handle_t *rec);
+} dologger_policy_provider_vtable_t;
+
+/* --- (9) HostInfoProvider — reuses FieldProviderVTable --- */
+typedef dologger_field_provider_vtable_t dologger_host_info_provider_vtable_t;
+
+/* --- (10) SystemCallBroker VTable --- */
+typedef struct {
+    /**
+     * Proxy a system call. Returns 0 on success, -ENOSYS for unknown ops.
+     */
+    int (*syscall_io)(int operation, void *args);
+} dologger_syscall_broker_vtable_t;
+
+/* =========================================================================
+ * Plugin lifecycle symbols (every plugin MUST export these)
+ * ======================================================================== */
+
+/**
+ * @brief Query plugin capabilities (required export).
+ * @param core_abi_version  The core's ABI version for compatibility check.
+ * @return PluginInfo pointer, or NULL if incompatible.
+ */
+typedef dologger_plugin_info_t *(*dologger_plugin_query_fn)(uint32_t core_abi_version);
+
+/**
+ * @brief Initialize the plugin (required export).
+ * @param config  Opaque config object from the host.
+ * @return 0 on success.
+ */
+typedef int (*dologger_plugin_init_fn)(const void *config);
+
+/**
+ * @brief Shutdown the plugin (required export).
+ * @return 0 on success.
+ */
+typedef int (*dologger_plugin_shutdown_fn)(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* DOLOGGER_CORE_H */

@@ -1,0 +1,22 @@
+[workspace]
+members = [
+    "core",
+    "cli",
+    "plugins/examples/filter/rust/example_filter",
+    "plugins/official/fmt_json",
+    "plugins/official/fmt_text",
+    "plugins/official/filter_level",
+    "plugins/official/field_container",
+    "adapters/rust",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/Nekolio/DoLogger"
+authors = ["DoLogger Contributors"]
+
+[workspace.dependencies]
+# Future shared dependencies will be declared here

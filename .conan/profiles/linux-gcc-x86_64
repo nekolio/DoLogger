@@ -1,0 +1,23 @@
+# DoLogger Conan Profile: Linux / GCC 12 / x86_64
+# Usage: conan install . --profile:host=.conan/profiles/linux-gcc-x86_64 --profile:build=.conan/profiles/linux-gcc-x86_64
+
+[settings]
+os=Linux
+arch=x86_64
+compiler=gcc
+compiler.version=12
+compiler.libcxx=libstdc++11
+build_type=Release
+
+[options]
+# C dependencies needed by non-Rust DoLogger plugins
+librdkafka/*:shared=False
+sqlite3/*:shared=False
+libsodium/*:shared=False
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+
+[buildenv]
+# Ensure pkg-config finds Conan-installed packages
+PKG_CONFIG_PATH=$PKG_CONFIG_PATH

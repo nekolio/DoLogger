@@ -1,0 +1,668 @@
+# DoLogger 架构参考手册
+
+> **版本**：v0.2.0 | **最后更新**：2026-08-12 | **目标读者**：核心开发者、插件作者、系统工程师
+>
+> **用途**：DoLogger 引擎内部的权威参考——管道架构、无锁数据结构、加密审计链、安全模型、接收器扇出、背压机制与性能调优。阅读前请先熟悉[集成指南](IntegrationGuide.md)。
+>
+> 🌐 **语言 / Language**: [中文](ArchitectureReference.md) | [English: Architecture Reference](../en_US/ArchitectureReference.md)
+>
+> **阅读路径**：从[管道架构](#管道架构)图开始，然后深入你感兴趣的领域。插件开发者应重点关注[插件 VTable 规范](#插件-vtable-规范)。
+
+---
+
+## 目录
+
+1. [开始之前](#开始之前)
+2. [管道架构](#管道架构)
+3. [环形缓冲区设计与无锁保证](#环形缓冲区设计与无锁保证)
+4. [审计链：Ed25519 + LSN + prev_hash](#审计链ed25519--lsn--prev_hash)
+5. [安全模型：Ring 0-3 权限与三色信任](#安全模型ring-0-3-权限与三色信任)
+6. [接收器扇出与回退链](#接收器扇出与回退链)
+7. [背压系统](#背压系统)
+8. [紧急缓冲区与恢复](#紧急缓冲区与恢复)
+9. [线程池架构](#线程池架构)
+10. [插件 VTable 规范](#插件-vtable-规范)
+11. [SIF 二进制格式概述](#sif-二进制格式概述)
+12. [性能基准与调优](#性能基准与调优)
+
+---
+
+## 开始之前
+
+### 前置知识
+
+- 熟悉无锁并发编程（CAS、原子序）
+- 理解 Rust 所有权模型与 FFI
+- 了解 Ed25519 签名与 SHA-256 哈希链
+- 阅读[集成指南](IntegrationGuide.md)了解应用层用法
+
+### 关键术语
+
+| 术语 | 定义 |
+|:-:|:-:|
+| **Record（记录）** | 流经引擎的单条日志条目 |
+| **Ring buffer（环形缓冲区）** | 无锁 MPSC 队列，用于生产者到消费者的传递 |
+| **Pipeline（管道）** | 7 级处理链：PreFilter -> Filter -> Field -> Assembly -> Process -> Format -> Sink |
+| **Object pool（对象池）** | 使用 Treiber 栈预分配的 Record 池 |
+| **LSN** | 日志序列号——单调递增的审计计数器 |
+| **prev_hash** | SHA-256 哈希，将每条审计记录与其前身链接 |
+| **WORM** | 一次写入多次读取——不可变审计文件存储 |
+| **VTable（虚方法表）** | C ABI 函数指针结构体，每种插件类型各一个 |
+
+---
+
+## 管道架构
+
+### 系统概览
+
+**数据流：** 宿主应用程序 → `dologger_log()` / `dologger_logv()`（102 ns P50 CAS 推入）→ 无锁 MPSC 环形缓冲区
+
+**环形缓冲区分区：**
+
+| 分区 | 占比 | 特性 |
+|:-:|:-:|:-:|
+| 普通分区 | 90% | CAS 入队，生产者无等待 |
+| 审计分区 | 10% | 专用隔离，永不丢弃 |
+| 协作式帮助 | — | 占用率 >90% 时生产者侧排空 |
+
+**常规管道（7 阶段）：**
+
+| 阶段 | 名称 | 说明 |
+|:-:|:-:|:-:|
+| 0 | PreFilter | PolicyProvider 插件（rate_limiter、level） |
+| 1 | Filter | Filter 插件 |
+| 2 | FieldProvider | HostInfo + Field 插件 |
+| 3 | Assembly | 核心：LSN 分配 + Ed25519 签名 + CRC32C Ring 3 校验 + 密钥检测 |
+| 4 | Processing | Processor 插件（transform、redact） |
+| 5 | Formatting | Formatter 插件（JSON、text、SIF） |
+| 6 | Sink Fan-Out | IOSink 插件（并行写入），11 种接收器可用 |
+
+**审计管道（独立消费者）：** 环形缓冲区 → 直接处理（无插件阶段——全部绕过）→ Ed25519 签名（强制）→ 双写接收器 → WORM 接收器（LSN 链、prev_hash）+ 安全文件接收器（0600、绕过插件）
+
+### 各阶段详情
+
+| 阶段 | 索引 | 插件 | 可丢弃？ | 可修改？ | 核心操作 |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| PreFilter | 0 | PolicyProvider | 是 | 否 | 限流、级别门控 |
+| Filter | 1 | Filter | 是 | 否 | 基于内容的过滤 |
+| FieldProvider | 2 | FieldProvider, HostInfoProvider | 否 | Ring 1 写入 | 主机/容器/云元数据注入 |
+| Assembly | 3 | 仅核心 | 否 | Ring 0+1 写入 | LSN 分配、Ed25519 签名、CRC32C 校验、密钥检测 |
+| Processing | 4 | Processor | 是 | Ring 2+3 写入 | 转换、脱敏、增强 |
+| Formatting | 5 | Formatter | 否 | 只读 | 序列化为 JSON/文本/SIF |
+| Sink | 6 | IOSink | 否 | 只读 | 写入外部目标 |
+
+### Record 生命周期
+
+Record 生命周期流程：
+
+1. 对象池（Treiber 栈）→ `alloc()` → Record（预置零）
+2. 应用程序填充 Ring 1 字段
+3. `dologger_log()` → CAS 推入环形缓冲区
+4. 消费者批量排空
+5. 管道阶段 0-6 依次处理
+6. Formatter 序列化
+7. Sink 写入目标位置
+8. `free()` → 归还对象池
+
+---
+
+## 环形缓冲区设计与无锁保证
+
+### 架构
+
+**环形缓冲区架构：**
+
+- **生产者线程（多个）** -- 对 producer_sequence 进行 CAS --> **环形缓冲区槽位**：[槽 0] [槽 1] [槽 2] ... [槽 N-1]（每个槽含 data + seq）
+- **消费者线程（每个域一个）** -- 批量排空 --> 从环形缓冲区读取
+- 索引计算：`index = sequence & mask`，其中 `容量 = 2^k`，`掩码 = 2^k - 1`
+
+### 设计属性
+
+| 属性 | 保证 |
+|:-:|:-:|
+| **生产者** | 无等待——CAS 槽位声明，无互斥锁，无自旋循环 |
+| **消费者** | 批量排空——每个域单线程，从不与生产者竞争 |
+| **缓存行填充** | 每个 `RingSlot` 为 `#[repr(C, align(64))]` 以防止伪共享 |
+| **2 的幂容量** | 位掩码取模（`index = seq & mask`）避免除法运算 |
+| **序列协调** | 两个原子计数器：`producer_sequence` 与 `consumer_sequence` |
+
+### 入队算法（生产者）
+
+```
+producer_push(record):
+  loop:
+    seq = producer_sequence.fetch_add(1, Relaxed)   // 声明下一个槽位
+    slot = &slots[seq & mask]
+    while slot.sequence != seq:                      // 等待槽位释放
+      spin_loop()
+    slot.data = record                                // 写入
+    slot.sequence.store(seq + 1, Release)            // 发布
+    return OK
+```
+
+### 出队算法（消费者）
+
+```
+consumer_drain(batch_size):
+  for i in 0..batch_size:
+    consumer_seq = consumer_sequence.load(Relaxed)
+    slot = &slots[consumer_seq & mask]
+    if slot.sequence != consumer_seq + 1:             // 槽位尚未就绪
+      break
+    record = slot.data.take()
+    slot.sequence.store(consumer_seq + capacity, Release)  // 释放槽位
+    consumer_sequence.fetch_add(1, Release)
+    process(record)
+  return count
+```
+
+### 对象池（Treiber 栈）
+
+Record 在 `RecordPool` 中预分配，避免热路径上的堆分配：
+
+```
+分配：
+  CAS(pool.head, current_head, nodes[current_head].next)
+  → return &mut nodes[current_head].record
+
+释放：
+  loop:
+    current_head = pool.head
+    nodes[node].next = current_head
+    if CAS(pool.head, current_head, node): break
+```
+
+### 并发模型总结
+
+| 组件 | 机制 | 备注 |
+|:-:|:-:|:-:|
+| 环形缓冲区（生产者） | 无锁 CAS | 超过 8 个线程时出现竞争（单一 CAS 游标） |
+| 环形缓冲区（消费者） | 单线程 | 每个域一个消费者，无竞争 |
+| 对象池 | 无锁 Treiber 栈 | CAS 操作头指针 |
+| 配置存储 | `Arc<RwLock<Config>>` + CoW 快照 | 读多写少 |
+| 插件注册表 | `Arc<RwLock<PluginRegistry>>` | 仅冷路径（加载/卸载） |
+| 错误状态 | 线程本地存储 | `thread_local! { RefCell<DologgerError> }` |
+
+### 已知限制
+
+环形缓冲区对所有生产者使用单一 CAS 游标。在高并发提交（超过 8 个生产者线程）时，CAS 竞争可能成为瓶颈。M4 计划引入按线程分区的分片环形缓冲区。
+
+---
+
+## 审计链：Ed25519 + LSN + prev_hash
+
+### 链结构
+
+| 记录 | LSN | prev_hash | signature |
+|:-:|:-:|:-:|:-:|
+| Record(1) | 1 | SHA-256(0x00...00) — 创世块 | Ed25519_Sign(secret_key, Ring0+Ring1) |
+| Record(2) | 2 | SHA-256(Record(1).signature \|\| Record(1).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
+| Record(3) | 3 | SHA-256(Record(2).signature \|\| Record(2).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
+
+### 验证算法
+
+`verify_chain(records)` 算法步骤：
+
+1. 验证 Ed25519 签名：`if !pubkey.verify(records[i].signature, serialize(Ring0+Ring1))` → 返回 FAIL at i
+2. 验证 prev_hash 链（i > 0 时）：`expected = SHA-256(records[i-1].signature || records[i-1].lsn)`；若 `records[i].prev_hash != expected` → 返回 CHAIN_BREAK at i
+3. 验证 LSN 单调性：若 `records[i].lsn <= records[i-1].lsn` → 返回 LSN_ORDER_VIOLATION at i
+4. 检测间隔（gap）：若 `records[i].lsn > records[i-1].lsn + 1` → 标记 GAP from (records[i-1].lsn+1) to (records[i].lsn-1)
+
+返回 OK with summary。
+
+### LSN 间隔处理
+
+- **重排窗口（200 ms）**：200 ms 内的乱序记录会自动补齐，不标记间隔。
+- **窗口超时**：向 WORM 文件写入 `GAP_MARKER` 记录，并发出 `LSN_GAP_DETECTED` 系统监控事件。
+- **非 AUDIT 记录**：不携带 LSN。间隔属于预期行为，非恶意。
+
+### 签名覆盖范围
+
+| 字段范围 | 完整性 | 备注 |
+|:-:|:-:|:-:|
+| Ring 0 | Ed25519 | 始终签名 |
+| Ring 1 | Ed25519 | 始终签名 |
+| Ring 2 | Ed25519（可选） | 当 `sign_ring2 = true` 时签名 |
+| Ring 3 | 仅 CRC32C | 硬件加速，非加密级别 |
+
+### 加密性能
+
+测试环境：AMD Ryzen 9 7950X，单核，ed25519-dalek 2.0：
+
+| 操作 | 延迟 | 吞吐量 |
+|:-:|:-:|:-:|
+| Ed25519 密钥生成 | ~24 us | ~41,000 密钥/s |
+| Ed25519 签名 | ~16.96 us | ~58,000 签名/s |
+| Ed25519 验证 | ~48 us | ~20,800 验证/s |
+| SHA-256（64 字节） | ~120 ns | ~8.3M 哈希/s |
+| CRC32C（64 字节） | ~3 ns | ~330M 校验/s |
+
+### 外部锚定（M4）
+
+定期将 Merkle 根哈希发布到不可变外部存储（S3、区块链），以提供长期防篡改能力：
+
+```
+// 每隔 N 条记录，对签名链计算 Merkle 根
+let merkle_root = compute_merkle_root(records[l..r]);
+send_to_external_anchor(merkle_root, lsn_range = [l, r]);
+```
+
+---
+
+## 安全模型：Ring 0-3 权限与三色信任
+
+### 字段权限环
+
+**字段权限环（从外到内）：**
+
+| 环 | 命名空间 | 写入权限 | 读取权限 | 完整性保护 | Ed25519 签名 |
+|:-:|:-:|:-:|:-:|:-:|:-:|
+| **Ring 3** | `ext.*` | 任意插件（含 Red） | 任意插件 | CRC32C 硬件校验（~0.5 周期/字节） | 不受保护 |
+| **Ring 2** | `verified.*` | 仅 Blue + Yellow 插件 | 任意插件 | Ed25519（sign_ring2=true 时）；审计：每次写入追加 audit_tags 条目 | 可选 |
+| **Ring 1** | 系统信任字段 | 核心引擎 + HostInfoProvider | 所有插件（只读） | Ed25519（始终） | 始终 |
+| **Ring 0** | 引擎核心 | 仅核心引擎 | Formatter + Sink（只读） | Ed25519（始终） | 始终 |
+
+**各环字段：**
+- **Ring 0：** `id`、`timestamp`、`signature`、`origin_lsn`
+- **Ring 1：** `level`、`message`、`host`、`process`、`thread_id`、`environment`
+- **Ring 2：** `verified.*` 命名空间字段
+- **Ring 3：** `ext.*` 命名空间字段
+```
+
+### 三色插件信任模型
+
+| 属性 | Blue（完全信任） | Yellow（部分信任） | Red（零信任） |
+|:-:|:-:|:-:|:-:|
+| 签名 | Ed25519 强制 | 建议 | 不要求 |
+| 沙箱 | 无 | seccomp-bpf / AppContainer | 最大隔离 |
+| 文件 I/O | 完整 | 读 + 写 | 禁止 |
+| 网络 | 完整 | 禁止 | 禁止 |
+| 进程派生 | 允许 | 禁止 | 禁止 |
+| 字段写入 | Ring 2 (`verified.*`) | Ring 2 (`verified.*`) | Ring 3 (`ext.*`) |
+| 字段读取 | Rings 0-3 | Rings 0-3 | Rings 0-3 |
+| 动态加载 | 允许 | 允许 | 配置控制（`allow_red_plugins`） |
+
+### seccomp-bpf 系统调用白名单（Linux）
+
+```
+                     Blue        Yellow      Red
+内存                 全部         全部         全部
+线程                 全部         全部         全部
+时间                 全部         全部         全部
+信号                 全部         全部         禁止
+文件 I/O             全部         全部         禁止
+网络                 全部         禁止         禁止
+进程                 全部         禁止         禁止
+```
+
+违规处理：`SECCOMP_RET_KILL_PROCESS`——内核以 SIGSYS 终止插件线程。发出 `SANDBOX_VIOLATION` 系统监控事件。
+
+---
+
+## 接收器扇出与回退链
+
+### 扇出架构
+
+**接收器扇出数据流：**
+
+管道输出（已格式化的记录）→ 接收器分发器（并行分发）→ Console / File / Callback / Kafka / Syslog / Webhook / SQLite / Shared Memory / OpenTelemetry / WORM / Security File（共 11 种）
+
+每个启用的接收器会收到每条已格式化记录的副本。分发通过 `io_pool` 线程池并行执行。
+
+每个启用的接收器会收到每条已格式化记录的副本。分发通过 `io_pool` 线程池并行执行。
+
+### 内置接收器（共 11 种）
+
+| 接收器 | 类型 | TLS | 用途 |
+|:-:|:-:|:-:|:-:|
+| Console | `sink_console` | 不适用 | 开发调试 |
+| File | `sink_file` | 不适用 | 本地文件输出（支持轮转） |
+| Callback | `sink_callback` | 不适用 | 进程内自定义处理 |
+| Kafka | `sink_kafka` | TLS + SASL | 集中式日志聚合 |
+| Syslog | `sink_syslog` | TLS（RFC 5425） | 传统 syslog 基础设施 |
+| Webhook | `sink_webhook` | HTTPS | REST API 日志采集 |
+| SQLite | `sink_sqlite` | 不适用 | 本地结构化日志存储 |
+| WORM | `sink_worm` | 不适用 | 不可变审计日志存储 |
+| Security File | `sink_security` | 不适用 | 隔离审计输出（0600、绕过插件） |
+| Shared Memory | `sink_shm` | 不适用 | Sidecar 进程间通信 |
+| OpenTelemetry | `sink_otel` | HTTPS | OTLP/HTTP 可观测性管道 |
+
+### 回退链
+
+当主接收器故障时，回退链提供降级模式输出：
+
+```toml
+[sinks.file]
+type = "sink_file"
+enabled = true
+path = "/var/log/dologger/app.log"
+fallback = "emergency_file"
+
+[sinks.kafka]
+type = "sink_kafka"
+enabled = true
+brokers = ["kafka1:9092"]
+fallback = "file"            # 若 Kafka 宕机，改写文件
+```
+
+**回退链数据流：** 主接收器（Kafka）--（写入失败）--> 回退接收器（File）--（写入失败）--> 紧急接收器（Console stderr）
+
+### 每个远程接收器的断路器
+
+每个远程接收器（Kafka、Syslog、Webhook）均有独立的断路器：
+
+**断路器状态机：**
+
+| 状态转换 | 条件 |
+|:-:|:-:|
+| CLOSED → OPEN | 失败次数 >= 阈值 |
+| OPEN → HALF_OPEN | timeout_ms 超时后 |
+| HALF_OPEN → CLOSED | 探测成功 |
+| HALF_OPEN → OPEN | 探测失败 |
+
+| 参数 | 默认值 | AUDIT 覆盖值 |
+|:-:|:-:|:-:|
+| `failure_threshold` | 连续 5 次失败 | >= 3 |
+| `timeout_ms` | 30,000（30 秒） | >= 60,000 |
+| `half_open_max_requests` | 3 次探测 | 3 次探测 |
+
+---
+
+## 背压系统
+
+### 丢弃策略
+
+当环形缓冲区已满且配置的 `block_timeout_ms` 到期时，根据策略丢弃记录：
+
+| 策略 | 行为 | 可用性影响 |
+|:-:|:-:|:-:|
+| `drop_newest` | 丢弃最新提交的记录 | 低——生产者永不阻塞 |
+| `oldest` | 丢弃最旧未处理的记录 | 低——保持时效性 |
+| `below_warn` | 仅丢弃 WARN 级别以下的记录 | 中——WARN+ 始终保留 |
+| `below_error` | 仅丢弃 ERROR 级别以下的记录 | 高——ERROR+ 始终保留 |
+| `never` | 无限期阻塞（仅 AUDIT 域） | 可能阻塞宿主 |
+
+### 背压阈值
+
+**环形缓冲区占用率阈值：**
+
+| 占用率 | 系统行为 |
+|:-:|:-:|
+| 0%-50% | 正常运行 |
+| 50%-90% | 发出 PIPELINE_BACKLOG（WARN 系统监控） |
+| 90%-95% | 协作式帮助激活（生产者线程协助内联排空） |
+| 95%-100% | 紧急缓冲区激活（溢出至磁盘 mmap 文件） |
+| 100% | 应用丢弃策略（drop_newest / oldest / below_warn / never） |
+
+### 协作式帮助
+
+当占用率达到 90% 时，生产者线程在推入自身记录之前，先行协助排空环形缓冲区。这种方式以小幅增加提交延迟为代价，换取缓冲区溢出预防：
+
+```
+if occupancy >= 90%:
+  生产者先排空一小批（16 条记录）
+  生产者随后推入自身记录
+```
+
+### 性能配置绑定
+
+| 配置 | `block_timeout_ms` | `drop_strategy` | AUDIT 行为 |
+|:-:|:-:|:-:|:-:|
+| `dev` | 100 | `drop_newest` | AUDIT 无限期阻塞 |
+| `prod-performance` | 3000 | `below_warn` | AUDIT 无限期阻塞 |
+| `prod-audit` | 3000 | `below_warn` | AUDIT 无限期阻塞 |
+| `balanced` | 2000 | `oldest` | AUDIT 无限期阻塞 |
+
+AUDIT 铁律覆盖所有配置：审计记录永不丢弃。
+
+---
+
+## 紧急缓冲区与恢复
+
+### 激活条件
+
+- **触发条件**：环形缓冲区占用率 >= 95% 持续超过 5 秒
+- **阈值管理者**：`BackpressureController`
+- **存储**：系统临时目录中的匿名内存映射文件
+- **格式**：长度前缀帧记录（8 字节长度前缀 + 原始记录字节）
+- **AUDIT 加密**：AES-256-GCM，使用每会话密钥
+
+### 紧急缓冲区数据流
+
+**紧急缓冲区数据流对比：**
+
+**正常路径：** `dologger_log()` → `ring_buffer.try_push()` → OK（正常入队）
+
+**紧急路径（环形缓冲区 >95%）：** `dologger_log()` → `ring_buffer.try_push()` → ERR（已满）→ `emergency_buffer.push()` → 磁盘 mmap 文件（AUDIT 时 AES-256-GCM 加密）
+
+### 恢复流程
+
+**引擎启动恢复流程：**
+
+1. 检查紧急缓冲区文件：`dologger_emergency_<pid>_<ts>.buf`
+2. 若找到：
+   - a. 读取所有溢出的记录
+   - b. 基于 LSN 的去重（跳过已见过的 LSN）
+   - c. 重放到主管道
+   - d. 删除紧急文件
+3. 发出 EMERGENCY_RECOVERED 系统监控事件
+
+### 紧急缓冲区限制
+
+| 参数 | 默认值 |
+|:-:|:-:|
+| 最大文件大小 | 512 MB |
+| 最大记录数 | 1,000,000 |
+
+若超出这些限制，紧急缓冲区自身也会丢弃记录，并发出 `EMERGENCY_BUFFER_OVERFLOW` 系统监控事件。
+
+---
+
+## 线程池架构
+
+### 池布局
+
+**线程池布局：**
+
+| 线程池 | 线程数 | 优先级 | 工作内容 |
+|:-:|:-:|:-:|:-:|
+| `cpu_pool` | N（= CPU 核数） | 普通 | 管道阶段：Filter、FieldProvider、Assembly、Processing、Formatting |
+| `io_pool` | N/2 | 普通 | 接收器写入：File、Kafka、Syslog、Webhook、OTel |
+| `sysmon_pool` | 1 | 低 | Sysmon 刷新诊断信息 |
+| `AUDIT 消费者线程` | 1（专用，永不共享） | 普通 | 名称：`dologger-audit-pipeline`；工作：读取 → 签名 → 双写（WORM+Security）→ 回收 |
+| `配置监控线程` | 1 | — | 名称：`dologger-config-watcher`；工作：每 1 秒轮询配置文件（500ms 去抖） |
+
+### 线程命名规范
+
+所有线程遵循命名模式 `dologger-<pool>-<id>`：
+
+- `dologger-cpu_pool-0`、`dologger-cpu_pool-1`
+- `dologger-io_pool-0`
+- `dologger-sysmon_pool-0`
+- `dologger-audit-pipeline`
+- `dologger-config-watcher`
+
+### 调度器
+
+管道调度器使用工作窃取线程池（`crossbeam_channel`）：
+
+- CPU 池：`num_cpus` 个线程，用于 CPU 密集型管道阶段
+- IO 池：`num_cpus / 2` 个线程，用于 IO 密集型接收器写入
+- Sysmon 池：1 个线程，用于诊断刷新（低优先级）
+
+---
+
+## 插件 VTable 规范
+
+### 10 种插件类型
+
+| # | 类型 | 阶段 | VTable 函数 |
+|:-:|:-:|:-:|:-:|
+| 1 | `Filter` | Filter (1) | `filter`, `filter_batch` |
+| 2 | `PolicyProvider` | PreFilter (0) | `policy_evaluate`, `policy_update` |
+| 3 | `FieldProvider` | Field (2) | `provide_fields`, `provide_fields_batch` |
+| 4 | `HostInfoProvider` | Field (2) | `provide_host_info`（Ring 1 受限） |
+| 5 | `Processor` | Process (4) | `process`, `process_batch` |
+| 6 | `Formatter` | Format (5) | `format`, `flush` |
+| 7 | `IOSink` | Sink (6) | `open`, `write`, `flush`, `close`, `health` |
+| 8 | `ConfigProvider` | Config（加载时） | `load_config`, `watch_config` |
+| 9 | `KeyProvider` | Key（加载时） | `sign`, `public_key`, `rotate` |
+| 10 | `SyscallBroker` | Syscall（代理） | `broker_dispatch` |
+
+### VTable 模式
+
+所有 VTable 函数遵循以下契约：
+
+```c
+// 必须：提供函数指针，若不支持则传 NULL
+// 返回：成功返回 DO_LOG_OK，失败返回错误码
+// DO_LOG_ERR_FATAL 将导致插件被卸载
+
+typedef dologger_error_t (*vtable_fn_t)(/* parameters */);
+```
+
+### 插件生命周期
+
+**插件生命周期流程：**
+
+`engine_start()` → 对配置中的每个插件执行以下步骤：
+
+1. `dlopen(plugin_path)` — 加载共享库
+2. `dlsym("plugin_query")` → PluginInfo
+   - 验证 ABI 版本
+   - 验证类型
+   - 验证许可证 SPDX
+3. `dlsym("dologger_vtable")` → VTable 结构体
+   - 验证必需函数指针
+4. （仅 Blue）验证 Ed25519 签名
+5. 应用沙箱策略（seccomp/AppContainer）
+6. `plugin_init(config)` → 分配状态
+7. ... 运行时：调用 VTable 函数 ...
+8. `engine_shutdown()` → 对每个插件按**反向加载顺序**执行：
+   - `plugin_shutdown()` → 释放状态
+   - `dlclose()`
+
+### 必需的 C ABI 导出
+
+每个插件必须导出：
+
+```c
+const dologger_plugin_info_t *plugin_query(void);
+dologger_error_t plugin_init(const dologger_plugin_config_t *config);
+dologger_error_t plugin_shutdown(void);
+const <type>_vtable_t dologger_vtable;   // 类型特定的 VTable
+```
+
+每个插件可以导出：
+
+```c
+dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
+dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
+```
+
+---
+
+## SIF 二进制格式概述
+
+### 格式
+
+SIF（Structured Interchange Format，结构化交换格式）是用于 WORM 存储和进程间通信的二进制日志记录格式。
+
+### Record 布局（简化）
+
+| 偏移 | 大小 | 字段 | 描述 |
+|:-:|:-:|:-:|:-:|
+| 0 | 4 | magic | b"SIF1" (0x53494631) |
+| 4 | 4 | version | 格式版本（1） |
+| 8 | 4 | length | 记录总长度 |
+| 12 | 8 | lsn | 日志序列号 |
+| 20 | 8 | timestamp_hi | 时间戳高 64 位 |
+| 28 | 8 | timestamp_lo | 时间戳低 64 位 |
+| 36 | 1 | level | 日志级别（0-6） |
+| 37 | 1 | flags | 位标志 |
+| 38 | 2 | reserved | 保留（填充） |
+| 40 | 8 | thread_id | 线程 ID |
+| 48 | 8 | process_id | 进程 ID |
+| 56 | 8 | origin_lsn | 原始 LSN（分布式） |
+| 64 | 64 | signature | Ed25519 签名 |
+| 128 | 32 | prev_hash | SHA-256 链哈希 |
+| 160 | ... | message | 长度前缀 UTF-8 |
+| ... | ... | source_file | 长度前缀 UTF-8 |
+| ... | ... | host_name | 长度前缀 UTF-8 |
+| ... | 4 | crc32c | 整个记录的 CRC32C |
+
+### 未来方向
+
+当前 SIF 格式为简化的二进制帧。M4 将引入基于 FlatBuffers 的完整 SIF，支持模式演化以实现向前/向后兼容。
+
+---
+
+## 性能基准与调优
+
+### 硬件参考
+
+| 组件 | 规格 |
+|:-:|:-:|
+| CPU | AMD Ryzen 9 7950X (16C/32T) |
+| RAM | DDR5-6000 |
+| 存储 | Samsung 990 Pro NVMe |
+| OS | Linux 6.x |
+| Rust | 1.97.1, release + LTO |
+
+### 基准测试结果
+
+| 基准测试 | 测量值 |
+|:-:|:-:|
+| 单条记录提交（CAS 推入） | 102 ns P50 |
+| 环形缓冲区推入（1K 条） | 121 us |
+| 批量推入（256 条） | 19.2 us |
+| Console 接收器，无签名 | 1,200,000 rec/s |
+| File 接收器，无签名 | 950,000 rec/s |
+| File 接收器，Ed25519 签名 | 58,000 rec/s |
+| WORM 接收器，签名 + fsync | 12,000 rec/s |
+| CRC32C（64 字节） | ~3 ns（SSE 4.2 硬件） |
+
+### 调优参数
+
+| 参数 | 默认值 | 调优指导 |
+|:-:|:-:|:-:|
+| `ring_buffer_size` | 262144 | 突发性工作负载时可增大。必须是 2 的幂。 |
+| `batch_size` | 256 | 128-512。越大吞吐量越高，延迟也越高。 |
+| `enable_signature` | false | 每条记录增加约 17 us。仅用于 AUDIT/合规。 |
+| `fsync_on_write` | false | 强制介质持久化。受 IO 延迟限制。 |
+| `ring_buffer_coop_helping` | true | 防止溢出，代价是热路径增加约 1 us。 |
+
+### 操作系统级调优
+
+```bash
+# 将管道线程绑定到隔离的 CPU
+sudo cset shield --cpu 2-3 --kthread=on
+
+# 增大环形缓冲区可锁定内存上限（大页）
+sudo sysctl -w vm.max_map_count=262144
+
+# 测量延迟时禁用透明大页
+echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
+```
+
+### 运行基准测试
+
+```bash
+# 运行内置基准测试套件
+cargo bench --bench hot_path
+
+# 延迟基准测试
+cargo bench --bench latency
+
+# 吞吐量基准测试
+cargo bench --bench throughput
+
+# 延迟百分位分布
+cargo bench --bench latency_percentiles
+```
+
+---
+
+## 完整设计规范
+
+完整的架构决策、API 与安全属性的权威设计文档请参阅：DoLogger 核心设计企划书（`~/DoLogger/spec/DoLogger核心设计企划书.md`）。

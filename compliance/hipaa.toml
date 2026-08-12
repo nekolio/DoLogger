@@ -1,0 +1,102 @@
+# =============================================================================
+# DoLogger HIPAA Compliance Template
+# =============================================================================
+#
+# This template provides a starting configuration for environments that handle
+# electronic Protected Health Information (ePHI) subject to the US Health
+# Insurance Portability and Accountability Act (HIPAA) Security Rule
+# (45 CFR Part 160 and Subparts A and C of Part 164).
+#
+# IMPORTANT: This template is a technical starting point only. It does NOT
+# guarantee HIPAA compliance. You MUST consult your legal counsel and
+# conduct a full risk analysis (§164.308(a)(1)(ii)(A)) before deploying
+# to production with ePHI data.
+#
+# How to validate:
+#   dologctl config validate --config compliance/hipaa.toml --strict
+#
+# =============================================================================
+
+[dologger]
+
+# Performance profile: "prod-audit" enforces signed records and audit-level
+# batch sizing. Required for HIPAA security rule compliance where covered
+# entities must implement mechanisms to record and examine activity in
+# information systems that contain or use ePHI.
+performance_profile = "prod-audit"
+
+# Log level: AUDIT captures all access and modification events on ePHI.
+# HIPAA §164.312(b) (Audit Controls) requires covered entities to
+# implement hardware, software, and/or procedural mechanisms that record
+# and examine activity in information systems that contain or use ePHI.
+level = "AUDIT"
+
+# ---------------------------------------------------------------------------
+# Non-downgradable Security Settings
+# These items can only be tightened (false→true), never loosened.
+# The template sets them to their most secure values for HIPAA environments.
+# ---------------------------------------------------------------------------
+
+# enable_signature = true
+# HIPAA Rationale: §164.312(c)(2) (Integrity Controls) — mechanism to
+# corroborate that ePHI has not been altered or destroyed in an
+# unauthorized manner. Ed25519 cryptographic signatures on every log
+# record provide irrefutable evidence of log integrity, satisfying the
+# "mechanism to authenticate ePHI" requirement.
+enable_signature = true
+
+# worm_enabled = true
+# HIPAA Rationale: §164.312(b) (Audit Controls) combined with §164.312(c)(2)
+# (Integrity Controls). WORM storage prevents unauthorized deletion or
+# modification of audit records. This ensures that audit trails remain
+# intact for the required retention period (typically 6 years per
+# §164.316(b)(2) documentation retention).
+worm_enabled = true
+
+# sign_ring2 = true
+# HIPAA Rationale: §164.312(b) (Audit Controls) and §164.312(c)(2)
+# (Integrity Controls). Ring 2 fields include patient identifiers and
+# other ePHI-derived fields. Signing these fields cryptographically binds
+# the protected health information context to each audit record, allowing
+# precise reconstruction of who accessed what PHI and when — essential for
+# breach investigations (§164.308(a)(6)(ii)).
+sign_ring2 = true
+
+# escape_html = true
+# HIPAA Rationale: §164.312(c)(2) (Integrity Controls) and
+# §164.312(e)(1) (Transmission Security). Output sanitization prevents
+# injection of malicious content into log streams that could compromise
+# the integrity of audit records or introduce false entries that obscure
+# unauthorized ePHI access.
+escape_html = true
+
+# fsync_on_write = true
+# HIPAA Rationale: §164.312(c)(2) (Integrity Controls). Forcing each
+# audit record to durable media before acknowledgement ensures that
+# no audit events are lost during an unplanned system outage. This is
+# critical for HIPAA breach notification — lost audit records mean
+# lost evidence of whether ePHI was accessed (§164.308(a)(6)).
+fsync_on_write = true
+
+# require_tls = true
+# HIPAA Rationale: §164.312(e)(1) (Transmission Security) — implement
+# technical security measures to guard against unauthorized access to
+# ePHI being transmitted over an electronic communications network.
+# TLS 1.2+ ensures that audit data in transit to remote sinks is
+# protected from interception and modification.
+require_tls = true
+
+# Ring buffer size: 256K records provides a balance between memory use
+# and loss-prevention during sink backpressure. §164.308(a)(1)(ii)(A)
+# requires risk analysis — configure based on your environment.
+ring_buffer_size = 262144
+
+# Batch size: 128 is the prod-audit default, balancing throughput with
+# the overhead of per-batch signature operations.
+batch_size = 128
+
+# Shutdown policy: "graceful" ensures all in-flight ePHI audit records
+# are drained to durable storage before the process exits. Lost audit
+# data is a violation of §164.312(b) (Audit Controls).
+shutdown_policy = "graceful"
+shutdown_timeout_ms = 10000

@@ -1,0 +1,13 @@
+[package]
+name = "dologger-filter-example"
+version = "0.1.0"
+edition = "2021"
+description = "Example Filter plugin for DoLogger — drops records below a configurable level"
+license.workspace = true
+
+[lib]
+name = "example_filter"
+crate-type = ["cdylib"]
+
+[dependencies]
+dologger-core = { path = "../../../../../core" }

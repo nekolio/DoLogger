@@ -1,0 +1,21 @@
+# DoLogger Conan Profile: macOS / Apple Clang 15 / ARM64 (Apple Silicon)
+# Usage: conan install . --profile:host=.conan/profiles/macos-clang-arm64 --profile:build=.conan/profiles/macos-clang-arm64
+
+[settings]
+os=Macos
+arch=armv8
+compiler=apple-clang
+compiler.version=15
+compiler.libcxx=libc++
+build_type=Release
+
+[options]
+librdkafka/*:shared=False
+sqlite3/*:shared=False
+libsodium/*:shared=False
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+
+[buildenv]
+PKG_CONFIG_PATH=$PKG_CONFIG_PATH

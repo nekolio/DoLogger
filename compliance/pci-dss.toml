@@ -1,0 +1,107 @@
+# =============================================================================
+# DoLogger PCI DSS Compliance Template
+# =============================================================================
+#
+# This template provides a starting configuration for environments that
+# process, store, or transmit cardholder data subject to the Payment Card
+# Industry Data Security Standard (PCI DSS v4.0.1).
+#
+# IMPORTANT: This template is a technical starting point only. It does NOT
+# guarantee PCI DSS compliance. You MUST consult your QSA (Qualified
+# Security Assessor) and legal counsel before deploying to production.
+# Compliance also requires a full Report on Compliance (ROC) and may
+# require penetration testing by an ASV (Approved Scanning Vendor).
+#
+# How to validate:
+#   dologctl config validate --config compliance/pci-dss.toml --strict
+#
+# =============================================================================
+
+[dologger]
+
+# Performance profile: "prod-audit" enforces signed records and audit-level
+# batch sizing. Required for PCI DSS Requirement 10 (Log and Monitor All
+# Access to System Components and Cardholder Data).
+performance_profile = "prod-audit"
+
+# Log level: AUDIT captures all access events to cardholder data
+# environments (CDE). PCI DSS Requirement 10.2 requires logging of all
+# individual user accesses to cardholder data, all actions taken by
+# individuals with root or administrative privileges, and access to
+# all audit trails.
+level = "AUDIT"
+
+# ---------------------------------------------------------------------------
+# Non-downgradable Security Settings
+# These items can only be tightened (false→true), never loosened.
+# The template sets them to their most secure values for PCI DSS
+# environments.
+# ---------------------------------------------------------------------------
+
+# enable_signature = true
+# PCI DSS Rationale: Requirement 10.5 (Secure Audit Trails) requires
+# protection of audit trails from unauthorized modifications. Ed25519
+# cryptographic signatures provide non-repudiation, ensuring that audit
+# records cannot be altered without detection. This maps directly to
+# 10.5.1 — limit viewing of audit trails to those with a job-related need,
+# and 10.5.2 — protect audit trail files from unauthorized modifications.
+enable_signature = true
+
+# worm_enabled = true
+# PCI DSS Rationale: Requirement 10.5.5 requires that audit trail files
+# be protected from unauthorized modification. WORM (Write-Once-Read-Many)
+# storage provides an immutable log that cannot be deleted or altered,
+# satisfying the "protect from unauthorized modifications" sub-requirement.
+# PCI DSS 10.7 also requires retention of audit trail history for at least
+# 12 months (with at least 3 months immediately available for analysis).
+worm_enabled = true
+
+# sign_ring2 = true
+# PCI DSS Rationale: Requirement 10.3 requires specific data elements to
+# be captured for each auditable event, including user identification and
+# type of event. Ring 2 fields include user identity and session context.
+# Signing these fields binds the cardholder data access context to each
+# audit record, supporting both 10.3 (audit event content) and 10.5
+# (audit trail integrity) requirements.
+sign_ring2 = true
+
+# escape_html = true
+# PCI DSS Rationale: Requirement 6.5 (prevent injection flaws) addresses
+# common coding vulnerabilities. Output sanitization on log data prevents
+# log injection attacks that could allow an attacker to forge audit records
+# or hide malicious activity within log output — undermining Requirement 10
+# (track and monitor all access to network resources and cardholder data).
+escape_html = true
+
+# fsync_on_write = true
+# PCI DSS Rationale: Requirement 10.5.3 requires that audit trail files
+# be promptly backed up to a centralized log server or media that is
+# difficult to alter. fsync_on_write ensures each record is committed to
+# durable media before the write is acknowledged, preventing audit gaps
+# during system failures. Combined with regular backups to centralized
+# log servers, this supports both 10.5.3 and 10.5.4.
+fsync_on_write = true
+
+# require_tls = true
+# PCI DSS Rationale: Requirement 4.1 requires strong cryptography and
+# security protocols to safeguard cardholder data during transmission
+# over open, public networks. Requirement 10.5.4 requires that logs
+# written to external/centralized servers be protected during transit.
+# TLS 1.2+ ensures audit data transmitted to remote sinks cannot be
+# intercepted or tampered with in transit.
+require_tls = true
+
+# Ring buffer size: 256K records provides a balance between memory use
+# and loss-prevention during sink backpressure. Adjust based on your
+# specific CDE throughput requirements (Req 10.7 — retain history).
+ring_buffer_size = 262144
+
+# Batch size: 128 is the prod-audit default, balancing throughput with
+# the overhead of per-batch signature operations.
+batch_size = 128
+
+# Shutdown policy: "graceful" ensures all in-flight audit records are
+# drained to storage before process exit. Requirement 10.2 requires
+# logging of system shutdowns/restarts.
+shutdown_policy = "graceful"
+shutdown_timeout_ms = 10000

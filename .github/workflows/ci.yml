@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} / stable
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libssl-dev libsasl2-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-stable
+
+      - name: Cargo check (all targets)
+        run: cargo check --workspace --all-targets
+
+      - name: Cargo test (all targets)
+        run: cargo test --workspace --all-targets -- --test-threads=4
+
+      # filter_level plugin uses global statics — must run single-threaded
+      - name: Cargo test (filter_level — serial)
+        run: cargo test -p dologger-plugin-filter-level -- --test-threads=1
+
+      - name: Cargo clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Cargo fmt (check)
+        run: cargo fmt --all -- --check
+
+      # ── Feature flag testing ──────────────────────────────────────────
+      # Test the sink-kafka feature on Linux only (requires cmake/libssl).
+
+      - name: Cargo test with sink-kafka feature (Linux)
+        if: runner.os == 'Linux'
+        run: cargo test -p dologger-core --features sink-kafka
+
+      - name: Cargo check all feature combinations (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo check -p dologger-core --no-default-features
+          cargo check -p dologger-core --features sink-sqlite
+          cargo check -p dologger-core --features sink-webhook
+          cargo check -p dologger-core --features sink-kafka
+          cargo check -p dologger-core --all-features
+
+      - name: Cargo check all feature combinations (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cargo check -p dologger-core --no-default-features
+          cargo check -p dologger-core --features sink-sqlite
+          cargo check -p dologger-core --features sink-webhook
+
+      - name: Cargo check all feature combinations (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cargo check -p dologger-core --no-default-features
+          cargo check -p dologger-core --features sink-sqlite
+          cargo check -p dologger-core --features sink-webhook
+
+  # ── Cross-platform verification summary ───────────────────────────
+  ci-summary:
+    name: CI Summary
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Report CI status
+        run: |
+          if [[ "${{ needs.build-and-test.result }}" == "success" ]]; then
+            echo "✅ All platform builds and tests passed."
+          else
+            echo "❌ One or more platform builds failed."
+            exit 1
+          fi

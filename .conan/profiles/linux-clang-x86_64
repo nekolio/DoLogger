@@ -1,0 +1,23 @@
+# DoLogger Conan Profile: Linux / Clang 16 / x86_64
+# Usage: conan install . --profile:host=.conan/profiles/linux-clang-x86_64 --profile:build=.conan/profiles/linux-clang-x86_64
+
+[settings]
+os=Linux
+arch=x86_64
+compiler=clang
+compiler.version=16
+compiler.libcxx=libstdc++11
+build_type=Release
+
+[options]
+librdkafka/*:shared=False
+sqlite3/*:shared=False
+libsodium/*:shared=False
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+
+[buildenv]
+CC=clang
+CXX=clang++
+PKG_CONFIG_PATH=$PKG_CONFIG_PATH

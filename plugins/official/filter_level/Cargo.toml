@@ -1,0 +1,13 @@
+[package]
+name = "dologger-plugin-filter-level"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "DoLogger official plugin: drop records below a configurable log level with per-domain overrides"
+
+[lib]
+name = "filter_level"
+crate-type = ["cdylib"]
+
+[dependencies]
+dologger-core = { path = "../../../core" }

@@ -1,0 +1,38 @@
+# DoLogger Configuration — Example with all available options
+#
+# Copy this file to dologger.toml and customize for your environment.
+# dologger.toml is gitignored — never commit local configs.
+#
+# Valid performance profiles:
+#   dev              — Debug logging, small batches, signatures off
+#   prod-performance — Maximum throughput, cooperative helping, yield backoff
+#   prod-audit       — All records signed, WORM storage, fsync on every write
+#   balanced         — Compromise between throughput and safety
+
+[dologger]
+# Log level: TRACE, DEBUG, INFO, WARN, ERROR, FATAL
+level = "INFO"
+
+# Performance profile preset (see above)
+performance_profile = "prod-performance"
+
+# Ring buffer capacity — MUST be a power of two (e.g., 65536, 131072, 262144)
+ring_buffer_size = 262144
+
+# Number of records to drain per batch from the ring buffer
+batch_size = 256
+
+# Enable Ed25519 signatures (required for AUDIT domain)
+enable_signature = false
+
+# Shutdown behavior: "graceful" (drain all pending) or "immediate" (drop pending)
+shutdown_policy = "graceful"
+
+# Maximum time to wait for drain during shutdown (milliseconds, 0 = no limit)
+shutdown_timeout_ms = 5000
+
+# Grace period after key rotation before old keys are fully revoked (days)
+key_rotation_grace_period_days = 7
+
+# Enable producer-thread cooperative helping when ring buffer reaches 90% capacity
+ring_buffer_coop_helping = true

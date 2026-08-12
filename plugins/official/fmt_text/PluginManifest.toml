@@ -1,0 +1,30 @@
+# fmt_text — Official DoLogger Formatter Plugin
+#
+# Human-readable colored text output with configurable field columns.
+# Phase: Formatting (5), Trust: Blue
+
+[plugin]
+name = "fmt-text"
+version = "0.1.0"
+plugin_type = "formatter"
+mount_phase = ["format"]
+abi_version = 1
+min_core_abi = "0.1.0"
+description = "Human-readable colored text formatter with configurable columns (color, thread, timestamp, elapsed)."
+
+[plugin.trust]
+color = "blue"
+
+[plugin.author]
+name = "DoLogger Core Team"
+email = "core@dologger.dev"
+url = "https://github.com/Nekolio/DoLogger"
+
+[capabilities]
+file_read = false
+file_write = false
+network = false
+process_create = false
+
+[licenses]
+spdx = "Apache-2.0 OR MIT"

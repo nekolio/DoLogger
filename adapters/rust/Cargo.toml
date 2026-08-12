@@ -1,0 +1,16 @@
+[package]
+name = "dologger-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "DoLogger Rust SDK — ergonomic high-level wrapper for dologger-core"
+
+[lib]
+name = "dologger_sdk"
+
+[dependencies]
+dologger-core = { path = "../../core" }
+
+[dev-dependencies]

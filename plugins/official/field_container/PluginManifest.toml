@@ -1,0 +1,31 @@
+# field_container — Official DoLogger FieldProvider Plugin
+#
+# Injects container orchestration metadata: container ID, pod name, namespace,
+# node name (auto-detects Docker, Kubernetes, or podman).
+# Phase: FieldProvider (2), Trust: Blue
+
+[plugin]
+name = "field-container"
+version = "0.1.0"
+plugin_type = "field_provider"
+mount_phase = ["field"]
+abi_version = 1
+min_core_abi = "0.1.0"
+description = "Inject container orchestration metadata (container ID, pod/namespace/node) for Docker, Kubernetes, and podman."
+
+[plugin.trust]
+color = "blue"
+
+[plugin.author]
+name = "DoLogger Core Team"
+email = "core@dologger.dev"
+url = "https://github.com/Nekolio/DoLogger"
+
+[capabilities]
+file_read = true
+file_write = false
+network = false
+process_create = false
+
+[licenses]
+spdx = "Apache-2.0 OR MIT"

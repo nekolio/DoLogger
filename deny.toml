@@ -1,0 +1,44 @@
+# DoLogger — cargo-deny license audit configuration
+# Run: cargo deny check licenses
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+private = { ignore = true }
+
+# Category A: Fully compatible licenses (safe for static linking)
+[licenses.allow]
+mit = "allow"
+apache-2.0 = "allow"
+bsd-2-clause = "allow"
+bsd-3-clause = "allow"
+isc = "allow"
+zlib = "allow"
+unlicense = "allow"
+cc0-1.0 = "allow"
+openssl = "allow"
+bsl-1.0 = "allow"
+unicode-3.0 = "allow"
+unicode-dfs-2016 = "allow"
+cdla-permissive-2.0 = "allow"
+
+# Copyleft licenses — forbidden for core engine
+[licenses.deny]
+gpl-2.0-only = "deny"
+gpl-2.0-or-later = "deny"
+gpl-3.0-only = "deny"
+gpl-3.0-or-later = "deny"
+agpl-3.0-only = "deny"
+agpl-3.0-or-later = "deny"
+eupl-1.1 = "deny"
+eupl-1.2 = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,78 @@
+name: Security Audit
+
+on:
+  schedule:
+    # Weekly: every Monday at 08:00 UTC
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cargo-audit:
+    name: Cargo Audit (vulnerability scan)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+
+      - name: Run cargo audit (dependency vulnerabilities)
+        run: cargo audit
+
+  cargo-deny:
+    name: Cargo Deny (license compliance)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: Run cargo deny check (licenses)
+        run: cargo deny check licenses
+
+      - name: Run cargo deny check (bans)
+        run: cargo deny check bans
+
+      - name: Run cargo deny check (sources)
+        run: cargo deny check sources
+
+  sandbox-escape-tests:
+    name: Sandbox Escape Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run sandbox unit tests
+        run: cargo test -p dologger-core sandbox
+
+      - name: Run full security test suite
+        run: cargo test -p dologger-core --test security_tests

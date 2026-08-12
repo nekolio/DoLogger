@@ -1,0 +1,1114 @@
+//! Offline verification commands for `dologctl`.
+//!
+//! Offline audit-chain verification — verify log file signature
+//! chains, external anchor JSON files, and WORM directory LSN continuity.
+//!
+//! # Commands
+//!
+//! | Command            | Description |
+//! |--------------------|-------------|
+//! | `verify-log`       | Verify audit log file signature chain, LSN monotonicity, prev_hash |
+//! | `verify-anchor`    | Verify external anchor JSON file signatures and ordering |
+//! | `recovery-report`  | Scan *.worm files, report LSN continuity and gaps |
+
+use std::fs;
+
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use sha2::{Digest, Sha256};
+
+use crate::output::{self, color, OutputFormat};
+use crate::EXIT_VERIFY_FAILED;
+use crate::{stderr, stdout};
+
+// ---------------------------------------------------------------------------
+// Colour helpers
+// ---------------------------------------------------------------------------
+
+fn green() -> &'static str {
+    output::when_color(color::GREEN)
+}
+fn red() -> &'static str {
+    output::when_color(color::RED)
+}
+fn yellow() -> &'static str {
+    output::when_color(color::YELLOW)
+}
+fn cyan() -> &'static str {
+    output::when_color(color::CYAN)
+}
+fn bold() -> &'static str {
+    output::when_color(color::BOLD)
+}
+fn dim() -> &'static str {
+    output::when_color(color::DIM)
+}
+fn bright_green() -> &'static str {
+    output::when_color(color::BRIGHT_GREEN)
+}
+fn bright_cyan() -> &'static str {
+    output::when_color(color::BRIGHT_CYAN)
+}
+
+// ---------------------------------------------------------------------------
+// SIF binary record parsing
+// ---------------------------------------------------------------------------
+
+/// Magic bytes at the start of each SIF record ("SIF1").
+const SIF_MAGIC: &[u8; 4] = b"SIF1";
+
+/// Parsed SIF record fields relevant to audit verification.
+#[derive(Debug, Clone)]
+struct SifRecord {
+    lsn: u64,
+    timestamp_hi: u64,
+    timestamp_lo: u64,
+    level: u8,
+    flags: u8,
+    thread_id: u64,
+    process_id: u32,
+    message: String,
+    #[allow(dead_code)]
+    source_file: String,
+    #[allow(dead_code)]
+    host_name: String,
+    signature: [u8; 64],
+    prev_hash: [u8; 32],
+    /// Byte offset in the source file where this record begins (length prefix).
+    file_offset: u64,
+}
+
+/// Parse a single SIF record from a byte slice.
+///
+/// Returns `None` if the data is too short or magic is wrong.
+fn parse_sif(data: &[u8]) -> Option<SifRecord> {
+    if data.len() < 44 {
+        return None;
+    }
+    if &data[0..4] != SIF_MAGIC {
+        return None;
+    }
+
+    let total_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
+    if data.len() < 8 + total_len {
+        return None;
+    }
+
+    let lsn = u64::from_le_bytes(data[8..16].try_into().unwrap());
+    let timestamp_hi = u64::from_le_bytes(data[16..24].try_into().unwrap());
+    let timestamp_lo = u64::from_le_bytes(data[24..32].try_into().unwrap());
+    let level = data[32];
+    let flags = data[33];
+    let thread_id = u64::from_le_bytes(data[34..42].try_into().unwrap());
+    let process_id = u32::from_le_bytes(data[42..46].try_into().unwrap());
+
+    let mut pos: usize = 46;
+
+    // Variable-length fields: 2B LE length + UTF-8 data
+    let message = read_varlen(data, &mut pos).unwrap_or_default();
+    let source_file = read_varlen(data, &mut pos).unwrap_or_default();
+    let host_name = read_varlen(data, &mut pos).unwrap_or_default();
+
+    // Optional signature (64 bytes)
+    let mut signature = [0u8; 64];
+    if flags & 0x01 != 0 {
+        if pos + 64 > data.len() {
+            return None;
+        }
+        signature.copy_from_slice(&data[pos..pos + 64]);
+        pos += 64;
+    }
+
+    // Optional prev_hash (32 bytes)
+    let mut prev_hash = [0u8; 32];
+    if flags & 0x02 != 0 {
+        if pos + 32 > data.len() {
+            return None;
+        }
+        prev_hash.copy_from_slice(&data[pos..pos + 32]);
+    }
+
+    Some(SifRecord {
+        lsn,
+        timestamp_hi,
+        timestamp_lo,
+        level,
+        flags,
+        thread_id,
+        process_id,
+        message,
+        source_file,
+        host_name,
+        signature,
+        prev_hash,
+        file_offset: 0,
+    })
+}
+
+/// Read a variable-length field: 2B LE length + UTF-8 data.
+fn read_varlen(data: &[u8], pos: &mut usize) -> Option<String> {
+    if *pos + 2 > data.len() {
+        return None;
+    }
+    let len = u16::from_le_bytes([data[*pos], data[*pos + 1]]) as usize;
+    *pos += 2;
+    if *pos + len > data.len() {
+        return None;
+    }
+    let s = std::str::from_utf8(&data[*pos..*pos + len])
+        .unwrap_or("")
+        .to_string();
+    *pos += len;
+    Some(s)
+}
+
+/// Read SIF records from a framed binary file.
+///
+/// Each record: `[4B LE length][SIF payload]`
+fn read_sif_file(path: &str) -> Result<Vec<SifRecord>, String> {
+    let data = fs::read(path).map_err(|e| format!("Cannot read '{path}': {e}"))?;
+
+    let mut records = Vec::new();
+    let mut offset: u64 = 0;
+
+    while (offset as usize) + 4 <= data.len() {
+        let off = offset as usize;
+        let frame_len =
+            u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]) as usize;
+
+        if frame_len == 0 {
+            offset += 4;
+            continue;
+        }
+
+        let payload_start = off + 4;
+        let payload_end = payload_start + frame_len;
+
+        if payload_end > data.len() {
+            stderr!(
+                "Warning: Truncated frame at offset {offset} (len={frame_len}, available={})",
+                data.len() - payload_start
+            );
+            break;
+        }
+
+        if let Some(mut rec) = parse_sif(&data[payload_start..payload_end]) {
+            rec.file_offset = offset;
+            records.push(rec);
+        }
+
+        offset = payload_end as u64;
+    }
+
+    Ok(records)
+}
+
+// ===========================================================================
+// Signature verification helpers
+// ===========================================================================
+
+/// Build the signing payload from a SIF record (matching
+/// `SignatureEngine::build_signing_payload_static` in the core crate).
+fn build_signing_payload(rec: &SifRecord) -> Vec<u8> {
+    let mut data = Vec::with_capacity(256);
+
+    // For SIF-parsed records we don't have the 128-bit id; use timestamp as proxy.
+    // Ring 0: timestamp
+    data.extend_from_slice(&rec.timestamp_hi.to_le_bytes());
+    data.extend_from_slice(&rec.timestamp_lo.to_le_bytes());
+
+    // LSN + prev_hash
+    data.extend_from_slice(&rec.lsn.to_le_bytes());
+    data.extend_from_slice(&rec.prev_hash);
+
+    // Ring 1: level + message
+    data.push(rec.level);
+    data.extend_from_slice(rec.message.as_bytes());
+
+    // Thread/process
+    data.extend_from_slice(&rec.thread_id.to_le_bytes());
+    data.extend_from_slice(&rec.process_id.to_le_bytes());
+
+    data
+}
+
+/// Verify a record's Ed25519 signature using the given public key.
+fn verify_signature(rec: &SifRecord, verifying_key: &VerifyingKey) -> bool {
+    let sig_bytes: [u8; 64] = rec.signature;
+    let sig = Signature::from_bytes(&sig_bytes);
+    let payload = build_signing_payload(rec);
+    verifying_key.verify(&payload, &sig).is_ok()
+}
+
+/// Verify the prev_hash chain link between two consecutive records.
+fn verify_chain_link(prev: &SifRecord, next: &SifRecord) -> Result<(), &'static str> {
+    if next.lsn <= prev.lsn {
+        return Err("LSN regression");
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(prev.lsn.to_le_bytes());
+    hasher.update(prev.signature);
+    let expected: [u8; 32] = hasher.finalize().into();
+    if expected != next.prev_hash {
+        return Err("prev_hash mismatch");
+    }
+    Ok(())
+}
+
+// ===========================================================================
+// cmd_verify_log — verify audit log file signature chain
+// ===========================================================================
+
+/// `dologctl verify-log <path>` — verify audit log file signature chain.
+///
+/// Parse records, verify Ed25519 signatures, check LSN monotonicity and
+/// prev_hash chain. Report total, valid, tampered, gaps.
+///
+/// If `pubkey_hex` is provided, also verify Ed25519 signatures against it.
+pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat) {
+    if format == OutputFormat::Json {
+        cmd_verify_log_json(path, pubkey_hex);
+        return;
+    }
+
+    let bg = bright_cyan();
+    let b = bold();
+    let d = dim();
+    let g = green();
+    let r = red();
+    let y = yellow();
+    let c = cyan();
+    let reset = output::when_color(color::RESET);
+
+    stdout!("{b}{bg}Log File Verification{reset}");
+    stdout!("{d}─────────────────────{reset}");
+    stdout!("  File: {path}");
+
+    // Try to parse the public key
+    let verifying_key: Option<VerifyingKey> = match pubkey_hex {
+        Some(hex_str) => {
+            let hex_str = hex_str.trim();
+            match hex::decode(hex_str) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let arr: [u8; 32] = bytes.try_into().unwrap();
+                    match VerifyingKey::from_bytes(&arr) {
+                        Ok(vk) => {
+                            stdout!("  Pubkey: {hex_str}");
+                            stdout!("  Signature verification: {g}ENABLED{reset}");
+                            Some(vk)
+                        }
+                        Err(e) => {
+                            stderr!("{y}Warning:{reset} Invalid public key ({e}) — signature checks disabled");
+                            None
+                        }
+                    }
+                }
+                Ok(bytes) => {
+                    stderr!(
+                        "{y}Warning:{reset} Public key must be 32 bytes (got {}) — signature checks disabled",
+                        bytes.len()
+                    );
+                    None
+                }
+                Err(e) => {
+                    stderr!("{y}Warning:{reset} Cannot decode public key hex ({e}) — signature checks disabled");
+                    None
+                }
+            }
+        }
+        None => {
+            stdout!("  Signature verification: {d}DISABLED{reset} (no --pubkey)");
+            None
+        }
+    };
+    stdout!("");
+
+    // Read and parse the file
+    let records = match read_sif_file(path) {
+        Ok(recs) => {
+            stdout!("  Records parsed: {c}{}{reset}", recs.len());
+            recs
+        }
+        Err(e) => {
+            stderr!("{r}Error:{reset} {e}");
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    if records.is_empty() {
+        stdout!("{d}No records found — nothing to verify.{reset}");
+        return;
+    }
+
+    // Sort by LSN if not already ordered
+    let mut sorted: Vec<&SifRecord> = records.iter().collect();
+    sorted.sort_by_key(|r| r.lsn);
+
+    let total = sorted.len();
+    let mut valid_sig: u32 = 0;
+    let mut tampered_sig: u32 = 0;
+    let mut valid_chain: u32 = 0;
+    let mut broken_chain: u32 = 0;
+    let mut lsn_gaps: Vec<(u64, u64)> = Vec::new(); // (missing_from, missing_to)
+
+    // Check chain continuity
+    for i in 1..total {
+        let prev = sorted[i - 1];
+        let next = sorted[i];
+
+        match verify_chain_link(prev, next) {
+            Ok(()) => valid_chain += 1,
+            Err(e) => {
+                broken_chain += 1;
+                stderr!(
+                    "  {r}CHAIN BROKEN{reset} LSN {} → {}: {e}",
+                    prev.lsn,
+                    next.lsn
+                );
+            }
+        }
+
+        // Detect LSN gaps
+        let expected = prev.lsn.saturating_add(1);
+        if next.lsn > expected {
+            lsn_gaps.push((expected, next.lsn.saturating_sub(1)));
+            stderr!(
+                "  {y}LSN GAP{reset} Expected {expected}, found {} (missing {})",
+                next.lsn,
+                next.lsn - expected
+            );
+        }
+    }
+
+    // Signature verification
+    if let Some(ref vk) = verifying_key {
+        stdout!("");
+        stdout!("  Verifying Ed25519 signatures...");
+        for rec in sorted.iter() {
+            if rec.flags & 0x01 != 0 {
+                if verify_signature(rec, vk) {
+                    valid_sig += 1;
+                } else {
+                    tampered_sig += 1;
+                    stderr!("  {r}TAMPERED{reset} LSN {} — signature invalid", rec.lsn);
+                }
+            }
+        }
+    }
+
+    // Summary
+    stdout!("");
+    stdout!("{b}Verification Results{reset}");
+    stdout!("{d}────────────────────{reset}");
+    stdout!("  Total records:     {total}");
+
+    let chain_total = valid_chain + broken_chain;
+    if chain_total > 0 {
+        let pct = valid_chain as f64 / chain_total as f64 * 100.0;
+        stdout!(
+            "  Chain links:       {g}{valid_chain} valid{reset}, {r}{broken_chain} broken{reset} ({pct:.1}% ok)"
+        );
+    }
+
+    if lsn_gaps.is_empty() {
+        stdout!("  LSN continuity:    {g}PASS{reset} — no gaps detected");
+    } else {
+        stdout!("  LSN gaps:          {r}{}{reset}", lsn_gaps.len());
+        for (from, to) in &lsn_gaps {
+            stdout!("    Missing LSN {from} – {to} ({} records)", to - from + 1);
+        }
+    }
+
+    if verifying_key.is_some() {
+        let sig_total = valid_sig + tampered_sig;
+        if sig_total > 0 {
+            let pct = valid_sig as f64 / sig_total as f64 * 100.0;
+            stdout!(
+                "  Signatures:        {g}{valid_sig} valid{reset}, {r}{tampered_sig} tampered{reset} ({pct:.1}% ok)"
+            );
+        } else {
+            stdout!("  Signatures:        {d}no signed records found{reset}");
+        }
+    }
+
+    // Exit code
+    if broken_chain > 0 || tampered_sig > 0 || !lsn_gaps.is_empty() {
+        stdout!("");
+        let issue_count = broken_chain + tampered_sig + lsn_gaps.len() as u32;
+        stderr!("{r}{b}VERIFICATION FAILED{reset}{r} — {issue_count} issue(s) detected{reset}");
+        std::process::exit(EXIT_VERIFY_FAILED);
+    } else {
+        stdout!("");
+        stdout!(
+            "{bright_green}{b}VERIFICATION PASSED{reset}{bright_green} — all checks OK{reset}",
+            bright_green = bright_green(),
+            b = b,
+            reset = reset
+        );
+    }
+}
+
+/// JSON variant of `cmd_verify_log`. Outputs a single JSON object to stdout.
+fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>) {
+    // Parse public key (silently)
+    let verifying_key: Option<VerifyingKey> = pubkey_hex
+        .and_then(|h| hex::decode(h.trim()).ok())
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+        .and_then(|arr| VerifyingKey::from_bytes(&arr).ok());
+
+    let records = match read_sif_file(path) {
+        Ok(r) => r,
+        Err(e) => {
+            let obj = serde_json::json!({"status": "error", "message": e});
+            output::stdout_line(&obj.to_string());
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    let mut sorted: Vec<&SifRecord> = records.iter().collect();
+    sorted.sort_by_key(|r| r.lsn);
+
+    let total = sorted.len();
+    let mut valid_sig: u32 = 0;
+    let mut tampered_sig: u32 = 0;
+    let mut valid_chain: u32 = 0;
+    let mut broken_chain: u32 = 0;
+    let mut lsn_gaps_count: u32 = 0;
+
+    for i in 1..total {
+        match verify_chain_link(sorted[i - 1], sorted[i]) {
+            Ok(()) => valid_chain += 1,
+            Err(_) => broken_chain += 1,
+        }
+        let expected = sorted[i - 1].lsn.saturating_add(1);
+        if sorted[i].lsn > expected {
+            lsn_gaps_count += 1;
+        }
+    }
+
+    if let Some(ref vk) = verifying_key {
+        for rec in sorted.iter().filter(|r| r.flags & 0x01 != 0) {
+            if verify_signature(rec, vk) {
+                valid_sig += 1;
+            } else {
+                tampered_sig += 1;
+            }
+        }
+    }
+
+    let passed = broken_chain == 0 && tampered_sig == 0 && lsn_gaps_count == 0;
+
+    let obj = serde_json::json!({
+        "status": if passed { "passed" } else { "failed" },
+        "file": path,
+        "total_records": total,
+        "valid_chain_links": valid_chain,
+        "broken_chain_links": broken_chain,
+        "lsn_gaps": lsn_gaps_count,
+        "signatures": {
+            "valid": valid_sig,
+            "tampered": tampered_sig
+        }
+    });
+    output::stdout_line(&obj.to_string());
+
+    if !passed {
+        std::process::exit(EXIT_VERIFY_FAILED);
+    }
+}
+
+// ===========================================================================
+// cmd_verify_anchor — verify external anchor JSON file
+// ===========================================================================
+
+/// Parsed anchor record from JSON.
+#[derive(Debug, serde::Deserialize)]
+struct AnchorJson {
+    anchor_id: u64,
+    timestamp_ms: u64,
+    last_lsn: u64,
+    chain_root_hash: String,
+    signature: String,
+}
+
+/// `dologctl verify-anchor <path>` — verify external anchor JSON file.
+///
+/// Check each anchor's Ed25519 signature, verify sequential IDs and
+/// monotonic timestamps. Requires `--pubkey` for signature verification.
+pub fn cmd_verify_anchor(path: &str, pubkey_hex: Option<&str>, format: OutputFormat) {
+    if format == OutputFormat::Json {
+        cmd_verify_anchor_json(path, pubkey_hex);
+        return;
+    }
+
+    let bg = bright_cyan();
+    let b = bold();
+    let d = dim();
+    let g = green();
+    let r = red();
+    let y = yellow();
+    let c = cyan();
+    let reset = output::when_color(color::RESET);
+
+    stdout!("{b}{bg}Anchor File Verification{reset}");
+    stdout!("{d}────────────────────────{reset}");
+    stdout!("  File: {path}");
+
+    // Parse public key
+    let verifying_key: Option<VerifyingKey> = match pubkey_hex {
+        Some(hex_str) => {
+            let hex_str = hex_str.trim();
+            match hex::decode(hex_str) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let arr: [u8; 32] = bytes.try_into().unwrap();
+                    match VerifyingKey::from_bytes(&arr) {
+                        Ok(vk) => {
+                            stdout!("  Pubkey: {hex_str}");
+                            Some(vk)
+                        }
+                        Err(e) => {
+                            stderr!("{r}Error:{reset} Invalid public key: {e}");
+                            std::process::exit(EXIT_VERIFY_FAILED);
+                        }
+                    }
+                }
+                Ok(bytes) => {
+                    stderr!(
+                        "{r}Error:{reset} Public key must be 32 bytes (got {})",
+                        bytes.len()
+                    );
+                    std::process::exit(EXIT_VERIFY_FAILED);
+                }
+                Err(e) => {
+                    stderr!("{r}Error:{reset} Cannot decode public key hex: {e}");
+                    std::process::exit(EXIT_VERIFY_FAILED);
+                }
+            }
+        }
+        None => {
+            stderr!("{r}Error:{reset} --pubkey is required for anchor verification");
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+    stdout!("");
+
+    // Read and parse the anchor JSON file
+    let json_str = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            stderr!("{r}Error:{reset} Cannot read '{path}': {e}");
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    let anchors: Vec<AnchorJson> = match serde_json::from_str(&json_str) {
+        Ok(a) => a,
+        Err(e) => {
+            stderr!("{r}Error:{reset} Invalid anchor JSON: {e}");
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    if anchors.is_empty() {
+        stdout!("{d}No anchors found — nothing to verify.{reset}");
+        return;
+    }
+
+    stdout!("  Anchors loaded: {c}{}{reset}", anchors.len());
+    stdout!("");
+
+    let total = anchors.len();
+    let mut valid_sig: u32 = 0;
+    let mut invalid_sig: u32 = 0;
+    let mut id_issues: u32 = 0;
+    let mut ts_issues: u32 = 0;
+
+    let vk = verifying_key.unwrap();
+
+    for (i, anchor) in anchors.iter().enumerate() {
+        let idx = i + 1;
+        stdout!("  Anchor #{idx} (id={})", anchor.anchor_id);
+
+        // Check sequential IDs
+        if anchor.anchor_id != idx as u64 {
+            stderr!(
+                "    {y}ID ISSUE{reset} Expected anchor_id={idx}, got {}",
+                anchor.anchor_id
+            );
+            id_issues += 1;
+        }
+
+        // Check monotonic timestamps
+        if i > 0 {
+            let prev = &anchors[i - 1];
+            if anchor.timestamp_ms < prev.timestamp_ms {
+                stderr!(
+                    "    {y}TIMESTAMP ISSUE{reset} {} < {} (regression)",
+                    anchor.timestamp_ms,
+                    prev.timestamp_ms
+                );
+                ts_issues += 1;
+            }
+        }
+
+        // Verify Ed25519 signature
+        let chain_root_hash = match hex::decode(&anchor.chain_root_hash) {
+            Ok(bytes) if bytes.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                arr
+            }
+            _ => {
+                stderr!("    {r}ERROR{reset} Invalid chain_root_hash hex");
+                invalid_sig += 1;
+                continue;
+            }
+        };
+
+        let sig_bytes = match hex::decode(&anchor.signature) {
+            Ok(bytes) if bytes.len() == 64 => {
+                let mut arr = [0u8; 64];
+                arr.copy_from_slice(&bytes);
+                arr
+            }
+            _ => {
+                stderr!("    {r}ERROR{reset} Invalid signature hex");
+                invalid_sig += 1;
+                continue;
+            }
+        };
+
+        // Build anchor payload: anchor_id(8) || timestamp_ms(8) || last_lsn(8) || chain_root_hash(32)
+        let mut payload = Vec::with_capacity(56);
+        payload.extend_from_slice(&anchor.anchor_id.to_le_bytes());
+        payload.extend_from_slice(&anchor.timestamp_ms.to_le_bytes());
+        payload.extend_from_slice(&anchor.last_lsn.to_le_bytes());
+        payload.extend_from_slice(&chain_root_hash);
+
+        let sig = Signature::from_bytes(&sig_bytes);
+
+        if vk.verify(&payload, &sig).is_ok() {
+            stdout!(
+                "    Signature: {g}VALID{reset}  last_lsn={}  ts={}",
+                anchor.last_lsn,
+                anchor.timestamp_ms
+            );
+            valid_sig += 1;
+        } else {
+            stderr!(
+                "    Signature: {r}INVALID{reset}  last_lsn={}  ts={}",
+                anchor.last_lsn,
+                anchor.timestamp_ms
+            );
+            invalid_sig += 1;
+        }
+
+        stdout!("");
+    }
+
+    // Summary
+    stdout!("{b}Anchor Verification Results{reset}");
+    stdout!("{d}──────────────────────────{reset}");
+    stdout!("  Total anchors:     {total}");
+    stdout!("  Signatures:        {g}{valid_sig} valid{reset}, {r}{invalid_sig} invalid{reset}");
+    if id_issues > 0 {
+        stdout!("  ID sequence:       {y}{id_issues} issue(s){reset}");
+    } else {
+        stdout!("  ID sequence:       {g}PASS{reset}");
+    }
+    if ts_issues > 0 {
+        stdout!("  Timestamps:        {y}{ts_issues} issue(s){reset}");
+    } else {
+        stdout!("  Timestamps:        {g}PASS{reset}");
+    }
+
+    if invalid_sig > 0 || id_issues > 0 || ts_issues > 0 {
+        stdout!("");
+        let issue_count = invalid_sig + id_issues + ts_issues;
+        stderr!(
+            "{r}{b}ANCHOR VERIFICATION FAILED{reset}{r} — {issue_count} issue(s) detected{reset}"
+        );
+        std::process::exit(EXIT_VERIFY_FAILED);
+    } else {
+        stdout!("");
+        stdout!(
+            "{bright_green}{b}ANCHOR VERIFICATION PASSED{reset}",
+            bright_green = bright_green(),
+            b = b,
+            reset = reset
+        );
+    }
+}
+
+/// JSON variant of `cmd_verify_anchor`.
+fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
+    let vk = match pubkey_hex {
+        Some(h) => {
+            match hex::decode(h.trim())
+                .ok()
+                .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                .and_then(|arr| VerifyingKey::from_bytes(&arr).ok())
+            {
+                Some(k) => k,
+                None => {
+                    let obj = serde_json::json!({"status": "error", "message": "Invalid or missing --pubkey"});
+                    output::stdout_line(&obj.to_string());
+                    std::process::exit(EXIT_VERIFY_FAILED);
+                }
+            }
+        }
+        None => {
+            let obj = serde_json::json!({"status": "error", "message": "--pubkey is required for anchor verification"});
+            output::stdout_line(&obj.to_string());
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    let json_str = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            let obj =
+                serde_json::json!({"status": "error", "message": format!("Cannot read file: {e}")});
+            output::stdout_line(&obj.to_string());
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    let anchors: Vec<AnchorJson> = match serde_json::from_str(&json_str) {
+        Ok(a) => a,
+        Err(e) => {
+            let obj =
+                serde_json::json!({"status": "error", "message": format!("Invalid JSON: {e}")});
+            output::stdout_line(&obj.to_string());
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    let total = anchors.len();
+    let mut valid_sig: u32 = 0;
+    let mut invalid_sig: u32 = 0;
+    let mut id_issues: u32 = 0;
+    let mut ts_issues: u32 = 0;
+
+    for (i, anchor) in anchors.iter().enumerate() {
+        if anchor.anchor_id != (i + 1) as u64 {
+            id_issues += 1;
+        }
+        if i > 0 && anchor.timestamp_ms < anchors[i - 1].timestamp_ms {
+            ts_issues += 1;
+        }
+
+        let hash = match hex::decode(&anchor.chain_root_hash) {
+            Ok(b) if b.len() == 32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&b);
+                arr
+            }
+            _ => {
+                invalid_sig += 1;
+                continue;
+            }
+        };
+        let sig = match hex::decode(&anchor.signature) {
+            Ok(b) if b.len() == 64 => {
+                let mut arr = [0u8; 64];
+                arr.copy_from_slice(&b);
+                arr
+            }
+            _ => {
+                invalid_sig += 1;
+                continue;
+            }
+        };
+
+        let mut payload = Vec::with_capacity(56);
+        payload.extend_from_slice(&anchor.anchor_id.to_le_bytes());
+        payload.extend_from_slice(&anchor.timestamp_ms.to_le_bytes());
+        payload.extend_from_slice(&anchor.last_lsn.to_le_bytes());
+        payload.extend_from_slice(&hash);
+
+        if vk.verify(&payload, &Signature::from_bytes(&sig)).is_ok() {
+            valid_sig += 1;
+        } else {
+            invalid_sig += 1;
+        }
+    }
+
+    let passed = invalid_sig == 0 && id_issues == 0 && ts_issues == 0;
+
+    let obj = serde_json::json!({
+        "status": if passed { "passed" } else { "failed" },
+        "file": path,
+        "total_anchors": total,
+        "signatures_valid": valid_sig,
+        "signatures_invalid": invalid_sig,
+        "id_sequence_issues": id_issues,
+        "timestamp_issues": ts_issues
+    });
+    output::stdout_line(&obj.to_string());
+
+    if !passed {
+        std::process::exit(EXIT_VERIFY_FAILED);
+    }
+}
+
+// ===========================================================================
+// cmd_recovery_report — scan *.worm files for LSN continuity
+// ===========================================================================
+
+/// `dologctl recovery-report <worm_dir>` — scan *.worm files, report
+/// LSN continuity, last valid LSN, and gaps.
+pub fn cmd_recovery_report(worm_dir: &str, format: OutputFormat) {
+    if format == OutputFormat::Json {
+        cmd_recovery_report_json(worm_dir);
+        return;
+    }
+
+    let bg = bright_cyan();
+    let b = bold();
+    let d = dim();
+    let g = green();
+    let r = red();
+    let y = yellow();
+    let c = cyan();
+    let reset = output::when_color(color::RESET);
+
+    stdout!("{b}{bg}WORM Recovery Report{reset}");
+    stdout!("{d}────────────────────{reset}");
+    stdout!("  Directory: {worm_dir}");
+    stdout!("");
+
+    let dir = match fs::read_dir(worm_dir) {
+        Ok(d) => d,
+        Err(e) => {
+            stderr!("{r}Error:{reset} Cannot read directory '{worm_dir}': {e}");
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    // Collect all .worm files sorted by filename
+    let mut worm_files: Vec<std::path::PathBuf> = Vec::new();
+    for entry in dir.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) == Some("worm") {
+            worm_files.push(p);
+        }
+    }
+    worm_files.sort();
+
+    if worm_files.is_empty() {
+        stdout!("{d}No .worm files found in '{worm_dir}'.{reset}");
+        return;
+    }
+
+    stdout!("  Worm files found: {c}{}{reset}", worm_files.len());
+    stdout!("");
+
+    // Collect all records from all worm files
+    let mut all_records: Vec<SifRecord> = Vec::new();
+
+    for worm_path in &worm_files {
+        let fname = worm_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?");
+        stdout!("  Scanning: {d}{fname}{reset}");
+
+        match read_sif_file(&worm_path.to_string_lossy()) {
+            Ok(recs) => {
+                let n = recs.len();
+                stdout!("    Records: {n}");
+                all_records.extend(recs);
+            }
+            Err(e) => {
+                stderr!("    {y}Warning:{reset} {e}");
+            }
+        }
+    }
+
+    if all_records.is_empty() {
+        stdout!("");
+        stdout!("{d}No records found across all worm files.{reset}");
+        return;
+    }
+
+    // Sort by LSN
+    all_records.sort_by_key(|r| r.lsn);
+
+    let total = all_records.len();
+    let first_lsn = all_records.first().map(|r| r.lsn).unwrap_or(0);
+    let last_lsn = all_records.last().map(|r| r.lsn).unwrap_or(0);
+
+    stdout!("");
+    stdout!("{b}LSN Continuity Analysis{reset}");
+    stdout!("{d}───────────────────────{reset}");
+    stdout!("  Total records:     {total}");
+    stdout!("  First LSN:         {first_lsn}");
+    stdout!("  Last valid LSN:    {c}{last_lsn}{reset}");
+
+    // Check continuity
+    let mut gaps: Vec<(u64, u64)> = Vec::new();
+    let mut chain_broken: u32 = 0;
+
+    for i in 1..total {
+        let prev = &all_records[i - 1];
+        let next = &all_records[i];
+
+        let expected = prev.lsn.saturating_add(1);
+        if next.lsn > expected {
+            gaps.push((expected, next.lsn.saturating_sub(1)));
+        }
+
+        match verify_chain_link(prev, next) {
+            Ok(()) => {}
+            Err(_) => chain_broken += 1,
+        }
+    }
+
+    if gaps.is_empty() {
+        let expected_total = last_lsn.saturating_sub(first_lsn).saturating_add(1);
+        let completeness = if expected_total > 0 {
+            total as f64 / expected_total as f64 * 100.0
+        } else {
+            100.0
+        };
+        stdout!("  Coverage:          {g}{completeness:.1}%{reset} ({total}/{expected_total})");
+        stdout!("  LSN gaps:          {g}none{reset}");
+    } else {
+        let missing_total: u64 = gaps.iter().map(|(f, t)| t - f + 1).sum();
+        stdout!(
+            "  LSN gaps:          {r}{}{reset} ({} records missing)",
+            gaps.len(),
+            missing_total
+        );
+
+        for (from, to) in &gaps {
+            let missing = to - from + 1;
+            stdout!(
+                "    Gap: LSN {} → {} (missing {} record{})",
+                from,
+                to,
+                missing,
+                if missing > 1 { "s" } else { "" }
+            );
+        }
+    }
+
+    if chain_broken > 0 {
+        stdout!("  Chain integrity:   {r}{chain_broken} broken link(s){reset}");
+    } else if total > 1 {
+        stdout!("  Chain integrity:   {g}PASS{reset}");
+    }
+
+    // Recommend last valid LSN for recovery
+    stdout!("");
+    stdout!("{b}Recovery Recommendation{reset}");
+    stdout!("{d}───────────────────────{reset}");
+
+    if gaps.is_empty() && chain_broken == 0 {
+        stdout!("  Status:  {g}Healthy{reset} — all records intact and in sequence");
+        stdout!("  Last valid LSN for resume: {c}{last_lsn}{reset}");
+    } else {
+        // Find the last valid continuous segment
+        let mut continuous_last = all_records[0].lsn;
+        for i in 1..total {
+            let prev = &all_records[i - 1];
+            let next = &all_records[i];
+            if next.lsn == prev.lsn.saturating_add(1) && verify_chain_link(prev, next).is_ok() {
+                continuous_last = next.lsn;
+            } else {
+                break;
+            }
+        }
+        stdout!(
+            "  Status:  {y}Degraded{reset} — {} gap(s), {} broken link(s)",
+            gaps.len(),
+            chain_broken
+        );
+        stdout!("  Last continuous valid LSN:  {c}{continuous_last}{reset}");
+        stdout!(
+            "  Resume LSN recommendation:  {y}{}{reset}",
+            continuous_last.saturating_add(1)
+        );
+    }
+}
+
+/// JSON variant of `cmd_recovery_report`.
+fn cmd_recovery_report_json(worm_dir: &str) {
+    let dir = match fs::read_dir(worm_dir) {
+        Ok(d) => d,
+        Err(e) => {
+            let obj = serde_json::json!({"status": "error", "message": format!("Cannot read directory: {e}")});
+            output::stdout_line(&obj.to_string());
+            std::process::exit(EXIT_VERIFY_FAILED);
+        }
+    };
+
+    let mut worm_files: Vec<std::path::PathBuf> = Vec::new();
+    for entry in dir.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) == Some("worm") {
+            worm_files.push(p);
+        }
+    }
+    worm_files.sort();
+
+    let worm_count = worm_files.len();
+    let mut all_records: Vec<SifRecord> = Vec::new();
+
+    for worm_path in &worm_files {
+        if let Ok(recs) = read_sif_file(&worm_path.to_string_lossy()) {
+            all_records.extend(recs);
+        }
+    }
+
+    all_records.sort_by_key(|r| r.lsn);
+
+    let total = all_records.len();
+    let first_lsn = all_records.first().map(|r| r.lsn).unwrap_or(0);
+    let last_lsn = all_records.last().map(|r| r.lsn).unwrap_or(0);
+
+    let mut gaps_count: u32 = 0;
+    let mut chain_broken: u32 = 0;
+    let mut missing_total: u64 = 0;
+
+    for i in 1..total {
+        let prev = &all_records[i - 1];
+        let next = &all_records[i];
+
+        let expected = prev.lsn.saturating_add(1);
+        if next.lsn > expected {
+            gaps_count += 1;
+            missing_total += next.lsn - expected;
+        }
+        if verify_chain_link(prev, next).is_err() {
+            chain_broken += 1;
+        }
+    }
+
+    let healthy = gaps_count == 0 && chain_broken == 0;
+    let mut continuous_last = all_records.first().map(|r| r.lsn).unwrap_or(0);
+    for i in 1..total {
+        let prev = &all_records[i - 1];
+        let next = &all_records[i];
+        if next.lsn == prev.lsn.saturating_add(1) && verify_chain_link(prev, next).is_ok() {
+            continuous_last = next.lsn;
+        } else {
+            break;
+        }
+    }
+
+    let obj = serde_json::json!({
+        "status": if healthy { "healthy" } else { "degraded" },
+        "directory": worm_dir,
+        "worm_files": worm_count,
+        "total_records": total,
+        "first_lsn": first_lsn,
+        "last_lsn": last_lsn,
+        "lsn_gaps": gaps_count,
+        "missing_records": missing_total,
+        "broken_chain_links": chain_broken,
+        "last_continuous_valid_lsn": continuous_last,
+        "resume_lsn_recommendation": continuous_last.saturating_add(1)
+    });
+    output::stdout_line(&obj.to_string());
+}
