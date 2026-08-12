@@ -514,7 +514,6 @@ find build/plugins -name "*.so" -o -name "*.dll" -o -name "*.dylib"
 | 查看可工作的示例 | `plugins/examples/` — C、C++、Go、Rust |
 | 部署您的插件 | [运维与安全指南](OperationsAndSecurity.md) |
 | 让您的插件获得签名（Blue 信任） | [安全白皮书](guides/SecurityWhitepaper.md) |
-| 发布到插件索引 | `plugins/index/index.toml` |
 
 ---
 

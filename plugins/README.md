@@ -21,10 +21,6 @@ plugins/
 ├── community/                   ← Third-party plugin workspace (gitkeep)
 │   └── .gitkeep
 │
-├── index/                       ← Plugin registry consumed by dologctl
-│   ├── index.toml
-│   └── README.md
-│
 └── README.md                    ← This file
 ```
 
@@ -35,7 +31,6 @@ plugins/
 | `official/` | Standard library — DoLogger core team | Blue | Ed25519 (root key) |
 | `examples/` | Reference code by `{plugin_type}/{language}/` | N/A | N/A |
 | `community/` | Third-party plugin workspace | Varies | Varies |
-| `index/` | Machine-readable catalog for `dologctl plugin install` | — | — |
 
 ## Naming Convention
 
@@ -76,7 +71,6 @@ Every plugin crate MUST have:
 
 - [Official Plugins](../Docs/en_US/OfficialPluginRoadmap.md)
 - [Plugin Development Guide](../Docs/en_US/guides/PluginDevelopmentGuide.md)
-- [Plugin Index](index/index.toml)
 
 ---
 

@@ -585,7 +585,6 @@ find build/plugins -name "*.so" -o -name "*.dll" -o -name "*.dylib"
 | See working examples | `plugins/examples/` — C, C++, Go, Rust |
 | Deploy your plugin | [Operations & Security Guide](OperationsAndSecurity.md) |
 | Get your plugin signed (Blue trust) | [Security Whitepaper](guides/SecurityWhitepaper.md) |
-| Publish to the plugin index | `plugins/index/index.toml` |
 
 ---
 
