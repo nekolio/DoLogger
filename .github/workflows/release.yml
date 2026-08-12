@@ -135,16 +135,28 @@ jobs:
           # libcurl4-openssl-dev is required by the librdkafka source build
           sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
-      # Cross toolchains for every non-native Linux target. Native
-      # x86_64 builds need none of these; Windows/macOS don't use them.
+      # Cross toolchain for this matrix entry only. Native x86_64 builds
+      # need none of these; Windows/macOS don't use them. Installing all
+      # cross compilers in one step would conflict on Ubuntu 24.04
+      # (gcc-multilib and gcc-aarch64-linux-gnu cannot coexist), so each
+      # job installs just the one it needs.
       - name: Install cross-compilation toolchains (Linux)
         if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
+        shell: bash
         run: |
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            gcc-multilib g++-multilib \
-            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
-            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
+          case "${{ matrix.target }}" in
+            aarch64-unknown-linux-gnu)
+              PACKAGES="gcc-aarch64-linux-gnu g++-aarch64-linux-gnu" ;;
+            i686-unknown-linux-gnu)
+              PACKAGES="gcc-i686-linux-gnu g++-i686-linux-gnu" ;;
+            armv7-unknown-linux-gnueabihf)
+              PACKAGES="gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf" ;;
+            riscv64gc-unknown-linux-gnu)
+              PACKAGES="gcc-riscv64-linux-gnu g++-riscv64-linux-gnu" ;;
+            *) exit 1 ;;
+          esac
+          sudo apt-get update
+          sudo apt-get install -y $PACKAGES
 
       - name: Setup Rust toolchain (latest stable)
         uses: dtolnay/rust-toolchain@stable
