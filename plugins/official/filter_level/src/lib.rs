@@ -353,6 +353,18 @@ pub extern "C" fn plugin_shutdown() -> i32 {
 mod tests {
     use super::*;
     use std::ffi::CString;
+    use std::sync::Mutex;
+
+    // cargo test runs test functions on parallel threads. Several tests below
+    // mutate the process-wide MIN_LEVEL / DROP_* statics, so they must hold
+    // this lock to avoid racing each other's global state.
+    static TEST_GUARD: Mutex<()> = Mutex::new(());
+
+    fn lock_globals() -> std::sync::MutexGuard<'static, ()> {
+        TEST_GUARD
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     // Helper: create a Record with a specific level
     fn record_with_level(level: LogLevel) -> Record {
@@ -394,6 +406,7 @@ mod tests {
 
     #[test]
     fn test_debug_dropped_at_info_min() {
+        let _guard = lock_globals();
         // Set min_level to INFO via init
         MIN_LEVEL.store(LogLevel::Info as u8, Ordering::Relaxed);
         DROP_TRACE.store(false, Ordering::Relaxed);
@@ -410,6 +423,7 @@ mod tests {
 
     #[test]
     fn test_warn_passed_at_info_min() {
+        let _guard = lock_globals();
         MIN_LEVEL.store(LogLevel::Info as u8, Ordering::Relaxed);
         DROP_TRACE.store(false, Ordering::Relaxed);
         DROP_DEBUG.store(false, Ordering::Relaxed);
@@ -421,6 +435,7 @@ mod tests {
 
     #[test]
     fn test_audit_always_passed() {
+        let _guard = lock_globals();
         // Set min_level to FATAL — everything below should be dropped
         MIN_LEVEL.store(LogLevel::Fatal as u8, Ordering::Relaxed);
         DROP_TRACE.store(false, Ordering::Relaxed);
@@ -440,6 +455,7 @@ mod tests {
 
     #[test]
     fn test_audit_passes_even_when_min_is_above() {
+        let _guard = lock_globals();
         // AUDIT has value 6 — there is no level above it.
         // Even with an impossible min_level, AUDIT should pass.
         MIN_LEVEL.store(LogLevel::Audit as u8, Ordering::Relaxed);

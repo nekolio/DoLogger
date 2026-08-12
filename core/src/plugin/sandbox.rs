@@ -416,7 +416,7 @@ impl SandboxEngine {
 
         #[cfg(target_os = "linux")]
         {
-            return apply_seccomp_policy(policy);
+            apply_seccomp_policy(policy)
         }
 
         #[cfg(windows)]
@@ -456,10 +456,6 @@ impl Default for SandboxEngine {
 fn apply_seccomp_policy(policy: &SandboxPolicy) -> SandboxResult {
     // seccomp-bpf constants
     const SECCOMP_SET_MODE_FILTER: libc::c_int = 1;
-    const SECCOMP_FILTER_FLAG_TSYNC: libc::c_uint = 1;
-    const SECCOMP_RET_ALLOW: u32 = 0x7FFF_0000;
-    const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
-    const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
 
     // Collect all allowed syscall numbers
     let mut allowed_syscalls: Vec<i32> = Vec::new();
@@ -496,6 +492,10 @@ fn apply_seccomp_policy(policy: &SandboxPolicy) -> SandboxResult {
     };
 
     // Apply the seccomp filter
+    // SAFETY: prctl(PR_SET_SECCOMP, ...) installs the BPF program referenced
+    // by `prog` for the calling thread. `prog` is a valid `sock_fprog` whose
+    // `filter` slice outlives this call. The operation is one-way — the
+    // sandbox cannot be removed afterwards, which is the intended behavior.
     let rc = unsafe {
         libc::prctl(
             libc::PR_SET_SECCOMP,
@@ -531,16 +531,6 @@ fn apply_seccomp_policy(policy: &SandboxPolicy) -> SandboxResult {
         error: None,
         context_id: Some(0),
     }
-}
-
-/// BPF instruction (matches Linux `struct sock_filter`).
-#[cfg(target_os = "linux")]
-#[repr(C)]
-struct BpfInstruction {
-    code: u16,
-    jt: u8,
-    jf: u8,
-    k: u32,
 }
 
 /// Build a minimal BPF filter that allows listed syscall numbers.
@@ -589,9 +579,14 @@ fn build_bpf_filter(allowed: &[i32]) -> Vec<libc::sock_filter> {
 
     // Patch JEQ instructions: jt = relative offset from THIS instruction to ALLOW
     // For instruction at index i: jt = allow_idx - i - 1 (instructions to skip)
-    for i in jeq_start_idx..allow_idx {
+    for (i, insn) in filter
+        .iter_mut()
+        .enumerate()
+        .take(allow_idx)
+        .skip(jeq_start_idx)
+    {
         let rel_jt = (allow_idx - i - 1) as u8;
-        filter[i].jt = rel_jt;
+        insn.jt = rel_jt;
     }
 
     // ALLOW return (SECCOMP_RET_ALLOW)

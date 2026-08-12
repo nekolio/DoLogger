@@ -119,6 +119,8 @@ enum ShmAccess {
         ptr: *const u8,
         size: usize,
         fd: std::os::unix::io::RawFd,
+        // Kept for symmetry with the Windows variant (diagnostic display).
+        #[allow(dead_code)]
         name: String,
     },
     #[cfg(windows)]

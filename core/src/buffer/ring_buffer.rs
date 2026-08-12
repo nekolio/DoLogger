@@ -107,8 +107,14 @@ impl<T> RingBuffer<T> {
     /// Returns `true` if the item was enqueued, `false` if the buffer is full.
     pub fn try_push(&self, item: T) -> Result<(), T> {
         loop {
-            let producer_seq = self.producer_sequence.load(Ordering::Acquire);
+            // Load consumer_sequence FIRST. Drain/helpers only advance it up
+            // to the producer_sequence they observed, so it never exceeds
+            // producer_sequence at any instant; reading in this order
+            // guarantees producer_seq >= consumer_seq and the subtraction
+            // below cannot underflow. The reverse order can race (consumer
+            // advances past a stale producer read) and overflow in debug.
             let consumer_seq = self.consumer_sequence.load(Ordering::Acquire);
+            let producer_seq = self.producer_sequence.load(Ordering::Acquire);
 
             // Check if buffer is full
             if producer_seq - consumer_seq >= self.capacity as u64 {

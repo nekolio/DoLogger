@@ -309,6 +309,9 @@ pub extern "C" fn dologger_field_get(
         let len = msg.len().min(buffer_size);
         // SAFETY: buffer is valid for buffer_size bytes (non-null check above).
         // msg is a static byte string within bounds; we copy at most buffer_size bytes.
+        // The cast is required on targets where c_char is i8 (x86_64) and is a
+        // no-op where c_char is u8 (aarch64-linux) — clippy flags the latter.
+        #[allow(clippy::unnecessary_cast)]
         unsafe {
             std::ptr::copy_nonoverlapping(msg.as_ptr(), buffer as *mut u8, len);
         }

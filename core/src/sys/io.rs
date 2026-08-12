@@ -83,6 +83,9 @@ fn raw_write(fd: i32, buf: &[u8]) {
 
 #[cfg(not(windows))]
 fn raw_write(fd: i32, buf: &[u8]) {
+    // SAFETY: `fd` is a valid open file descriptor (stdout/stderr), and `buf`
+    // is a valid slice whose pointer and length remain valid for the duration
+    // of the `write` call.
     unsafe {
         libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len());
     }

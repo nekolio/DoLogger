@@ -674,7 +674,9 @@ fn check_windows_process(pid: u32) -> bool {
     ret != 0 && exit_code == STILL_ACTIVE
 }
 
-#[cfg(not(windows))]
+// Call sites are gated on `not(unix)`, so the stub only compiles for
+// neither-windows-nor-unix targets — on Unix it would be dead code.
+#[cfg(all(not(windows), not(unix)))]
 fn check_windows_process(_pid: u32) -> bool {
     false
 }

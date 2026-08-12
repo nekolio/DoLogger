@@ -57,16 +57,8 @@ fn detect_crc_impl() -> CrcImpl {
 }
 
 fn detect_crc_impl_inner() -> CrcImpl {
-    // Check for SSE 4.2 on x86/x86_64
-    #[cfg(all(
-        any(target_arch = "x86", target_arch = "x86_64"),
-        target_feature = "sse4.2"
-    ))]
-    {
-        return CrcImpl::Sse42;
-    }
-
-    // Runtime cpuid detection for x86/x86_64 (when not compile-time enabled)
+    // x86 / x86_64: SSE 4.2 via cpuid. The result is memoized by
+    // `detect_crc_impl`, so the runtime check runs at most once per process.
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
         if is_x86_feature_detected!("sse4.2") {
@@ -74,12 +66,11 @@ fn detect_crc_impl_inner() -> CrcImpl {
         }
     }
 
-    // ARMv8 CRC32 (aarch64)
-    #[cfg(all(target_arch = "aarch64", target_feature = "crc"))]
-    {
-        return CrcImpl::ArmCrc32;
-    }
-
+    // aarch64: ARMv8 CRC32 via HWCAP / sysctl. On targets where `crc` is a
+    // compile-time baseline feature (e.g. Apple aarch64) this simply returns
+    // true. A single runtime check keeps the software fallback below
+    // reachable on every target (compile-time early returns made it
+    // unreachable under `-D unreachable-code`).
     #[cfg(target_arch = "aarch64")]
     {
         if std::arch::is_aarch64_feature_detected!("crc") {
