@@ -268,13 +268,22 @@ fn bench_percentile_latency(c: &mut Criterion) {
     #[cfg(not(target_os = "windows"))]
     dologger_core::sys::diag::init("/dev/null");
 
+    // Header box — interior width between the ║ borders. Lines are padded
+    // programmatically so the right border and the value columns always
+    // align regardless of how many digits pool_size / SAMPLES have.
+    const BOX_W: usize = 81;
+    fn header_line(content: &str) {
+        let pad = BOX_W.saturating_sub(2 + content.len());
+        println!("║  {content}{}║", " ".repeat(pad));
+    }
+
     println!();
-    println!("╔══════════════════════════════════════════════════════════════╗");
-    println!("║  DoLogger P50/P99/P99.9/P99.99 Latency Benchmarks         ║");
-    println!("╠══════════════════════════════════════════════════════════════╣");
-    println!("║  Pool size:       {pool_size:<6} records                          ║");
-    println!("║  Samples/run:     {SAMPLES:<6}                                    ║");
-    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!("╔{}╗", "═".repeat(BOX_W));
+    header_line("DoLogger P50/P99/P99.9/P99.99 Latency Benchmarks");
+    println!("╠{}╣", "═".repeat(BOX_W));
+    header_line(&format!("{:<12} {:>8} records", "Pool size:", pool_size));
+    header_line(&format!("{:<12} {:>8}", "Samples/run:", SAMPLES));
+    println!("╚{}╝", "═".repeat(BOX_W));
 
     // ── 1. single_record_latency_percentiles (default message) ──────────
     {

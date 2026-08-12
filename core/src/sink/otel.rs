@@ -63,6 +63,10 @@ pub struct OtelSink {
 }
 
 impl OtelSink {
+    /// Create a new OTel sink with the given configuration.
+    ///
+    /// The sink starts closed (no HTTP agent); call [`Sink::open`] to
+    /// establish the transport before writing records.
     pub fn new(config: OtelSinkConfig) -> Self {
         Self {
             config,
@@ -73,34 +77,7 @@ impl OtelSink {
         }
     }
 
-    /// Build a JSON OTLP log record payload.
-    fn build_otlp_payload(batch: &[String]) -> String {
-        let mut log_records = String::new();
-        for (i, msg) in batch.iter().enumerate() {
-            if i > 0 {
-                log_records.push(',');
-            }
-            // Escape message for JSON
-            let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"");
-            log_records.push_str(&format!(
-                r#"{{"timeUnixNano":"{}","body":{{"stringValue":"{}"}}}}"#,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos(),
-                escaped
-            ));
-        }
-
-        format!(
-            r#"{{"resourceLogs":[{{"resource":{{"attributes":[{{"key":"service.name","value":{{"stringValue":"{}"}}}},{{"key":"service.version","value":{{"stringValue":"{}"}}}}]}},"scopeLogs":[{{"scope":{{"name":"dologger"}},"logRecords":[{}]}}]}}]}}"#,
-            "",
-            "",
-            log_records // placeholder for service name/version
-        )
-    }
-
-    /// Build proper OTLP JSON with resource attributes.
+    /// Build the OTLP JSON payload with resource attributes.
     fn build_batch_payload(&self) -> String {
         let mut log_records = String::new();
         for (i, msg) in self.batch.iter().enumerate() {
