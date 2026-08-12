@@ -182,15 +182,17 @@ key_rotation_grace_period_days = 7      # 轮换后旧密钥有效天数
 | `DO_LOG_PERF_PROFILE` | `performance_profile` | `DO_LOG_PERF_PROFILE=balanced` |
 | `DO_LOG_CONFIG_FILE` | 配置文件路径 | `DO_LOG_CONFIG_FILE=/opt/app/dologger.toml` |
 | `DO_LOG_PLUGIN_DIR` | 插件目录 | `DO_LOG_PLUGIN_DIR=/opt/app/plugins` |
-| `DO_LOG_CONFIG_LOCK` | 加载时锁定配置 | `DO_LOG_CONFIG_LOCK=1` |
-| `DO_LOG_SIGN_KEY` | 签名密钥路径 | `DO_LOG_SIGN_KEY=/secure/signing.key` |
-| `DO_LOG_VERIFY_KEY` | 验证密钥 | `DO_LOG_VERIFY_KEY=/secure/verify.pub` |
+| `DO_LOG_CONFIG_LOCK` | 禁止回退配置搜索（要求 `DO_LOG_CONFIG_FILE` 存在） | `DO_LOG_CONFIG_LOCK=1` |
+| `DO_LOG_SIGN_KEY` | 签名密钥路径（计划中） | `DO_LOG_SIGN_KEY=/secure/signing.key` |
+| `DO_LOG_VERIFY_KEY` | 验证密钥（计划中） | `DO_LOG_VERIFY_KEY=/secure/verify.pub` |
 
 ### 接收器配置
 
 启用任意组合的接收器。所有启用的接收器接收每条记录：
 
 ```toml
+# （示意 — v0.1.0 的 FileSinkConfig 仅含：path、max_size（字节）、fsync_on_write、
+# durability_level、buffer_size；按时间滚动、压缩与保留均为规划中）
 [sinks.console]
 type = "sink_console"
 enabled = false                         # 生产环境禁用
@@ -568,7 +570,7 @@ lib.dologger_log(h, ctypes.byref(p))
 lib.dologger_shutdown(h)
 ```
 
-（伪代码 — 上面的包装模式已通过 `tests/release-smoke/cabi_smoke.py` 验证；仓库自带更友好的封装见 `adapters/python/dologger.py`，但 v0.1.0 该文件缺少 `c_char` 导入，需自行补上 `from ctypes import c_char` 才能导入）
+（上面的包装模式已通过 `tests/release-smoke/cabi_smoke.py` 验证；仓库自带更友好的封装见 `adapters/python/dologger.py`——其中的 `DoLogger` 类可直接 `from dologger import DoLogger` 使用，已随 v0.1.0 实测运行）
 
 ### Go
 
@@ -686,13 +688,13 @@ static void my_callback(const uint8_t *data, size_t len, void *user) {
 }
 
 int main(void) {
-    dologger_handle_t *logger = NULL;
-    dologger_init(NULL, &logger);
+    dologger_error_t err = {0};
+    dologger_handle_t *logger = dologger_init(NULL, &err);
 
     dologger_register_callback_sink(logger, my_callback, NULL);
 
     // ... 应用程序逻辑 ...
-    dologger_shutdown(&logger);
+    dologger_shutdown(logger);
 }
 ```
 
@@ -745,7 +747,7 @@ int main(void) {
 **检查清单：**
 1. 验证 `performance_profile`——`dev` 配置文件使用小缓冲区和批次
 2. 检查 `enable_signature = true`——Ed25519 签名每条记录增加约 17 us
-3. 运行 `curl http://127.0.0.1:9090/status | jq .pipeline` 检查丢弃率
+3. 运行 `curl http://127.0.0.1:9090/status | jq .pipeline` 检查丢弃率（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+））
 4. 运行 `cargo bench` 在您的硬件上建立引擎基准
 5. 检查 `fsync_on_write = true`——强制每条记录 I/O 刷新
 
@@ -764,7 +766,7 @@ int main(void) {
 **症状：** 诊断日志显示 `[PLUGIN] load failed`。
 
 **检查清单：**
-1. ABI 版本不匹配：比较 `plugin_query()->abi_version` 与 `DO_LOG_ABI_VERSION`
+1. ABI 版本不匹配：比较 `plugin_query()` 返回的 `abi_version` 字段与核心 ABI 版本（v0.1.0 头文件中没有全局 `DO_LOG_ABI_VERSION` 宏——引擎将 `core_abi_version` 传给 `plugin_query()`）
 2. 缺少依赖：检查 `manifest.toml` `[dependencies]` 节
 3. Blue 插件签名：验证 `.sig` 文件存在且有效
 4. 许可证不兼容：插件的 SPDX 标识符可能在拒绝类别中

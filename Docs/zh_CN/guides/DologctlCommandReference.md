@@ -25,6 +25,9 @@ flowchart TD
 dologctl [全局选项] <命令> [选项] [参数]
 ```
 
+> [!NOTE]
+> 本文中 `text` 块里的用法概要均为**模板**(方括号部分为占位符),不是可直接照抄的命令。`bash` 块是已对照 `dologctl <cmd> --help` 验证的字面示例。
+
 全局选项可以出现在命令行的**任意位置**(子命令之前或之后):
 
 | 选项 | 取值 | 默认值 | 说明 |
@@ -41,9 +44,9 @@ dologctl [全局选项] <命令> [选项] [参数]
 | 码 | 名称 | 含义 |
 |:-:|:-:|:-:|
 | `0` | `EXIT_SUCCESS` | 命令成功完成 |
-| `1` | `EXIT_ERR` | 一般错误(IO 失败、参数非法、插件操作失败) |
+| `1` | `EXIT_ERR` | 一般错误(IO 失败、参数非法、插件操作失败、传给 `config validate` 的配置文件缺失或非法) |
 | `2` | `EXIT_VERIFY_FAILED` | 验证失败 —— 数据**未通过**完整性校验 |
-| `3` | `EXIT_CONFIG_ERR` | 配置错误 —— 文件缺失、TOML 非法,或 `--strict` 模式检测到安全不变量被破坏 |
+| `3` | `EXIT_CONFIG_ERR` | 配置错误 —— `--strict` 模式的安全不变量违规,或经 `run --dry-run` 到达的配置文件缺失/非法 |
 
 > [!NOTE]
 > 脚本应把退出码 `2` 理解为"日志不可信",而不是"命令崩溃"。它是验证结论,不是运行故障。
@@ -102,7 +105,7 @@ dologctl config validate -c /etc/dologger.toml --strict
 
 ### dologctl run
 
-启动 DoLogger 引擎(前台运行)。
+运行 DoLogger 引擎(v0.1.0 仅支持 `--dry-run` 校验与 `--trace` 计时两种模式;长驻前台模式为 M3+)。
 
 ```text
 dologctl run [--dry-run] [--config <path>] [--trace]
@@ -117,10 +120,12 @@ dologctl run [--dry-run] [--config <path>] [--trace]
 示例:
 
 ```bash
-dologctl run --config dologger.toml
-dologctl run --dry-run                      # 等价于 config validate
-dologctl run --trace                        # 逐条记录管道计时
+dologctl run --dry-run --config dologger.toml   # 只校验配置
+dologctl run --trace --config dologger.toml     # 逐条记录管道计时（v0.1.0 的实际运行模式）
 ```
+
+> [!NOTE]
+> v0.1.0 尚未接通长驻引擎的启动路径:直接 `dologctl run` 会以退出码 `1` 报 `Engine startup not yet implemented (M3+)`。请使用 `--dry-run` 校验配置,或使用 `--trace` 进行计时管道运行。
 
 ---
 
@@ -128,7 +133,7 @@ dologctl run --trace                        # 逐条记录管道计时
 
 ### dologctl plugin install
 
-从路径或 URL 安装插件。
+从本地文件路径(\.dll\/\.so\/\.dylib)安装插件。
 
 ```text
 dologctl plugin install <source>
@@ -136,7 +141,8 @@ dologctl plugin install <source>
 
 ```bash
 dologctl plugin install ./target/release/fmt_json.dll
-dologctl plugin install https://plugins.example.com/fmt_json-v1.2.0.zip
+# 伪代码/示意 — v0.1.0 的 install 仅接受本地文件路径（fs::copy），不支持 URL
+# dologctl plugin install https://plugins.example.com/fmt_json-v1.2.0.zip
 ```
 
 安装的插件在可被加载前必须通过验证(ABI 版本、信任颜色、符号解析)。信任模型见[插件开发指南](PluginDevelopmentGuide.md)。
@@ -245,16 +251,16 @@ dologctl recovery-report ./logs          # 默认:当前目录
 生成合成 SIF 测试记录(用于管道集成测试)。
 
 ```text
-dologctl record <domain> --output <file> [--duration <secs>]
+dologctl record <domain> --output-file <file> [--duration <secs>]
 ```
 
 | 选项 | 说明 |
 |:-:|:-:|
-| `-o, --output <file>` | 输出 SIF 文件路径 |
+| `-f, --output-file <file>` | 输出 SIF 文件路径 |
 | `-d, --duration <secs>` | 录制时长(秒,默认 `10`) |
 
 ```bash
-dologctl record app -o capture.sif -d 30
+dologctl record smoke -f capture.sif -d 10
 ```
 
 ### dologctl replay
@@ -274,9 +280,11 @@ dologctl replay capture.sif
 dologctl replay capture.sif --speed 1
 ```
 
+（注：输入 SIF 文件需由 `dologctl record` 生成。）
+
 ### dologctl record-stop
 
-查询(并停止)某个域的录制会话。
+查询某个域的录制会话状态（实际实现仅检查状态）。
 
 ```text
 dologctl record-stop <domain>
@@ -365,7 +373,7 @@ dologctl completions <shell>
 ```bash
 source <(dologctl completions bash)
 source <(dologctl completions zsh)
-dologctl completions fish | source
+dologctl completions fish > ~/.config/fish/completions/dologctl.fish   # fish 补全
 dologctl completions powershell | Out-String | Invoke-Expression
 ```
 

@@ -119,7 +119,7 @@ DO_LOG_CONFIG_FILE=./dologger.toml ./myapp
 # dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
 ```
 
-Sidecar 配置：
+Sidecar 配置（字段名与 `core/src/sink/shm.rs` 中的 `ShmSinkConfig` 一致）：
 
 ```toml
 [dologger]
@@ -128,8 +128,10 @@ performance_profile = "prod-performance"
 [sinks.shm]
 type = "sink_shm"
 enabled = true
-shm_name = "dologger_app"
-max_size = 104857600       # 100 MB
+path = "dologger_app"
+input_format = "sif"
+buffer_size_mb = 100        # 100 MB
+slot_size_kb = 256
 full_policy = "drop_oldest" # SHM 满时的行为
 ```
 
@@ -207,7 +209,7 @@ sudo systemctl status dologger
 | 方法 | 路径 | 认证 | 描述 |
 |:-:|:-:|:-:|:-:|
 | GET | `/status` | 无 | 引擎状态和指标 |
-| GET | `/health` | 无 | 存活检查（200 = 存活） |
+| GET | `/health` | 无 | 存活检查（200 = 存活）（规划中） |
 | POST | `/level` | 无 | 动态设置日志级别 |
 | POST | `/reload` | 无 | 触发配置重载 |
 
@@ -293,7 +295,7 @@ vim /etc/dologger/default.toml
 
 ### 控制面安全
 
-- 默认绑定到 `127.0.0.1:9090`（仅本地主机）
+- 默认绑定到 `127.0.0.1:9090`（仅本地主机；规划中 — v0.1.0 未随引擎启动，M3+）
 - M4 将添加 mTLS + JWT 认证以支持远程访问
 - 生产环境：使用主机防火墙限制访问
 
@@ -328,6 +330,7 @@ sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
 对于生产环境，部署提供持久密钥存储的 `KeyProvider` 插件：
 
 ```toml
+# （示意 — v0.1.0 不解析插件配置节）
 [plugins.key-file]
 type = "key_provider"
 path = "/usr/lib/dologger/plugins/libkey_file.so"
@@ -484,7 +487,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 4. **遏制（如果怀疑篡改）：**
    - 将主机从网络隔离
    - 保留受影响文件的取证镜像
-   - 立即轮换签名密钥：`dologctl key rotate --emergency`
+   - 立即轮换签名密钥：`dologctl key rotate --emergency`（伪代码 — key 子命令规划中，尚未提供）
 
 5. **报告：**
    - 提交安全事件报告
@@ -519,7 +522,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
    - 未知插件：隔离二进制文件进行分析
 
 4. **防止复发：**
-   - 审计所有已安装插件：`dologctl plugin list --verbose`
+   - 审计所有已安装插件：`dologctl plugin list`
    - 审查插件审查流程
    - 考虑完全禁用 Red 插件（`allow_red_plugins = false`）
 
@@ -710,7 +713,7 @@ shutdown_timeout_ms = 10000
 **这些合规模板仅是技术起点。** 它们不保证法规合规。您必须在部署到生产环境前咨询您的法律顾问并进行完整评估。模板：
 - 将所有安全相关配置设置为其最严格的值
 - 不能被较低优先级配置层放松（不可降级）
-- 必须使用以下命令验证：`dologctl config validate --compliance <framework> --strict`
+- 必须使用以下命令验证：`dologctl config validate --config compliance/<framework>.toml --strict`（v0.1.0 无 `--compliance` 选项）
 
 ---
 

@@ -143,7 +143,7 @@ int main(void) {
 
 ### How Configuration is Resolved
 
-DoLoader uses a 7-layer priority system. Lower-numbered layers have lower priority:
+DoLogger uses a 7-layer priority system. Lower-numbered layers have lower priority:
 
 (illustrative diagram — describes the intended priority ladder):
 
@@ -191,7 +191,7 @@ key_rotation_grace_period_days = 7      # Old keys valid after rotation
 | `DO_LOG_PERF_PROFILE` | `performance_profile` | `DO_LOG_PERF_PROFILE=balanced` |
 | `DO_LOG_CONFIG_FILE` | Config file path | `DO_LOG_CONFIG_FILE=/opt/app/dologger.toml` |
 | `DO_LOG_PLUGIN_DIR` | Plugin directory | `DO_LOG_PLUGIN_DIR=/opt/app/plugins` |
-| `DO_LOG_CONFIG_LOCK` | Lock config at load | `DO_LOG_CONFIG_LOCK=1` |
+| `DO_LOG_CONFIG_LOCK` | Prevent fallback config search (requires `DO_LOG_CONFIG_FILE`) | `DO_LOG_CONFIG_LOCK=1` |
 | `DO_LOG_SIGN_KEY` | Signing key path *(planned)* | `DO_LOG_SIGN_KEY=/secure/signing.key` |
 | `DO_LOG_VERIFY_KEY` | Verification key *(planned)* | `DO_LOG_VERIFY_KEY=/secure/verify.pub` |
 
@@ -200,6 +200,9 @@ key_rotation_grace_period_days = 7      # Old keys valid after rotation
 Enable any combination of sinks. All enabled sinks receive every record:
 
 ```toml
+# (illustrative — v0.1.0 FileSinkConfig has: path, max_size (bytes),
+# fsync_on_write, durability_level, buffer_size; time-based rotation,
+# compression, and retention are planned)
 [sinks.console]
 type = "sink_console"
 enabled = false                         # Disable in production
@@ -244,11 +247,10 @@ Always validate configuration before deploying:
 # Strict validation
 dologctl config validate --config dologger.toml --strict
 
-# With compliance check (validate the compliance template directly)
-dologctl config validate --config compliance/gdpr.toml --strict
-
-# Show effective configuration after all layers merge (illustrative — planned CLI feature)
-dologctl config show --effective
+# pseudocode — planned features; v0.1.0 has no --compliance flag and no
+# config show subcommand
+# dologctl config validate --config dologger.toml --compliance gdpr
+# dologctl config show --effective
 ```
 
 ---
@@ -514,18 +516,21 @@ Red plugins are disabled by default. Enable with `allow_red_plugins = true`.
 ### Rust
 
 ```toml
-# Cargo.toml
+# Cargo.toml (in-tree; the crate is not published to crates.io yet)
 [dependencies]
-dologger-sdk = "0.1"
+dologger-sdk = { path = "adapters/rust" }
 ```
 
 ```rust
 use dologger_sdk::Logger;
 
-fn main() {
-    let mut logger = Logger::init(None).expect("DoLogger init failed");
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut logger = Logger::init(Some("dologger.toml"))?;
+
     logger.info("Hello from Rust host");
+
     logger.shutdown();
+    Ok(())
 }
 ```
 
@@ -600,6 +605,8 @@ dologger_record_params_t params = {
 dologger_log(logger, &params);
 ```
 
+(Note: the v0.1.0 FFI implementation does not yet propagate `request_id` and other extension fields into the output record.)
+
 ### Pattern 3: Conditional Logging
 
 Filter out expensive debug computation when the level would drop it:
@@ -617,30 +624,34 @@ if (dologger_would_log(logger, DO_LOG_DEBUG)) {
 
 ### Pattern 4: Graceful Shutdown with Signal Handling
 
-(pseudocode — illustrative, not compiled: use `dologger_log()` with a `dologger_record_params_t` instead of the `DO_LOG_INFO` macro, and note `dologger_shutdown()` takes the handle by value):
-
 ```c
-// (pseudocode — illustrative, not compiled)
 #include <signal.h>
+#include <stdlib.h>
+#include "dologger_core.h"
 
 static dologger_handle_t *g_logger = NULL;
 
 static void handle_signal(int sig) {
     if (sig == SIGTERM || sig == SIGINT) {
-        DO_LOG_INFO(g_logger, "Received signal %d, shutting down", sig);
-        dologger_shutdown(&g_logger);
+        dologger_record_params_t params = {
+            .level   = DO_LOG_INFO,
+            .message = "Received signal, shutting down",
+        };
+        dologger_log(g_logger, &params);
+        dologger_shutdown(g_logger);
         exit(0);
     }
 }
 
 int main(void) {
-    dologger_init(NULL, &g_logger);
+    dologger_error_t err = {0};
+    g_logger = dologger_init(NULL, &err);
     signal(SIGTERM, handle_signal);
     signal(SIGINT, handle_signal);
 
     // ... application loop ...
 
-    dologger_shutdown(&g_logger);
+    dologger_shutdown(g_logger);
     return 0;
 }
 ```
@@ -661,13 +672,13 @@ static void my_callback(const uint8_t *data, size_t len, void *user) {
 }
 
 int main(void) {
-    dologger_handle_t *logger = NULL;
-    dologger_init(NULL, &logger);
+    dologger_error_t err = {0};
+    dologger_handle_t *logger = dologger_init(NULL, &err);
 
     dologger_register_callback_sink(logger, my_callback, NULL);
 
     // ... application logic ...
-    dologger_shutdown(&logger);
+    dologger_shutdown(logger);
 }
 ```
 
@@ -678,15 +689,15 @@ Keep callbacks fast -- they execute on the pipeline thread. No blocking I/O.
 Change the log level at runtime to debug issues in production:
 
 ```bash
-# Increase verbosity temporarily
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "DEBUG"}'
-
-# Restore after debugging
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "INFO"}'
+# pseudocode/illustrative — the control plane endpoint (POST /level) is not
+# started with the engine in v0.1.0 (M3+)
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "DEBUG"}'
+#
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "INFO"}'
 ```
 
 ---
@@ -721,7 +732,7 @@ curl -X POST http://127.0.0.1:9090/level \
 **Checklist:**
 1. Verify `performance_profile` -- a `dev` profile uses small buffers and batches
 2. Check if `enable_signature = true` -- Ed25519 signing adds ~17 us per record
-3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (drop-rate metrics are planned, M4)
+3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+); drop-rate metrics are planned, M4)
 4. Run `dologctl perf` to baseline the engine on your hardware
 5. Check if `fsync_on_write = true` -- forces I/O flush on every record
 
@@ -740,7 +751,7 @@ curl -X POST http://127.0.0.1:9090/level \
 **Symptom:** Diagnostic log shows `[PLUGIN] load failed`.
 
 **Checklist:**
-1. ABI version mismatch: compare the plugin's `abi_version` field (from `plugin_query()`) with the core ABI version
+1. ABI version mismatch: compare the plugin's `abi_version` field (from `plugin_query()`) with the core ABI version (v0.1.0 has no global `DO_LOG_ABI_VERSION` macro — the engine passes its `core_abi_version` to `plugin_query()`)
 2. Missing dependency: check `manifest.toml` `[dependencies]` section
 3. Blue plugin signature: verify the `.sig` file is present and valid
 4. License incompatibility: the plugin's SPDX identifier may be in a denied category
@@ -751,18 +762,17 @@ curl -X POST http://127.0.0.1:9090/level \
 Windows holds file handles after rotation. Configure the file sink to use `FILE_SHARE_DELETE` and close handles before rotation. If files are locked, stop the engine briefly:
 
 ```bash
-# (illustrative — daemon start/stop commands are planned; the engine
-#  daemon lands in M3, today dologctl run supports --dry-run and --trace)
-dologctl stop
+# (pseudocode — v0.1.0 dologctl has no stop/start subcommands)
+# dologctl stop
 # Delete or rotate files
-dologctl start
+# dologctl start
 ```
 
 ### Collecting a Debug Report
 
 ```bash
-# (illustrative — the diag command is a planned CLI feature, not yet available)
-dologctl diag collect --output diag-report.tar.gz
+# (pseudocode — the diag command is a planned CLI feature, not yet available)
+# dologctl diag collect --output diag-report.tar.gz
 ```
 
 This creates an archive with the internal log, active configuration (redacted), plugin manifest, ring buffer statistics, and OS resource limits. Attach it when filing a bug report.

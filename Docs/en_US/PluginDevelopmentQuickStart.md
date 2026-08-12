@@ -370,7 +370,7 @@ func main() {}
 ### Step 2: Build
 
 ```bash
-cd plugins/examples/filter/go/my_filter
+cd plugins/examples/filter/go/example_filter
 CGO_ENABLED=1 go build -buildmode=c-shared -o dologger-plugin-my_filter.so .
 ```
 
@@ -458,7 +458,8 @@ This header declares:
 | **Trust levels** | *(planned — sandbox trust levels land in M4)* |
 | **Log levels** | `DO_LOG_TRACE` through `DO_LOG_AUDIT` |
 | **Record accessors** | `dologger_field_get()`, `dologger_field_set()`, ... |
-| **ABI version** | `abi_version` field of `dologger_plugin_info_t` (e.g. `0x000100` for v0.1.0) |
+| **ABI version** | Declared per plugin in the `plugin_info.abi_version` field (e.g. `0x000100` = 0.1.0); the header has no global `DO_LOG_ABI_VERSION` / `DO_LOG_CORE_ABI_VERSION` macro |
+| **Plugin exports** | `plugin_query(uint32_t core_abi_version)`, `plugin_init(const void *config)`, `plugin_shutdown(void)` |
 
 ### Plugin ABI Contract
 

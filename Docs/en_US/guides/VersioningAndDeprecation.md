@@ -145,7 +145,8 @@ flowchart TD
 ```c
 // (pseudocode — illustrative, not compiled: these macros and function names do
 // not exist in dologger_core.h yet; the pattern will be adopted when the first
-// symbol is deprecated)
+// symbol is deprecated. `__attribute__` is GCC/Clang syntax — MSVC requires
+// `__declspec(deprecated(msg))` instead)
 // Mark a function as deprecated in the C header
 #define DO_LOG_DEPRECATED(msg)  __attribute__((deprecated(msg)))
 
@@ -209,7 +210,7 @@ flowchart TD
 The error message is explicit:
 
 ```text
-(illustrative example output)
+(illustrative — planned error message format, not actual output)
 [ERROR] Plugin 'json-formatter' (v1.2.0) compiled against ABI version 1,
         but engine requires ABI version 2.
         Recompile the plugin against dologger_core >= 2.0.0.

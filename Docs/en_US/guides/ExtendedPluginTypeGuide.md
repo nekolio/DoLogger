@@ -84,6 +84,8 @@ A `ConfigProvider` extends where the engine loads its configuration from. The en
 
 ### ConfigProvider VTable
 
+(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_config_provider_vtable_t`: `open`/`read_config`/`close`)):
+
 ```c
 typedef struct {
     // Required: Load configuration and return a TOML string
@@ -142,6 +144,8 @@ A `KeyProvider` manages the Ed25519 key pair used for signing audit records. By 
 - You just need to store a password -- use a ConfigProvider or environment variable
 
 ### KeyProvider VTable
+
+(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_key_provider_vtable_t`: `open`/`get_public_key`/`sign_detached`/`close`)):
 
 ```c
 typedef struct {
@@ -219,6 +223,8 @@ sequenceDiagram
 
 ### SyscallBroker VTable
 
+(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_syscall_broker_vtable_t`: `syscall_io`)):
+
 ```c
 typedef struct {
     dologger_broker_dispatch_fn_t dispatch;
@@ -236,6 +242,8 @@ typedef dologger_error_t (*dologger_broker_dispatch_fn_t)(
 ### Implementing a SyscallBroker
 
 A production `SyscallBroker` must enforce policy. The broker is Blue-trust -- it can do anything. Its job is to decide what the calling Yellow/Red plugin is allowed to do.
+
+(pseudocode — only illustrates the policy enforcement flow; `DO_LOG_TRUST_*`, `dologger_emit_sysmon` and similar symbols do not exist in v0.1.0):
 
 ```c
 dologger_error_t my_broker_dispatch(
@@ -322,6 +330,8 @@ The engine includes built-in rate limiting and level-gating in the PreFilter sta
 
 ### PolicyProvider VTable
 
+(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_policy_provider_vtable_t`: only `evaluate`)):
+
 ```c
 typedef struct {
     dologger_policy_evaluate_fn_t  evaluate;
@@ -344,6 +354,8 @@ typedef dologger_error_t (*dologger_policy_evaluate_fn_t)(
 ### Pattern 1: Token Bucket Rate Limiter
 
 The classic rate limiting pattern. Maintains a token bucket per logging level.
+
+(pseudocode — token bucket rate limiter example, illustrative only; `dologger_policy_result_t` and similar types do not exist in v0.1.0):
 
 ```c
 typedef struct {
@@ -383,6 +395,8 @@ dologger_error_t rate_limit_evaluate(
 ### Pattern 2: Circuit Breaker by Error Rate
 
 Triggers when the rate of ERROR+FATAL records exceeds a threshold, indicating an application fault storm.
+
+(pseudocode — error-rate circuit breaker example, illustrative only):
 
 ```c
 typedef struct {
@@ -429,6 +443,8 @@ dologger_error_t circuit_breaker_evaluate(
 ### Pattern 3: Quota Management (Per-Tenant)
 
 For multi-tenant deployments, limit logging per tenant to prevent one noisy tenant from consuming all resources.
+
+(pseudocode — per-tenant quota example, illustrative only):
 
 ```c
 typedef struct {
@@ -484,7 +500,7 @@ requires_plugins = [
 
 ### Dependency Resolution
 
-The engine resolves dependencies as a Directed Acyclic Graph (DAG) at startup (pseudocode — illustrative):
+The engine resolves dependencies as a Directed Acyclic Graph (DAG) at startup (pseudocode/illustrative — dependency resolution steps overview, not a command):
 
 ```
 1. Parse all [dependencies] sections from loaded plugins
@@ -509,6 +525,8 @@ The engine resolves dependencies as a Directed Acyclic Graph (DAG) at startup (p
 | **Shutdown is reverse** | Plugins shut down in reverse dependency order. Dependents shut down before their dependencies. |
 
 ### Circular Dependency Detection
+
+(pseudocode — dependency validator sketch (`for each` is pseudo-syntax, not compilable C); the v0.1.0 actual implementation is in `core/src/plugin/dependency.rs`):
 
 ```c
 // Engine's dependency validator (simplified)
@@ -543,7 +561,7 @@ When an optional dependency is not present:
 
 ### Dependency Version Conflicts
 
-When two plugins require conflicting versions of a third (illustrative example):
+When two plugins require conflicting versions of a third (illustrative — dependency conflict scenario description, not command output):
 
 ```
 Plugin A requires json-formatter >= 1.0, < 2.0
@@ -552,7 +570,7 @@ Plugin B requires json-formatter >= 2.0, < 3.0
 Result: CONFLICT
 ```
 
-The engine **rejects the configuration** with a clear error message (illustrative example output):
+The engine **rejects the configuration** with a clear error message (illustrative — planned error message format, not actual output):
 
 ```
 [ERROR] Dependency conflict:
@@ -579,6 +597,8 @@ Skip it if:
 - Your plugin state contains secrets that should not be serialized to plaintext
 
 ### State Serialization VTable Functions
+
+(pseudocode — planned optional exports; v0.1.0 has no `dologger_state_buf_t` and hot-reload serialization is not implemented):
 
 ```c
 // Optional exports -- if not present, the plugin reinitializes on hot reload
@@ -608,6 +628,8 @@ You control the serialization format. Recommended approaches:
 | **JSON** | Human-readable, debuggable | Slow, large output | Only for small state (< 1 KB) |
 
 ### Example: Serializing a Rate Limiter State
+
+(pseudocode — serialization example, illustrative only; `dologger_state_buf_t` does not exist):
 
 ```c
 // State structure
@@ -643,6 +665,8 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
 
 If your state format changes between plugin versions, include a version header:
 
+(pseudocode — state versioning example, illustrative only):
+
 ```c
 typedef struct {
     uint32_t state_version;       // Bump when state layout changes
@@ -669,8 +693,9 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
 
 ### Hot Reload Lifecycle
 
+(pseudocode/illustrative — hot reload lifecycle steps, planned):
+
 ```text
-(pseudocode — illustrative lifecycle)
 1. Engine detects new plugin binary (config change or SIGHUP)
 2. Calls plugin_state_serialize() on the OLD plugin
 3. Calls plugin_shutdown() on the OLD plugin
@@ -704,6 +729,8 @@ mount_phase = ["process", "filter"]  # Multiple phases
 ```
 
 ### Exporting Multiple VTables
+
+(pseudocode — multi-phase plugin export sketch; the v0.1.0 actual VTable definitions are in `core/include/dologger_core.h` (no `process_batch`/`filter_batch` members, and no `dologger_vtable` symbol convention)):
 
 ```c
 // The plugin exports one VTable per phase:
@@ -756,6 +783,8 @@ The plugin's `plugin_init()` is called **once** before the pipeline starts. The 
 
 If your multi-phase plugin's state is accessed from different pipeline stages (which may execute on different threads), you must synchronize access:
 
+(pseudocode — multi-phase thread-safety example, illustrative only; `dologger_filter_result_t` does not exist):
+
 ```c
 typedef struct {
     pthread_mutex_t lock;
@@ -785,6 +814,8 @@ dologger_error_t pii_detect_filter(dologger_record_t *record,
 
 Plugins in the same pipeline phase can cooperate by reading each other's output:
 
+(pseudocode — field cooperation example; the v0.1.0 actual field API is `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`, returning `dologger_error_t` (int32_t)):
+
 ```c
 // Plugin A (FieldProvider) writes a field
 dologger_record_set_field(record, "verified.user_id", user_id);
@@ -810,6 +841,8 @@ requires_fields = ["verified.user_id"]    # Plugin A provides this
 
 A plugin delegates work to another plugin via the plugin registry:
 
+(pseudocode — plugin delegation pattern example; `dologger_get_plugin()` and the registry lookup API do not exist in v0.1.0):
+
 ```c
 // A Formatter that delegates to another Formatter for specific record types
 dologger_error_t delegating_format(const dologger_record_t *record,
@@ -827,6 +860,8 @@ dologger_error_t delegating_format(const dologger_record_t *record,
 ### Pattern 3: Plugin State as a Cache
 
 Plugins can use their persistent state as a cache to avoid repeated expensive operations:
+
+(pseudocode — plugin state cache pattern example; the `dologger_field_set_t` field type does not exist):
 
 ```c
 // A FieldProvider that resolves user IDs to display names
@@ -873,6 +908,8 @@ The cache persists across hot reload via state serialization, avoiding a cold-st
 
 Plugins can emit their own diagnostics into the sysmon event stream:
 
+(pseudocode — custom sysmon event example; `dologger_emit_sysmon` does not exist in v0.1.0):
+
 ```c
 // Emit a custom metric from within a plugin
 dologger_emit_sysmon("PLUGIN_METRIC",
@@ -886,6 +923,8 @@ Custom sysmon events must follow the naming convention `PLUGIN_<EVENT_NAME>` (fo
 ### Pattern 5: Graceful Degradation
 
 Plugins should degrade gracefully when their dependencies or external resources are unavailable:
+
+(pseudocode — graceful degradation example; the v0.1.0 actual signature is `int plugin_init(const void *config)`, and `dologger_plugin_config_t` does not exist):
 
 ```c
 dologger_error_t my_plugin_init(const dologger_plugin_config_t *config) {

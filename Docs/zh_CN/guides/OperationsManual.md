@@ -80,11 +80,11 @@ shutdown_timeout_ms = 5000
 | `DO_LOG_BUF_SIZE` | 覆盖环形缓冲区大小 |
 | `DO_LOG_PERF_PROFILE` | 覆盖性能 Profile |
 | `DO_LOG_CONFIG_FILE` | 指定配置文件路径 |
-| `DO_LOG_CONFIG_LOCK` | 锁定配置禁止运行时修改 |
+| `DO_LOG_CONFIG_LOCK` | 禁止回退配置搜索（要求 `DO_LOG_CONFIG_FILE` 存在） |
 
 ### 配置热重载
 
-修改配置文件后，引擎自动检测（轮询间隔 1s，防抖 500ms）：
+修改配置文件后，引擎自动检测（轮询间隔 1s，防抖 500ms）——规划中的行为：
 
 ```bash
 # 伪代码/示意 — ConfigWatcher（core/src/config/watcher.rs）在 v0.1.0 尚未接入 Engine::init，
@@ -114,6 +114,8 @@ shutdown_timeout_ms = 5000
 | `SANDBOX_VIOLATION` | CRITICAL | 沙箱违规 | 插件尝试禁用系统调用 |
 | `SIGNATURE_FAILURE` | CRITICAL | 签名验证失败 | 日志可能被篡改 |
 
+（注：v0.1.0 实际 sysmon 行格式为 `{"sysmon_version":"1.0","error_code":0,"category":"...","description":"...","timestamp_ms":...,"severity":1}`）
+
 ### 控制面状态查询
 
 ```bash
@@ -142,6 +144,7 @@ shutdown_timeout_ms = 5000
 | 方法 | 路径 | 功能 |
 |:-:|:-:|:-:|
 | GET | `/status` | 引擎状态 + 指标 |
+| GET | `/health` | 存活检查（规划中 — v0.1.0 未实现） |
 | POST | `/level` | 动态设置日志级别 |
 | POST | `/reload` | 触发配置重载 |
 
@@ -156,7 +159,7 @@ shutdown_timeout_ms = 5000
 
 ### 安全注意事项
 
-- 控制面默认监听 127.0.0.1:9090（仅本地）
+- 控制面默认监听 127.0.0.1:9090（仅本地；规划中 — v0.1.0 未随引擎启动，M3+）
 - M4 阶段支持 mTLS + JWT 认证
 - 生产环境建议配合防火墙限制访问
 
@@ -167,6 +170,8 @@ shutdown_timeout_ms = 5000
 ### 滚动策略
 
 ```toml
+# （示意 — v0.1.0 的 FileSinkConfig 仅含：path、max_size（字节）、fsync_on_write、
+# durability_level、buffer_size；按时间滚动、压缩与文件数保留均为规划中）
 [sinks.file]
 type = "sink_file"
 max_size = "100MB"              # 按大小滚动
@@ -177,6 +182,7 @@ compression = "zstd"            # gzip / zstd
 ### 保留策略
 
 ```toml
+# （示意 — 保留策略键为规划中，v0.1.0 未解析）
 [sinks.file]
 retention_days = 90
 retention_total_size = "10GB"
@@ -206,12 +212,12 @@ dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 
 ### 紧急缓冲恢复
 
-当环形缓冲区溢出时，记录自动溢出到紧急文件。恢复正常后自动恢复：
+当环形缓冲区溢出时，记录自动溢出到紧急文件（位于系统临时目录 — 见 `core/src/buffer/emergency_buffer.rs`）。恢复正常后自动恢复：
 
 （伪代码/示意 — 恢复流程，非命令）：
 
 ```
-dologger_emergency_<pid>.buf  →  引擎自动读取 → 注入主管线
+dologger_emergency_<pid>_<spill_id>.buf  →  引擎自动读取 → 注入主管线
 ```
 
 ---

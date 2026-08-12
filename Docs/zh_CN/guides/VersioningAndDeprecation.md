@@ -78,7 +78,7 @@ flowchart TD
 
 ### ABI 契约
 
-`DO_LOG_ABI_VERSION` 常量是确保插件和宿主基于兼容 ABI 编译的门禁。引擎**拒绝加载**其 `abi_version` 与运行中引擎版本不匹配的插件。
+ABI 门禁确保插件和宿主基于兼容的 ABI 编译。引擎**拒绝加载**其 `abi_version` 与运行中引擎版本不匹配的插件。在 v0.1.0 的当前实现中，这是 `dologger_plugin_info_t` 的 `abi_version` 字段（对照 `CORE_ABI_VERSION`，v0.1.0 为 `0x000100`）；`plugin_query` 接收 `uint32_t core_abi_version` 作为参数。
 
 ```c
 // 注：v0.1.0 的 dologger_core.h 中没有全局 DO_LOG_ABI_VERSION 宏；
@@ -301,9 +301,6 @@ cargo test
 
 # 6. 先灰度部署，然后全量上线
 ```
-（示意 — 预发布标签示例，非命令输出）：
-
-
 ### 向后兼容性承诺
 
 DoLogger 承诺以下向后兼容性窗口：
@@ -378,7 +375,7 @@ git tag -a v2.0.0 -m "Release v2.0.0 — ABI 版本 2，请参阅迁移指南"
 **表 5：版本支持矩阵**
 
 | 版本轨道 | 支持级别 | 安全补丁 | Bug 修复 | 生命周期终止 |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | 最新 MAJOR（N） | **完全** | 是 | 是 | — |
 | 上一个 MAJOR（N-1） | **关键** | 仅安全 | 否 | N 发布后 6 个月 |
 | N-2 及更早 | **无** | 否 | 否 | N 发布时立即 |
@@ -407,14 +404,13 @@ flowchart TD
 
 如果您遇到违反此策略的兼容性问题，请提交 Bug 报告并附：
 
-（伪代码 — v0.1.0 尚无 diag 子命令）：
-
 ```bash
-dologctl diag collect --output compatibility-issue.tar.gz
+dologctl version
+dologctl about --output json > compatibility-info.json
 ```
 
 附加诊断存档并描述：
-1. 引擎版本（`dologger_get_abi_version()` 输出）
+1. 引擎版本（`dologger_version()` 输出）
 2. 插件版本和 ABI 版本
 3. 预期行为 vs 观察到的行为
 4. `dologger_internal.log` 中的任何错误消息

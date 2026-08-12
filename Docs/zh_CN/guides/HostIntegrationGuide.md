@@ -258,7 +258,7 @@ use dologger_core::Engine;
 
 ### Python (M4)
 
-（伪代码/示意 — M4 规划的托管适配器；当前仓库适配器见 `adapters/python/dologger.py`，类名为 `DoLogger` 且 v0.1.0 缺少 `c_char` 导入）：
+（伪代码/示意 — M4 规划的托管适配器；当前仓库适配器见 `adapters/python/dologger.py`，类名为 `DoLogger`，已随 v0.1.0 实测运行）：
 
 ```python
 import dologger

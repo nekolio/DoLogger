@@ -74,25 +74,29 @@ enable_signature = false
 ./target/release/dologctl run --trace
 ```
 
-This initializes the engine and pushes 10 trace records through the pipeline (the long-running engine daemon lands in M3). You should see the engine initialize followed by log output:
+This initializes the engine and pushes 10 trace records through the pipeline, reporting per-record pipeline stage timings (the long-running foreground mode lands in M3+). Typical output:
 
 ```text
-DoLogger Engine - Trace Run
+Configuration file: dologger.toml (auto-detected)
+DoLogger Engine — Trace Run
+──────────────────────────────
+
 Initializing engine...
 Engine ready.  Submitting 10 trace records...
 
-[1786561656.221] [INFO] [1] Application started successfully
-[1786561656.222] [INFO] [1] Processing incoming request
-[1786561656.222] [INFO] [1] Database connection pool initialized (32 connections)
+[1786561486.685] [INFO] [1] Application started successfully
+[1786561486.685] [INFO] [1] Processing incoming request
+[1786561486.685] [INFO] [1] Database connection pool initialized (32 connections)
+  [ 1] push=300 ns  e2e=529.2 µs  Application started successfully
+  [ 2] push=200 ns  e2e=19.7 µs  Processing incoming request
+  ...
 
 Trace Summary
+─────────────
   Records processed:  10
-  Submit (push -> ring buffer):    Avg: 50 ns
-  End-to-end (push -> sink write): Avg: 56.3 us
-Engine shutdown complete.
 ```
 
-The ASCII-art banner is shown by `dologctl version` (when output is a terminal).
+Tip: running `./target/release/dologctl` without arguments (or `dologctl version`) shows the engine banner.
 
 ### Step 4: Run the Example (Optional)
 
@@ -118,12 +122,14 @@ Config: level=DEBUG, profile=Dev, buffer=65536, batch=32
 
 ### Step 5: Verify the Log File
 
+To see file output, run the `file_logger` example, which writes `dologger_output.log`:
+
 ```bash
-# (illustrative — requires a file sink; the dev template uses console output)
+cargo run --example file_logger
 cat dologger_output.log
 ```
 
-When a file sink is enabled, records are written to `dologger_output.log` by default (see the [File Sink configuration](#4-output-sinks) below). The steps above use console output.
+Records are written by the FileSink to `dologger_output.log` (one record per line: `[timestamp] [level] [process] message`).
 
 ---
 
@@ -216,14 +222,15 @@ dologctl config validate --config dologger.toml --strict
 # List loaded plugins
 dologctl plugin list
 
-# Check engine health (requires running engine)
-curl http://127.0.0.1:9090/status
+# Check engine health (requires a running engine; the v0.1.0 control plane
+# is not started yet — illustrative)
+# curl http://127.0.0.1:9090/status
 
-# Verify Ed25519 audit chains (PATH is positional)
-dologctl verify-log /var/lib/dologger/audit/
+# Verify the audit chain (takes a single SIF/WORM file)
+dologctl verify-log audit-000001.worm
 
-# Collect diagnostic report (illustrative — planned CLI feature, not yet available)
-dologctl diag collect --output diag-report.tar.gz
+# Collect diagnostic report (pseudocode — this subcommand does not ship in v0.1.0)
+# dologctl diag collect --output diag-report.tar.gz
 ```
 
 ### Troubleshooting

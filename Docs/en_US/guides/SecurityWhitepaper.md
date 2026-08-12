@@ -441,8 +441,9 @@ dologctl config validate \
 ### Tamper Detection Workflow
 
 ```text
-(illustrative example output — the summary numbers are fabricated)
-1. Operator runs: dologctl verify-log /var/lib/dologger/audit/
+(illustrative example output — the summary numbers are fabricated;
+verify-log takes a single file path)
+1. Operator runs: dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
 2. For each record in the WORM file:
    a. Parse the record binary format

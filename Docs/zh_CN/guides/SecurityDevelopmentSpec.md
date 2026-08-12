@@ -46,6 +46,8 @@
 
 Rust 插件必须将每个 `unsafe` 块视为安全责任：
 
+(伪代码 — 教学片段（`record_ptr` 未定义，非完整可编译代码），仅演示注释规范)：
+
 ```rust
 // 必须：每个 unsafe 块必须附有 SAFETY 注释，
 // 解释为什么它是安全的，而不仅仅是它做什么。
@@ -57,7 +59,6 @@ let record = unsafe { &*record_ptr };
 
 // 不好的写法：
 let record = unsafe { &*record_ptr }; // 无解释
-(伪代码 — 教学示例，仅示意验证模式；`dologger_filter_result_t`、`DO_LOG_MAX_MESSAGE_LEN` 等符号在 v0.1.0 中不存在)：
 ```
 
 违反 R1 的后果：
@@ -89,6 +90,8 @@ let record = unsafe { &*record_ptr }; // 无解释
 
 ### 验证模式（C）
 
+(伪代码 — 教学示例，仅示意验证模式；`dologger_filter_result_t`、`DO_LOG_MAX_MESSAGE_LEN` 等符号在 v0.1.0 中不存在)：
+
 ```c
 dologger_error_t my_filter(dologger_record_t *record,
                            dologger_filter_result_t *result) {
@@ -119,10 +122,11 @@ dologger_error_t my_filter(dologger_record_t *record,
 
     return DO_LOG_OK;
 }
-(伪代码 — 教学示例，仅示意验证模式；core 中无 `FilterResult`/`FilterAction`/`DoLogError` 类型)：
 ```
 
 ### 验证模式（Rust）
+
+(伪代码 — 教学示例，仅示意验证模式；core 中无 `FilterResult`/`FilterAction`/`DoLogError` 类型)：
 
 ```rust
 fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
@@ -144,7 +148,6 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 
     Ok(())
 }
-(伪代码 — 教学示例，仅示意沙箱约束；v0.1.0 实际插件入口为 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 ```
 
 ### 原则
@@ -165,7 +168,7 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 **表 3：按信任颜色的沙箱能力**
 
 | 能力 | Blue | Yellow | Red |
-|:-:|:-:|:-::-:|:-:|
+|:-:|:-:|:-:|:-:|
 | 内存分配（`mmap`、`munmap`、`brk`） | 是 | 是 | 是 |
 | 线程操作（`clone`、`futex`） | 是 | 是 | 是 |
 | 时间函数（`clock_gettime`） | 是 | 是 | 是 |
@@ -193,6 +196,8 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 - Red 插件**默认禁用**。宿主运维人员必须显式设置 `allow_red_plugins = true`。
 
 ### 在沙箱约束下开发
+
+(伪代码 — 教学示例，仅示意沙箱约束；v0.1.0 实际插件入口为 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 
 ```c
 // YELLOW 插件：不要这样做——网络被拒绝
@@ -223,7 +228,6 @@ sudo strace -f -e trace=file,network,process \
 
 # 强制 Yellow 沙箱以测试 Blue 插件
 # （编辑 dologger.toml：trust.color = "yellow" 用于测试运行）
-(伪代码 — v0.1.0 无 `dologger_secret_scan()` C 导出；核心内的 SecretDetector 为 Rust 内部 API（`core/src/security/secret_detector.rs`）)：
 ```
 
 ---
@@ -249,6 +253,8 @@ sudo strace -f -e trace=file,network,process \
 
 ### 使用 SecretDetector API
 
+(伪代码 — v0.1.0 无 `dologger_secret_scan()` C 导出；核心内的 SecretDetector 为 Rust 内部 API（`core/src/security/secret_detector.rs`）)：
+
 ```c
 // 在记录可能包含密钥的文本之前，扫描它
 dologger_secret_scan_result_t scan_result;
@@ -266,7 +272,6 @@ if (scan_result.secret_detected) {
     DO_LOG_AUDIT(logger, "SecretDetector: redacted %zu bytes at offset %zu",
                  scan_result.secret_length, scan_result.secret_offset);
 }
-(伪代码 — v0.1.0 无 `dologger_verify_record_signature()` C 导出，该接口为规划中)：
 ```
 
 ### SecretDetector 检测的内容
@@ -322,6 +327,8 @@ if (scan_result.secret_detected) {
 
 如果您的插件处理或验证 Ed25519 签名：
 
+(伪代码 — v0.1.0 无 `dologger_verify_record_signature()` C 导出，该接口为规划中)：
+
 ```c
 // 要做：使用引擎的验证 API
 dologger_error_t rc = dologger_verify_record_signature(
@@ -332,7 +339,6 @@ dologger_error_t rc = dologger_verify_record_signature(
 
 // 不要：自己重新实现签名验证
 // ed25519_dalek_verify(record->signature, ...)  <-- 不要！
-(伪代码 — 模糊测试目标模板（`my_formatter`/`mock_record_from_bytes` 为占位符；仓库暂无 fuzz/ 目录）：
 ```
 
 引擎管理公钥分发、密钥轮换和 CRL 检查。您的插件不应重复这些基础设施。
@@ -362,6 +368,8 @@ dologger_error_t rc = dologger_verify_record_signature(
 
 对于每个需要模糊测试的插件，提供至少一个模糊测试目标：
 
+(伪代码 — 模糊测试目标模板（`my_formatter`/`mock_record_from_bytes` 为占位符；引擎的真实 fuzz 目标位于 `core/fuzz/fuzz_targets/`：`fuzz_ring_buffer`、`fuzz_sif_record`、`fuzz_toml_config`）：
+
 ```rust
 // fuzz/fuzz_targets/format_json.rs
 #![no_main]
@@ -377,7 +385,6 @@ fuzz_target!(|data: &[u8]| {
         let _ = format_record(&record, &mut output);
     }
 });
-(伪代码/示意 — cargo-fuzz 命令语法正确，但 v0.1.0 仓库尚无 fuzz/format_json 目标，需先按上方模板创建)：
 ```
 
 ### 模糊测试要求检查清单
@@ -390,6 +397,8 @@ fuzz_target!(|data: &[u8]| {
 - [ ] OSS-Fuzz 集成（计划 M4）
 
 ### 本地运行模糊测试
+
+(伪代码/示意 — cargo-fuzz 命令语法正确；`format_json` 为占位目标名，请替换为 `core/fuzz/fuzz_targets/` 中的真实目标名)：
 
 ```bash
 # 安装 cargo-fuzz
@@ -504,10 +513,9 @@ cargo clippy -- -W clippy::unwrap_used \
                  -W clippy::cast_possible_wrap \
                  -W clippy::indexing_slicing
 ```
-（示例 CI 配置 — YAML 语法有效；仓库当前实际文件为 `.github/workflows/security.yml`）：
-
-
 ### CI 集成
+
+（示例 CI 配置 — YAML 语法有效；仓库当前实际文件为 `.github/workflows/security.yml`）：
 
 ```yaml
 # .github/workflows/security-checks.yml
@@ -666,5 +674,4 @@ https://github.com/Nekolio/DoLogger/security/advisories
 1. 您将通过 `manifest.toml` 中的联系邮箱收到通知。
 2. 您应在与严重性相应的时限内发布补丁。
 3. 如果漏洞严重且在 14 天后仍未修补，插件将从官方插件仓库中移除，并被引擎的安全通告检查列入黑名单。
-(伪代码 — 教学片段（`record_ptr` 未定义，非完整可编译代码），仅演示注释规范)：
 4. DoLogger 自身的 `cargo audit` / `cargo deny` 管道将在您的插件依赖于带有已知 CVE 的 crate 时标记其存在漏洞。请保持依赖项更新。

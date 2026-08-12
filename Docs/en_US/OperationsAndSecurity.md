@@ -4,7 +4,7 @@
 >
 > **Purpose**: Production deployment, monitoring, key management, audit verification, incident response, and compliance configuration for DoLogger. This is the operations manual for running DoLogger in production environments.
 >
-> 🌐 **语言 / Language**: [English](OperationsAndSecurity.md) | [中文：运维手册 + 安全白皮书](../zh_CN/guides/)
+> 🌐 **语言 / Language**: [English](OperationsAndSecurity.md) | [中文：运维与安全指南](../zh_CN/OperationsAndSecurity.md)
 >
 > **Reading Path**: SREs should start with [Deployment Modes](#deployment-modes) and [Monitoring](#monitoring). Security engineers should focus on [Key Management](#key-management) and [Audit Verification](#audit-verification). For the underlying architecture, see the [Architecture Reference](ArchitectureReference.md).
 
@@ -205,7 +205,7 @@ The System Monitor emits structured JSON events to `stderr` (or configurable out
 
 ### Control Plane API
 
-The control plane provides a lightweight HTTP API for runtime management:
+The control plane provides a lightweight HTTP API for runtime management — planned: none of these endpoints are started with the engine in v0.1.0 (M3+).
 
 | Method | Path | Auth | Description |
 |:-:|:-:|:-:|:-:|
@@ -217,15 +217,19 @@ The control plane provides a lightweight HTTP API for runtime management:
 ### Health Check
 
 ```bash
-# (illustrative — /health endpoint is planned; /status exists today)
-curl -s http://127.0.0.1:9090/health
+# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# the current implementation (core/src/sys/control_plane.rs) only has
+# GET /status, POST /level, POST /reload — no /health endpoint
+# curl -s http://127.0.0.1:9090/health
 # HTTP 200 OK
 ```
 
 ### Status Endpoint
 
 ```bash
-curl -s http://127.0.0.1:9090/status | jq .
+# pseudocode/illustrative — the control plane (GET /status) is not started
+# with the engine in v0.1.0 (M3+)
+# curl -s http://127.0.0.1:9090/status | jq .
 ```
 
 ```json
@@ -249,17 +253,18 @@ The response is deliberately minimal today; richer metrics (uptime, ring buffer 
 ### Dynamic Log Level Adjustment
 
 ```bash
-# Increase verbosity for debugging (temporary)
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "DEBUG"}'
+# pseudocode/illustrative — the control plane (POST /level) is not started
+# with the engine in v0.1.0 (M3+)
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "DEBUG"}'
 
 # Restore production level
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "INFO"}'
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "INFO"}'
 
-# Lock the level (disable runtime changes)
+# Lock the level (disable runtime changes) — this env var really works
 export DO_LOG_CONFIG_LOCK=1
 ```
 
@@ -269,18 +274,19 @@ export DO_LOG_CONFIG_LOCK=1
 # Edit the config file
 vim /etc/dologger/default.toml
 
-# Trigger immediate reload
-curl -X POST http://127.0.0.1:9090/reload
+# pseudocode/illustrative — the control plane (POST /reload) is not started
+# with the engine in v0.1.0 (M3+)
+# curl -X POST http://127.0.0.1:9090/reload
 
 # Dry-run first (planned — the reload endpoint ignores the request body today)
-curl -X POST http://127.0.0.1:9090/reload \
-  -H "Content-Type: application/json" \
-  -d '{"dry_run": true}'
+# curl -X POST http://127.0.0.1:9090/reload \
+#   -H "Content-Type: application/json" \
+#   -d '{"dry_run": true}'
 ```
 
 ### Control Plane Security
 
-- Binds to `127.0.0.1:9090` by default (localhost only)
+- Binds to `127.0.0.1:9090` by default (localhost only; planned — the control plane is not started in v0.1.0 (M3+))
 - M4 will add mTLS + JWT authentication for remote access
 - Production: use host firewall to restrict access
 
@@ -315,6 +321,7 @@ In the default configuration without a `KeyProvider` plugin:
 For production, deploy a `KeyProvider` plugin that provides persistent key storage:
 
 ```toml
+# (illustrative — plugin config sections are not parsed in v0.1.0)
 [plugins.key-file]
 type = "key_provider"
 path = "/usr/lib/dologger/plugins/libkey_file.so"
@@ -338,17 +345,17 @@ flowchart TD
 ### Certificate Revocation List (CRL)
 
 ```rust
-// CRL entry (core/src/security/key_rotation.rs)
-struct CrlEntry {
-    fingerprint: [u8; 32],     // SHA-256 of public key
-    revoked_at: u64,           // Unix timestamp (seconds)
-    reason: CrlReason,         // compromised, superseded, deactivated
+// (matches core/src/security/key_rotation.rs — the v0.1.0 actual definition)
+pub struct CrlEntry {
+    pub fingerprint: KeyFingerprint,   // SHA-256 of the revoked key ([u8; 32])
+    pub revoked_at: u64,               // Unix timestamp (seconds)
+    pub reason: CrlReason,
 }
 
-enum CrlReason {
-    Compromised,
-    Superseded,
-    Deactivated,
+pub enum CrlReason {
+    Compromised,   // key leaked (emergency — sysmon CRITICAL)
+    Superseded,    // replaced by a newer key after rotation
+    Deactivated,   // disabled by an administrator (not compromised)
 }
 ```
 
@@ -375,17 +382,17 @@ dologctl key list
 
 ### `dologctl verify-log`
 
-Verify the integrity of a WORM audit log (PATH is positional):
+Verify the integrity of a WORM audit log (takes a single SIF/WORM file path — no `--path`/`--verbose` options):
 
 ```bash
-dologctl verify-log /var/lib/dologger/audit/
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 ```
 
-Output:
+Output (illustrative — the actual v0.1.0 output is a "Verification Results" summary; see the [dologctl Command Reference](guides/DologctlCommandReference.md)):
 
 ```
 Log File Verification
-  File: /var/lib/dologger/audit/
+  File: /var/lib/dologger/audit/audit-000001.worm
   Records parsed: 4
 Verification Results
   Total records:     4
@@ -410,8 +417,9 @@ When a problem is found, per-record details are printed on stderr, e.g. `CHAIN B
 Verify external anchoring hashes (M4):
 
 ```bash
-# PATH is positional; download the anchor JSON file locally first
-dologctl verify-anchor s3://audit-anchors/2026-08.json
+# Takes the anchor JSON file path + --pubkey; v0.1.0 has no
+# --anchor-file/--worm-path options
+dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 
 # Compares locally computed Merkle roots with
 # externally published anchor hashes
@@ -424,22 +432,24 @@ Set up a daily cron job:
 ```bash
 # /etc/cron.daily/dologger-audit-verify
 #!/bin/bash
-# `-o json` is the global output-format flag; PATH is positional
-REPORT=$(dologctl verify-log /var/lib/dologger/audit/ -o json)
+# `-o json` is the global output-format flag; verify-log takes a single file path
+REPORT=$(dologctl verify-log /var/lib/dologger/audit/audit-000001.worm -o json)
 if echo "$REPORT" | jq -e '.status == "failed"' > /dev/null; then
     echo "AUDIT INTEGRITY FAILURE: $REPORT" | \
         mail -s "CRITICAL: DoLogger audit chain broken" security@example.com
 fi
 ```
 
+(Note: `verify-log` JSON output contains `status: "passed"/"failed"`, `total_records`, `broken_chain_links`, `lsn_gaps`, and `signatures` fields.)
+
 ### WORM File Handling
 
 | Operation | Command |
 |:-:|:-:|
 | List WORM segments | `ls -la /var/lib/dologger/audit/` |
-| Verify chain | `dologctl verify-log /var/lib/dologger/audit/` |
-| Export audit records | `dologctl audit export --from 2026-08-01 --to 2026-08-12 --format json` *(planned)* |
-| Check latest LSN | `dologctl verify-log /var/lib/dologger/audit/ --latest-lsn-only` *(planned)* |
+| Verify chain | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm` |
+| Export audit records | *(pseudocode — `dologctl audit export` is a planned feature)* |
+| Check latest LSN | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm -o json` |
 
 ### Tamper Detection
 
@@ -466,7 +476,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Identify affected records:**
    ```bash
-   dologctl verify-log /var/lib/dologger/audit/ 2>&1 | grep FAIL
+   dologctl verify-log /var/lib/dologger/audit/audit-000001.worm 2>&1 | grep FAIL
    ```
 
 2. **Assess scope:**
@@ -534,20 +544,22 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Triage:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .
-   # Today /status reports status, level, profile, plugins, signature_enabled
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .ring_buffer
+   # Check pct_used, drops_total, emergency_spills
    ```
 
 2. **Identify bottleneck:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .
-   # Per-sink health metrics are planned (M4)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **Mitigate:**
    ```bash
-   # Disable a failing non-critical sink (illustrative — endpoint planned)
-   curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
+   # pseudocode/illustrative — the /sink/disable endpoint is planned; the
+   # v0.1.0 control plane only has /status, /level, /reload
+   # curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
 
 4. **Increase capacity:**
@@ -559,7 +571,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 5. **Recover:**
    - Emergency buffer files auto-replay on recovery
-   - Verify integrity post-recovery: `dologctl verify-log /var/lib/dologger/audit/`
+   - Verify integrity post-recovery: `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm`
 
 ### Incident: Performance Degradation
 
@@ -574,18 +586,20 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Check current profile:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .profile
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **Check sink health:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .
-   # Per-sink health metrics are planned (M4)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **Check if signing is unexpectedly enabled:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .signature_enabled
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .signature_enabled
    # Ed25519 signing adds ~17 us per record
    ```
 
@@ -597,8 +611,8 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 5. **Mitigation:**
    ```bash
-   # Temporarily reduce verbosity
-   curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
    ```
 
 ### Post-Incident Diagnostic Collection
@@ -788,11 +802,13 @@ tail -f dologger_internal.log | jq 'select(.category == "SANDBOX_VIOLATION")'
 
 ### Baseline Benchmarks
 
-Establish a baseline on your production hardware (the workspace ships no `cargo bench` targets; use `dologctl perf`):
+Establish a baseline on your production hardware (the v0.1.0 repository ships `latency`, `throughput`, and `latency_percentiles` benchmarks):
 
 ```bash
-# Run the built-in benchmark and save the results
-dologctl perf --count 100000 -o json > prod-baseline.json
+# Run all benchmarks and save the results
+cargo bench --bench latency -- --save-baseline prod-baseline
+cargo bench --bench throughput -- --save-baseline prod-baseline
+cargo bench --bench latency_percentiles -- --save-baseline prod-baseline
 ```
 
 ### Regression Detection
@@ -800,8 +816,7 @@ dologctl perf --count 100000 -o json > prod-baseline.json
 After a configuration change or engine update, compare against the baseline:
 
 ```bash
-dologctl perf --count 100000 -o json > prod-current.json
-# Compare prod-current.json against prod-baseline.json
+cargo bench --bench latency -- --baseline prod-baseline
 ```
 
 A regression is flagged when:
@@ -812,8 +827,8 @@ A regression is flagged when:
 ### Runtime Performance Monitoring
 
 ```bash
-# Continuous monitoring via control plane
-watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .'
+# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+# watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 
 # Key metrics today: status, level, profile, plugins, signature_enabled.
 # Richer metrics (pipeline counters, ring buffer usage) are planned (M4).
@@ -825,18 +840,20 @@ If performance degrades after a change:
 
 1. **Compare profiles**: Has `performance_profile` been changed?
    ```bash
-   curl http://127.0.0.1:9090/status | jq .profile
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **Check signing overhead**: Is Ed25519 signing unexpectedly enabled?
    ```bash
-   curl http://127.0.0.1:9090/status | jq .signature_enabled
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .signature_enabled
    ```
 
 3. **Check sink health**: A slow downstream causes backpressure.
    ```bash
-   curl http://127.0.0.1:9090/status | jq .
-   # Per-sink health metrics are planned (M4)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 4. **Check disk I/O**: File/WORM sinks are I/O bound.

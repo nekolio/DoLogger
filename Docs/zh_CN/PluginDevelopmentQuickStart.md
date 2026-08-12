@@ -66,8 +66,8 @@ Conan 是一个 **C/C++ 包管理器**（类似于 Node.js 的 npm 或 Python �
 # Linux / macOS
 bash scripts/dologger-setup-dev
 
-# Windows（PowerShell）
-pwsh scripts/dologger-env-check.ps1
+# Windows（Git Bash；仓库中该脚本为 bash 脚本，无 .ps1 版本）
+bash scripts/dologger-env-check
 ```
 
 ---
@@ -379,6 +379,7 @@ core/include/dologger_core.h
 | **错误码** | `DO_LOG_OK`、`DO_LOG_ERR_INVALID_ARG`、`DO_LOG_ERR_NOT_SUPPORTED`、... |
 | **阶段常量** | `DO_LOG_PHASE_FILTER`、`DO_LOG_PHASE_FORMATTING`、`DO_LOG_PHASE_SINK`、... |
 | **日志级别** | `DO_LOG_TRACE` 到 `DO_LOG_AUDIT`（`dologger_level_t` 枚举） |
+| **记录访问器** | `dologger_field_get()`、`dologger_field_set()`、... |
 | **ABI 版本** | 由每个插件在 `plugin_info.abi_version` 字段声明（如 `0x000100` = 0.1.0）；头文件中无全局 `DO_LOG_ABI_VERSION`/`DO_LOG_CORE_ABI_VERSION` 宏 |
 | **插件导出** | `plugin_query(uint32_t core_abi_version)`、`plugin_init(const void *config)`、`plugin_shutdown(void)` |
 
@@ -468,9 +469,9 @@ flowchart TD
 |:-:|:-:|:-:|
 | `cmake: include could not find load file: conan_toolchain.cmake` | 尚未运行 Conan | `bash scripts/setup-conan.sh` |
 | `fatal error: dologger_core.h: No such file` | include 路径错误 | 检查 CMakeLists.txt 中的 `target_include_directories` |
-| `undefined reference to dologger_record_level` | 尝试链接（不要！） | 插件绝不链接核心——仅使用 VTable |
+| `undefined reference to dologger_field_get` | 尝试链接（不要！） | 插件绝不链接核心——仅使用 VTable |
 | `go build: import "C" requires cgo` | 未设置 CGO_ENABLED | `export CGO_ENABLED=1` 或 `$env:CGO_ENABLED=1` |
-| `plugin_query symbol not found`（运行时） | 缺少 `DO_LOG_EXPORT` 或 `//export` | 确保符号可见性（GCC：`-fvisibility=default`，Go：`//export`） |
+| `plugin_query symbol not found`（运行时） | 缺少导出声明（Go 中 `//export`）或符号被隐藏 | 确保符号可见性（GCC：`-fvisibility=default`，Go：`//export`） |
 | `conan: command not found` | Conan 未安装 | `pipx install conan`（隔离）或 `pip install conan` |
 | `librdkafka/2.8.0: not found in remote` | 未配置 Conan center | `conan remote add conancenter https://center.conan.io` |
 

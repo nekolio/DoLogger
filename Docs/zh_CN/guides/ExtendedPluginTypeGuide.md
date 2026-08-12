@@ -41,7 +41,6 @@ flowchart TD
     Q -->|"从外部源加载配置"| H["ConfigProvider<br/>挂载阶段：config（加载时，不在管道中）<br/>关键问题：配置是否来自 Vault、etcd、S3 或数据库？"]
     Q -->|"管理加密密钥"| I["KeyProvider<br/>挂载阶段：key（加载时，不在管道中）<br/>关键问题：签名密钥应来自 HSM、KMS 还是文件？"]
     Q -->|"为沙箱插件中介操作系统访问"| J["SyscallBroker<br/>挂载阶段：syscall（代理，不在管道中）<br/>关键问题：沙箱插件能否安全地执行文件 I/O 或网络调用？"]
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_config_provider_vtable_t`：`open`/`read_config`/`close`）)：
 ```
 
 ### 插件类型能力
@@ -49,7 +48,7 @@ flowchart TD
 **表 1：插件类型能力矩阵**
 
 | 插件类型 | 可丢弃记录？ | 可修改记录？ | Ring 访问（写入） | 管道阶段 |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | `Filter` | **是** | 否 | 无（只读） | 1 |
 | `PolicyProvider` | **是**（速率限制） | 否 | 无（只读） | 0 |
 | `FieldProvider` | 否 | **是** | Ring 2（Blue/Yellow）或 Ring 3（Red） | 2 |
@@ -81,6 +80,8 @@ flowchart TD
 - 您需要从磁盘文件读取——内置 ConfigProvider 已支持
 
 ### ConfigProvider VTable
+
+(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_config_provider_vtable_t`：`open`/`read_config`/`close`）)：
 
 ```c
 typedef struct {
@@ -121,7 +122,6 @@ dologger_error_t etcd_config_load(void *state, dologger_config_buf_t *out) {
     free(etcd_value);
     return DO_LOG_OK;
 }
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_key_provider_vtable_t`：`open`/`get_public_key`/`sign_detached`/`close`）)：
 ```
 
 ### KeyProvider
@@ -141,6 +141,8 @@ dologger_error_t etcd_config_load(void *state, dologger_config_buf_t *out) {
 - 您只需要存储密码——使用 ConfigProvider 或环境变量
 
 ### KeyProvider VTable
+
+(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_key_provider_vtable_t`：`open`/`get_public_key`/`sign_detached`/`close`）)：
 
 ```c
 typedef struct {
@@ -174,6 +176,7 @@ typedef dologger_error_t (*dologger_key_rotate_fn_t)(
 某些后端同时服务于两个目的。例如 HashiCorp Vault 可以存储配置和签名密钥：
 
 ```toml
+# （示意 — v0.1.0 引擎不会从 dologger.toml 读取 [plugins] 节）
 [plugins.vault-config]
 type = "config_provider"
 path = "/usr/lib/dologger/plugins/libvault_config.so"
@@ -212,10 +215,11 @@ sequenceDiagram
     B->>K: read(42, buf, len)
     K-->>B: bytes_read
     B-->>Y: 返回 bytes_read
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_syscall_broker_vtable_t`：`syscall_io`）)：
 ```
 
 ### SyscallBroker VTable
+
+(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_syscall_broker_vtable_t`：`syscall_io`）)：
 
 ```c
 typedef struct {
@@ -229,12 +233,13 @@ typedef dologger_error_t (*dologger_broker_dispatch_fn_t)(
     size_t           args_len,
     dologger_broker_result_t *result      // 返回值 + errno
 );
-(伪代码 — 仅示意策略执行流程；`DO_LOG_TRUST_*`、`dologger_emit_sysmon` 等符号在 v0.1.0 中不存在)：
 ```
 
 ### 实现 SyscallBroker
 
 生产 `SyscallBroker` 必须强制执行策略。代理具有 Blue 信任——它可以做任何事情。其工作是决定允许调用 Yellow/Red 插件做什么。
+
+(伪代码 — 仅示意策略执行流程；`DO_LOG_TRUST_*`、`dologger_emit_sysmon` 等符号在 v0.1.0 中不存在)：
 
 ```c
 dologger_error_t my_broker_dispatch(
@@ -301,7 +306,6 @@ dologger_error_t my_broker_dispatch(
 
     return DO_LOG_OK;
 }
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_policy_provider_vtable_t`：仅 `evaluate`）)：
 ```
 
 ### SyscallBroker 的安全要求
@@ -322,6 +326,8 @@ dologger_error_t my_broker_dispatch(
 
 ### PolicyProvider VTable
 
+(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_policy_provider_vtable_t`：仅 `evaluate`）)：
+
 ```c
 typedef struct {
     dologger_policy_evaluate_fn_t  evaluate;
@@ -339,12 +345,13 @@ typedef dologger_error_t (*dologger_policy_evaluate_fn_t)(
 //   DO_LOG_POLICY_DROP    -- 记录在过滤阶段前丢弃
 //   DO_LOG_POLICY_DELAY   -- 记录被保留，稍后重新评估（背压）
 //   DO_LOG_POLICY_THROTTLE -- 记录通过但以较低速率
-(伪代码 — 令牌桶速率限制器示例，仅示意；`dologger_policy_result_t` 等在 v0.1.0 中不存在)：
 ```
 
 ### 模式 1：令牌桶速率限制器
 
 经典的速率限制模式。为每个日志级别维护一个令牌桶。
+
+(伪代码 — 令牌桶速率限制器示例，仅示意；`dologger_policy_result_t` 等在 v0.1.0 中不存在)：
 
 ```c
 typedef struct {
@@ -379,12 +386,13 @@ dologger_error_t rate_limit_evaluate(
 
     return DO_LOG_OK;
 }
-(伪代码 — 错误率断路器示例，仅示意)：
 ```
 
 ### 模式 2：按错误率的断路器
 
 当 ERROR+FATAL 记录速率超过阈值时触发，表明应用程序故障风暴。
+
+(伪代码 — 错误率断路器示例，仅示意)：
 
 ```c
 typedef struct {
@@ -426,12 +434,13 @@ dologger_error_t circuit_breaker_evaluate(
     result->action = DO_LOG_POLICY_ALLOW;
     return DO_LOG_OK;
 }
-(伪代码 — 每租户配额示例，仅示意)：
 ```
 
 ### 模式 3：配额管理（每租户）
 
 对于多租户部署，限制每个租户的日志记录，防止一个嘈杂租户消耗所有资源。
+
+(伪代码 — 每租户配额示例，仅示意)：
 
 ```c
 typedef struct {
@@ -483,12 +492,12 @@ requires_plugins = [
     { name = "json-formatter", version = ">=2.0, <3.0", optional = true }
 ]
 ```
-（伪代码/示意 — 依赖解析步骤概述，非命令）：
-
 
 ### 依赖解析
 
 引擎在启动时将依赖解析为有向无环图（DAG）：
+
+（伪代码/示意 — 依赖解析步骤概述，非命令）：
 
 ```
 1. 解析加载插件的所有 [dependencies] 节
@@ -498,7 +507,6 @@ requires_plugins = [
 5. 按拓扑顺序加载插件（依赖先加载）
 6. 按拓扑顺序初始化
 7. 按反向拓扑顺序关闭（依赖者先关闭）
-(伪代码 — 依赖验证器示意（`for each` 为伪语法，非可编译 C）；v0.1.0 实际实现见 `core/src/plugin/dependency.rs`）：
 ```
 
 ### 加载顺序保证
@@ -514,6 +522,8 @@ requires_plugins = [
 | **关闭是反向的** | 插件按反向依赖顺序关闭。依赖者在其依赖项之前关闭。 |
 
 ### 循环依赖检测
+
+(伪代码 — 依赖验证器示意（`for each` 为伪语法，非可编译 C）；v0.1.0 实际实现见 `core/src/plugin/dependency.rs`）：
 
 ```c
 // 引擎的依赖验证器（简化）
@@ -539,8 +549,6 @@ requires_plugins = [
     { name = "json-formatter", version = ">=2.0, <3.0", optional = true }
 ]
 ```
-（示意 — 依赖冲突场景描述，非命令输出）：
-
 
 当可选依赖不存在时：
 - 引擎正常加载插件
@@ -551,23 +559,24 @@ requires_plugins = [
 
 当两个插件要求第三方插件的冲突版本时：
 
+（示意 — 依赖冲突场景描述，非命令输出）：
+
 ```
 插件 A 需要 json-formatter >= 1.0, < 2.0
 插件 B 需要 json-formatter >= 2.0, < 3.0
 
 结果：冲突
 ```
-（示意 — 规划中的错误消息格式，非实际输出）：
-
 
 引擎**拒绝配置**并显示清晰的错误消息：
+
+（示意 — 规划中的错误消息格式，非实际输出）：
 
 ```
 [ERROR] 依赖冲突：
         插件 'http-sink' 需要 json-formatter >= 1.0, < 2.0
         插件 'audit-exporter' 需要 json-formatter >= 2.0, < 3.0
         每个插件只能加载一个版本。
-(伪代码 — 规划中的可选导出；v0.1.0 尚无 `dologger_state_buf_t`，热重载序列化未实现)：
 ```
 
 ---
@@ -589,6 +598,8 @@ requires_plugins = [
 
 ### 状态序列化 VTable 函数
 
+(伪代码 — 规划中的可选导出；v0.1.0 尚无 `dologger_state_buf_t`，热重载序列化未实现)：
+
 ```c
 // 可选导出——如果不存在，插件在热重载时重新初始化
 
@@ -603,7 +614,6 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
     // 从 in->data 恢复您的状态
     // in->length 字节的序列化状态
 }
-(伪代码 — 序列化示例，仅示意；`dologger_state_buf_t` 不存在)：
 ```
 
 ### 序列化格式
@@ -618,6 +628,8 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
 | **JSON** | 人类可读，可调试 | 慢，输出大 | 仅适用于小型状态（< 1 KB） |
 
 ### 示例：序列化速率限制器状态
+
+(伪代码 — 序列化示例，仅示意；`dologger_state_buf_t` 不存在)：
 
 ```c
 // 状态结构
@@ -647,12 +659,13 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
     memcpy(&g_state, in->data, sizeof(RateLimiterState));
     return DO_LOG_OK;
 }
-(伪代码 — 状态版本管理示例，仅示意)：
 ```
 
 ### 状态版本管理
 
 如果您的状态格式在插件版本之间发生变化，请包含版本头：
+
+(伪代码 — 状态版本管理示例，仅示意)：
 
 ```c
 typedef struct {
@@ -677,10 +690,10 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
     return DO_LOG_OK;
 }
 ```
-（伪代码/示意 — 热重载生命周期步骤，规划中）：
-
 
 ### 热重载生命周期
+
+（伪代码/示意 — 热重载生命周期步骤，规划中）：
 
 ```
 1. 引擎检测到新插件二进制（配置变更或 SIGHUP）
@@ -711,10 +724,11 @@ name = "pii-guardian"
 version = "1.0.0"
 plugin_type = "processor"        # 主类型
 mount_phase = ["process", "filter"]  # 多个阶段
-(伪代码 — 多阶段插件导出示意；v0.1.0 实际 VTable 定义见 `core/include/dologger_core.h`（无 `process_batch`/`filter_batch` 成员，且无 `dologger_vtable` 符号约定）)：
 ```
 
 ### 导出多个 VTable
+
+(伪代码 — 多阶段插件导出示意；v0.1.0 实际 VTable 定义见 `core/include/dologger_core.h`（无 `process_batch`/`filter_batch` 成员，且无 `dologger_vtable` 符号约定）)：
 
 ```c
 // 插件为每个阶段导出一个 VTable：
@@ -755,7 +769,6 @@ flowchart LR
     A["PreFilter"] --> B["Filter"] --> C["Field"] --> D["Process"] --> E["Format"] --> F["Sink"]
     X["pii-guardian（filter 阶段）— 先调用，检查和过滤"] -.-> B
     Y["pii-guardian（process 阶段）— 后调用，掩码/脱敏"] -.-> D
-(伪代码 — 多阶段线程安全示例，仅示意；`dologger_filter_result_t` 不存在)：
 ```
 
 插件的 `plugin_init()` 在管道开始前调用**一次**。相同的插件状态在所有阶段间共享。这意味着：
@@ -767,6 +780,8 @@ flowchart LR
 ### 多阶段状态的线程安全
 
 如果您的多阶段插件的状态从不同管道阶段（可能在不同线程上执行）访问，您必须同步访问：
+
+(伪代码 — 多阶段线程安全示例，仅示意；`dologger_filter_result_t` 不存在)：
 
 ```c
 typedef struct {
@@ -787,7 +802,6 @@ dologger_error_t pii_detect_filter(dologger_record_t *record,
     }
     // ... PII 检测逻辑 ...
 }
-(伪代码 — 插件协作示意；v0.1.0 实际字段 API 为 `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`，返回错误码而非指针)：
 ```
 
 ---
@@ -797,6 +811,8 @@ dologger_error_t pii_detect_filter(dologger_record_t *record,
 ### 模式 1：插件链（协作处理）
 
 同一管道阶段的插件可以通过读取彼此的输出进行协作：
+
+(伪代码 — 插件协作示意；v0.1.0 实际字段 API 为 `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`，返回错误码而非指针)：
 
 ```c
 // 插件 A（FieldProvider）写入一个字段
@@ -816,12 +832,13 @@ if (user_id) {
 # plugin-b/manifest.toml
 [dependencies]
 requires_fields = ["verified.user_id"]    # 插件 A 提供此字段
-(伪代码 — 插件委托模式示意；`dologger_get_plugin()` 等注册表 API 在 v0.1.0 中不存在)：
 ```
 
 ### 模式 2：插件委托（代理模式）
 
 插件通过插件注册表将工作委托给另一个插件：
+
+(伪代码 — 插件委托模式示意；`dologger_get_plugin()` 等注册表 API 在 v0.1.0 中不存在)：
 
 ```c
 // 一个 Formatter，将特定记录类型委托给另一个 Formatter
@@ -835,12 +852,13 @@ dologger_error_t delegating_format(const dologger_record_t *record,
     // 默认：格式化为 JSON
     return json_format(record, output);
 }
-(伪代码 — 插件状态缓存模式示意；`dologger_field_set_t` 等类型不存在)：
 ```
 
 ### 模式 3：插件状态作为缓存
 
 插件可以使用其持久状态作为缓存，以避免重复的昂贵操作：
+
+(伪代码 — 插件状态缓存模式示意；`dologger_field_set_t` 等类型不存在)：
 
 ```c
 // 将用户 ID 解析为显示名称的 FieldProvider
@@ -879,7 +897,6 @@ dologger_error_t user_resolver_provide_fields(
     }
     return DO_LOG_OK;
 }
-(伪代码 — 插件内 sysmon 集成示意；`dologger_emit_sysmon` 在 v0.1.0 中不存在)：
 ```
 
 缓存通过状态序列化在热重载后仍然存在，避免了冷启动的性能损失。
@@ -888,13 +905,14 @@ dologger_error_t user_resolver_provide_fields(
 
 插件可以将自己的诊断信息发送到 sysmon 事件流：
 
+(伪代码 — 插件内 sysmon 集成示意；`dologger_emit_sysmon` 在 v0.1.0 中不存在)：
+
 ```c
 // 从插件内发出自定义指标
 dologger_emit_sysmon("PLUGIN_METRIC",
     "plugin=%s cache_hits=%lu cache_misses=%lu hit_rate=%.2f",
     g_info.name, cache->hits, cache->misses,
     (double)cache->hits / (cache->hits + cache->misses));
-(伪代码 — 优雅降级示例，仅示意；v0.1.0 实际签名 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 ```
 
 自定义 sysmon 事件必须遵循命名约定 `PLUGIN_<EVENT_NAME>`（社区插件）或使用插件自己的命名空间。事件格式为单行 JSON（参见[运维手册](OperationsManual.md#sysmon-事件流)）。
@@ -902,6 +920,8 @@ dologger_emit_sysmon("PLUGIN_METRIC",
 ### 模式 5：优雅降级
 
 当插件的依赖项或外部资源不可用时，插件应优雅降级：
+
+(伪代码 — 优雅降级示例，仅示意；v0.1.0 实际签名 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 
 ```c
 dologger_error_t my_plugin_init(const dologger_plugin_config_t *config) {

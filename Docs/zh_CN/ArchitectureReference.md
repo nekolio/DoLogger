@@ -57,7 +57,7 @@
 
 ```mermaid
 flowchart TD
-    A["宿主应用程序<br/>dologger_log() / dologger_logv()<br/>102 ns P50（CAS 推入）"] --> RB
+    A["宿主应用程序<br/>dologger_log()<br/>102 ns P50（CAS 推入）"] --> RB
 
     subgraph RB["无锁 MPSC 环形缓冲区"]
         B1["普通分区（90%）<br/>CAS 入队<br/>生产者无等待"]
@@ -328,8 +328,6 @@ flowchart TD
 
 每个启用的接收器会收到每条已格式化记录的副本。分发通过 `io_pool` 线程池并行执行。
 
-每个启用的接收器会收到每条已格式化记录的副本。分发通过 `io_pool` 线程池并行执行。
-
 ### 内置接收器（共 11 种）
 
 | 接收器 | 类型 | TLS | 用途 |
@@ -463,7 +461,7 @@ flowchart TD
 
 **引擎启动恢复流程：**
 
-1. 检查紧急缓冲区文件：`dologger_emergency_<pid>_<ts>.buf`
+1. 检查紧急缓冲区文件：`dologger_emergency_<pid>_<spill_id>.buf`（位于系统临时目录的 `dologger/` 子目录中）
 2. 若找到：
    - a. 读取所有溢出的记录
    - b. 基于 LSN 的去重（跳过已见过的 LSN）
@@ -500,7 +498,7 @@ flowchart TD
     subgraph AUDIT["AUDIT 消费者线程（1 个，专用，永不共享）"]
         A1["名称：dologger-audit-pipeline<br/>优先级：普通<br/>工作：读取 → 签名 → 双写（WORM+Security）→ 回收"]
     end
-    subgraph WATCH["配置监控线程（1 个）"]
+    subgraph WATCH["配置监控线程（1 个）—— 规划中<br/>（ConfigWatcher 在 v0.1.0 尚未接入 Engine::init）"]
         W1["名称：dologger-config-watcher<br/>工作：每 1 秒轮询配置文件（500ms 去抖）"]
     end
 ```
@@ -568,7 +566,7 @@ sequenceDiagram
         E->>P: dlopen(plugin_path) — 加载共享库
         E->>P: dlsym("plugin_query") → PluginInfo
         Note over E,P: 验证 ABI 版本、类型、许可证 SPDX
-        E->>P: dlsym("dologger_vtable") → VTable 结构体
+        Note over E,P: 通过 PluginInfo.vtable 指针读取 VTable（v0.1.0 不单独导出符号）
         Note over E,P: 验证必需函数指针
         Note over E: （仅 Blue）验证 Ed25519 签名
         Note over E: 应用沙箱策略（seccomp / AppContainer）

@@ -173,6 +173,8 @@ This is the hot path. The call pushes the record into a lock-free ring buffer an
 
 ### Parameter Structure
 
+(verified against `core/include/dologger_core.h` — compiled):
+
 ```c
 typedef struct {
     dologger_level_t level;         // DO_LOG_TRACE (0) through DO_LOG_AUDIT (6)
@@ -279,11 +281,12 @@ shutdown_timeout_ms = 5000
 
 ### Configuration Hot Reload
 
-The engine polls the configuration file every 1 second (with a 500 ms debounce). When a change is detected, non-security keys are reloaded without restarting the engine:
+(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or — from M3+ — trigger a reload via the control plane.)
 
 ```bash
+# pseudocode/illustrative — not automatic in v0.1.0
 # Change the log level at runtime
-sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
+# sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
 # Engine picks up the change within ~1.5 seconds
 ```
 
@@ -292,14 +295,17 @@ Changes are logged via sysmon as `CONFIG_RELOAD` events. Security-tier keys (non
 ### Control Plane Reload
 
 ```bash
-curl -X POST http://127.0.0.1:9090/reload
+# pseudocode/illustrative — the control plane is not started with the engine
+# in v0.1.0 (M3+)
+# curl -X POST http://127.0.0.1:9090/reload
 ```
 
-In v0.1.0 `/reload` ignores the request body (it simply invokes the registered reload callback); a JSON body with `dry_run` validation is planned:
+When shipped, `/reload` will ignore the request body (it simply invokes the registered reload callback); a JSON body with `dry_run` validation is planned:
 ```bash
-curl -X POST http://127.0.0.1:9090/reload \
-  -H "Content-Type: application/json" \
-  -d '{"dry_run": true}'   # illustrative — body not yet honoured
+# (planned — body not yet honoured)
+# curl -X POST http://127.0.0.1:9090/reload \
+#   -H "Content-Type: application/json" \
+#   -d '{"dry_run": true}'
 ```
 
 ---
@@ -423,15 +429,15 @@ static void my_callback(const uint8_t *data, size_t len, void *user) {
 }
 
 int main(void) {
-    dologger_handle_t *logger = NULL;
-    dologger_init(NULL, &logger);
+    dologger_error_t err = {0};
+    dologger_handle_t *logger = dologger_init(NULL, &err);
 
     FILE *fp = fopen("app_output.log", "a");
     dologger_register_callback_sink(logger, my_callback, fp);
 
     // ... application logic ...
 
-    dologger_shutdown(&logger);
+    dologger_shutdown(logger);
     fclose(fp);
     return 0;
 }
@@ -503,7 +509,7 @@ The SDK (`dologger_sdk::Logger`) provides level helpers (`trace` … `audit`) ar
 
 ### Python (M4 Milestone)
 
-The Python adapter is planned for M4 and not yet available — the code below is an illustrative preview (pseudocode, not runnable):
+The packaged M4 managed adapter is planned. The repository already ships a working ctypes adapter (`adapters/python/dologger.py`) whose `DoLogger` class is importable as `from dologger import DoLogger` and has been verified to run with v0.1.0. The code below is an illustrative preview of the planned M4 interface (pseudocode, not runnable):
 
 ```python
 import dologger
@@ -517,7 +523,7 @@ The Python adapter uses `ctypes` to load `libdologger_core` and provides a `logg
 
 ### Go (M4 Milestone)
 
-The Go adapter is planned for M4 and not yet available — the code below is an illustrative preview (pseudocode, not runnable):
+The packaged M4 managed adapter is planned. The repository already ships `adapters/go` (module `github.com/dologger/adapters/go`). The code below is an illustrative preview of the planned M4 interface (pseudocode, not runnable):
 
 ```go
 package main
@@ -606,7 +612,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### Diagnostic Checklist
 
-1. **Engine health**: `curl http://127.0.0.1:9090/status`
+1. **Engine health**: `curl http://127.0.0.1:9090/status` (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+))
 2. **Sysmon events**: Redirect `stderr` and watch for `PIPELINE_BACKLOG`, `SHM_DROP`, `SINK_CIRCUIT_OPEN`, `SANDBOX_VIOLATION`, `SIGNATURE_FAILURE`.
 3. **Internal log**: `tail -f dologger_internal.log`
 4. **Configuration**: `dologctl config validate --config /path/to/dologger.toml --strict`

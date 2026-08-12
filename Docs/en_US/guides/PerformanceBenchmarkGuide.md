@@ -448,7 +448,9 @@ benches/
 
 ```rust
 // (illustrative template — not compiled; `engine.log` / `dologger_bench_common`
-// are placeholders. See core/benches/latency.rs for the real, compiling pattern)
+// are placeholders. The v0.1.0 benchmarks actually use the
+// `ring_buffer.try_push` + `engine.pool.alloc` pattern — see
+// core/benches/latency.rs for the real, compiling pattern)
 // benches/latency.rs — example structure
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};

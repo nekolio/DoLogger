@@ -105,10 +105,12 @@ DoLogger 提供四个基准测试目标，每个测量性能的不同维度。
 
 | 基准测试 | Crate / 文件 | 测量内容 | 主要指标 | 运行时间（约） |
 |:-:|:-:|:-:|:-:|:-:|
-| `hot_path` | `benches/hot_path.rs` | 端到端记录提交延迟 | P50/P99/P99.9 ns | ~5 分钟 |
+| `hot_path` | `benches/hot_path.rs`（规划中） | 端到端记录提交延迟 | P50/P99/P99.9 ns | ~5 分钟 |
 | `latency` | `benches/latency.rs` | 每管道阶段延迟细分 | 每阶段 P50 us | ~8 分钟 |
 | `throughput` | `benches/throughput.rs` | 最大持续记录/秒 | records/s | ~12 分钟 |
 | `latency_percentiles` | `benches/latency_percentiles.rs` | 完整延迟分布（直方图） | P50/P90/P99/P99.9/P99.99 | ~15 分钟 |
+
+（注：v0.1.0 仓库仅提供后三个目标；`hot_path` 为规划中的目标）
 
 ### `hot_path` — 提交延迟
 
@@ -570,7 +572,7 @@ benches/baselines/         ← 已提交的基线，用于 CI 比较
 **表 10：性能偏差阈值**
 
 | 变更类型 | Hot Path P50 | Hot Path P99 | 吞吐量 | 行动 |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | 噪声范围内 | < 2% | < 3% | < 2% | 接受——无需行动 |
 | 轻微改进 | 2-10% | 3-10% | 2-10% | 接受——在变更日志中注明 |
 | 轻微回归 | 2-5% | 3-5% | 2-5% | 审查——如有意为之则记录 |

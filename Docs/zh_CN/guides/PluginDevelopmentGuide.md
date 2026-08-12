@@ -58,6 +58,8 @@ DoLogger 支持 10 种插件类型，每种有独立的 VTable：
 | **HostInfoProvider** | Stage 2 | 主机/进程元数据注入 |
 | **SyscallBroker** | Syscall | 平台系统调用代理 |
 
+（管道阶段顺序：PreFilter → Filter → Field → Process → Format → Sink；v0.1.0 的阶段定义为 `core/include/dologger_core.h` 中的 `DO_LOG_PHASE_*` 位标志）
+
 ---
 
 ## 插件 Manifest
@@ -76,11 +78,12 @@ abi_version = 1
 color = "yellow"
 
 [dependencies]
+# （规划中 — v0.1.0 引擎尚未解析；字段级校验已在 core/src/plugin/dependency.rs 准备）
 requires_fields = ["host.name", "process.id"]
 
 [licenses]
 spdx = "MIT"
-third_party = []
+third_party = []  # （规划中）
 
 [capabilities]
 file_read = false

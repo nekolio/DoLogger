@@ -242,21 +242,21 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 
 ### Hot Reload
 
-The engine polls the configuration file every 1 second (500 ms debounce). When a change is detected:
+(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or — from M3+ — trigger a reload via the control plane.)
 
 1. Non-security keys are reloaded immediately.
 2. Security-tier keys (non-downgradable items) — changes tightening them are accepted; changes loosening them are **rejected with a `CONFIG_RELOAD_DENIED` sysmon event**.
 3. Plugin changes require an engine restart (plugins are not dynamically loaded at runtime in this version).
 
 ```bash
+# pseudocode/illustrative — not automatic in v0.1.0
 # Change log level without restart
-sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
+# sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
 
-# Trigger immediate reload via control plane
-curl -X POST http://127.0.0.1:9090/reload
+# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+# curl -X POST http://127.0.0.1:9090/reload
 
-# Check whether the reload succeeded
-curl http://127.0.0.1:9090/status | jq .level
+# curl http://127.0.0.1:9090/status | jq .level
 # "DEBUG"
 ```
 
@@ -367,11 +367,14 @@ The System Monitor (`sysmon`) emits structured events to `stderr` by default. Ea
 ### Control Plane Status Endpoint
 
 ```bash
-curl -s http://127.0.0.1:9090/status | jq .
+# pseudocode/illustrative — the control plane is not started with the engine
+# in v0.1.0 (M3+); the response format below matches the /status handler in
+# core/src/sys/control_plane.rs
+# curl -s http://127.0.0.1:9090/status | jq .
 ```
 
 ```json
-(illustrative — the v0.1.0 /status response is smaller:
+(illustrative — the /status handler's response is smaller:
  {"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false};
  the rich metrics body below is planned)
 {
@@ -452,7 +455,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### HTTP API Endpoints
 
-**Table 5: Control Plane API (M3)**
+**Table 5: Control Plane API (M3)** — planned: none of these endpoints are started with the engine in v0.1.0.
 
 | Method | Path       | Auth | Description |
 |:-:|:-:|:-:|:-:|
@@ -464,36 +467,38 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 ### Changing Log Level at Runtime
 
 ```bash
+# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
 # Temporarily increase verbosity for debugging
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "DEBUG"}'
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "DEBUG"}'
 
 # Restore production level
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "INFO"}'
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "INFO"}'
 
 # Query current level
-curl -s http://127.0.0.1:9090/status | jq .level
+# curl -s http://127.0.0.1:9090/status | jq .level
 ```
 
 ### Triggering Configuration Reload
 
 ```bash
+# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
 # Reload without validation (applies changes if syntax is valid)
-curl -X POST http://127.0.0.1:9090/reload
+# curl -X POST http://127.0.0.1:9090/reload
 
 # Dry-run: validate the pending changes without applying
 # (planned — v0.1.0 ignores the /reload request body)
-curl -X POST http://127.0.0.1:9090/reload \
-  -H "Content-Type: application/json" \
-  -d '{"dry_run": true}'
+# curl -X POST http://127.0.0.1:9090/reload \
+#   -H "Content-Type: application/json" \
+#   -d '{"dry_run": true}'
 ```
 
 ### Security Considerations
 
-- The control plane listens on `127.0.0.1:9090` by default — only processes on the same host can reach it.
+- The control plane listens on `127.0.0.1:9090` by default (planned — the control plane is not started in v0.1.0; M3+) — only processes on the same host can reach it.
 - M4 will add mTLS + JWT authentication for remote access.
 - Production deployments should use host-level firewall rules to restrict access to the control plane port:
   ```bash
@@ -611,10 +616,10 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
 
 ### Emergency Buffer Recovery
 
-When the ring buffer overflows, records are spilled to an emergency file on disk (in the system temp directory — see `core/src/buffer/emergency_buffer.rs`):
+When the ring buffer overflows, records are spilled to an emergency file on disk (in the `dologger/` subfolder of the system temp directory — see `core/src/buffer/emergency_buffer.rs`):
 
 ```text
-dologger_emergency_<pid>.buf
+dologger_emergency_<pid>_<spill_id>.buf
 ```
 
 On recovery (when the ring buffer has free space):
@@ -627,12 +632,13 @@ On recovery (when the ring buffer has free space):
 **Manual recovery:**
 
 ```bash
-# Check for abandoned emergency files (system temp directory, e.g. /tmp or %TEMP%)
-ls -la /tmp/dologger_emergency_*.buf
+# Check for abandoned emergency files (system temp directory's dologger/ subfolder)
+ls -la /tmp/dologger/dologger_emergency_*.buf
 
 # If the engine is running and the file persists, check engine status
-# (the v0.1.0 /status response has no ring_buffer object yet)
-curl http://127.0.0.1:9090/status
+# (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# the planned /status response has no ring_buffer object yet)
+# curl http://127.0.0.1:9090/status
 
 # If the engine crashed, the emergency file will be replayed on next startup
 ```
@@ -758,7 +764,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
 **Response:**
 
-1. **Triage**: `curl http://127.0.0.1:9090/status | jq .ring_buffer`
+1. **Triage**: `curl http://127.0.0.1:9090/status | jq .ring_buffer` (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+))
 2. **Check drops**: Look at `pct_used`, `drops_total`, `emergency_spills`
 3. **Identify bottleneck**: Sink health status — is a sink in `circuit_open` state?
 4. **Mitigation**:
@@ -827,6 +833,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 1. **Baseline**: Run `cargo bench` to confirm the engine itself is performing as expected.
 2. **Profile**: Verify `performance_profile` — has it been changed to a lower-throughput profile?
    ```bash
+   # (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+))
    curl http://127.0.0.1:9090/status | jq .profile
    ```
 3. **Check sinks**: Are sinks healthy? A slow downstream can cause backpressure.

@@ -52,8 +52,8 @@ flowchart TD
 | 函数族 | 用途 | 签名数量 |
 |:-:|:-:|:-:|
 | `dologger_init` / `dologger_shutdown` | 引擎生命周期 | 2 |
-| `dologger_log` / `dologger_logv` | 日志提交 | 2 |
-| `dologger_get_abi_version` | ABI 版本检查 | 1 |
+| `dologger_log` | 日志提交 | 1 |
+| `dologger_version` | 版本字符串查询 | 1 |
 | `dologger_get_last_error` | 错误获取 | 1 |
 | `dologger_register_callback_sink` | 回调注册 | 1 |
 | `dologger_config_*` | 配置管理 | 4 |
@@ -67,7 +67,7 @@ flowchart TD
 C ABI 是 DoLogger 项目的稳定性锚点。完整兼容性保证请参见[版本与废弃策略](VersioningAndDeprecation.md)。摘要如下：
 
 - 同一 MAJOR 版本：宿主二进制文件和插件无论 MINOR.PATCH 差异如何均可互操作
-- 跨 MAJOR：不支持。适配器在加载时验证 `dologger_get_abi_version()`。
+- 跨 MAJOR：不支持。适配器在加载时验证 `dologger_version()`。
 
 ---
 
@@ -471,6 +471,9 @@ _lib = ffi.dlopen("libdologger_core.so")
 
 ## Go 适配器
 
+> [!NOTE]
+> M4 规划的托管适配器为规划中（见[宿主集成指南](HostIntegrationGuide.md#go-m4-里程碑)）。仓库已有参考实现 `adapters/go/dologger.go`（模块 `github.com/dologger/adapters/go`）。下方代码为示意——签名已按已发布的 C ABI 修正，但这些块未在仓库中编译。
+
 ### cgo 方式（推荐）
 
 cgo 是从 Go 调用 C 的标准机制。它直接链接到 `libdologger_core`。
@@ -633,6 +636,8 @@ func (e *Engine) Audit(msg string) error { return e.Log(LevelAudit, msg) }
 - **不要从 finalizer 调用 `Log()`。** Go 运行时可能在 C 库卸载后调用 finalizer。
 
 ### Go build tags
+
+（片段 — 非完整文件，仅示意构建标签写法）：
 
 ```go
 //go:build linux || darwin
@@ -818,6 +823,8 @@ def check_error(rc, context):
     raise err_cls(rc, f"{context} 失败（错误码 {rc}）")
 ```
 
+（片段 — engine.go 中的辅助函数摘录，非完整文件）：
+
 ```go
 // Go：返回错误值
 func engineError(code int) error {
@@ -844,7 +851,7 @@ C ABI 对于并发的 `dologger_log()` 调用是线程安全的。适配器必�
 | `dologger_init()` | 否 | 从一个线程调用一次 |
 | `dologger_log()` | **是** | 无锁 CAS 推送。可从任何线程安全调用，包括信号处理程序。 |
 | `dologger_shutdown()` | 否 | 调用一次。阻塞直到进行中的记录排空。不要与 `shutdown()` 并发调用 `log()`。 |
-| `dologger_get_abi_version()` | 是 | 返回编译时常量。 |
+| `dologger_version()` | 是 | 返回静态版本字符串。 |
 | `dologger_get_last_error()` | 线程本地 | 每个线程看到自己的最后错误。无需加锁。 |
 
 ### 特定于适配器的线程安全说明
@@ -861,6 +868,8 @@ C ABI 对于并发的 `dologger_log()` 调用是线程安全的。适配器必�
 - `dologger-core` crate 使用 `Send + Sync` 标记。`Engine` 句柄可安全跨 `std::thread` 边界共享。
 
 ### 关闭同步
+
+（片段 — 摘自上方 engine.go 的 Shutdown() 实现）：
 
 ```go
 // Go 示例：安全的并发关闭
@@ -902,7 +911,7 @@ func (e *Engine) Shutdown() error {
 对于每个语言适配器，验证：
 
 - [ ] **库加载**：在每个平台上能够找到并加载 `libdologger_core`
-- [ ] **ABI 版本检查**：`dologger_get_abi_version()` 返回预期值
+- [ ] **ABI 版本检查**：`dologger_version()` 返回预期值
 - [ ] **初始化/关闭**：引擎干净启动和关闭（Valgrind 下无泄漏）
 - [ ] **日志提交**：每个日志级别（TRACE 到 AUDIT）的 `dologger_log()`
 - [ ] **错误处理**：无效参数产生预期的语言原生错误

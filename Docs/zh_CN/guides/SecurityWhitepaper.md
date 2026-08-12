@@ -88,7 +88,7 @@
 ### Ring 2 字段（已验证）
 
 - `verified.*` 前缀命名空间
-- 修改自动追加 `audit_tags`（plugin_id + version + timestamp）
+- 修改自动追加 `audit_tags`（plugin_id + version + timestamp；示意 — 实际字段为名为 `security.audit_tags` 的 `RecordString`）
 
 ### Ring 3 字段（不可信）
 
@@ -192,6 +192,8 @@ Record(N):
 - `compliance/hipaa.toml` — 医疗数据保护
 - `compliance/pci-dss.toml` — 支付卡行业
 
+（示意 — `config merge` 子命令与 `--compliance` 选项为规划中，v0.1.0 未提供；今天需手动合并 TOML 的 `[dologger]` 节，然后运行 `dologctl config validate --strict`）
+
 ---
 
 ## 数据完整性保护
@@ -207,11 +209,11 @@ Record(N):
 
 ### 篡改检测流程
 
-1. 外部验证工具 `dologctl verify-log` 读取 WORM 文件
+1. 外部验证工具 `dologctl verify-log` 读取 WORM 文件（接受单个文件路径）
 2. 逐条验证 Ed25519 签名
 3. 验证 LSN 连续性 + prev_hash 链
 4. 检测 LSN 间隙 → 生成间隙报告
-5. 外部锚定验证（对比 S3/HTTP 中的根哈希）
+5. 外部锚定验证（M4 规划；v0.1.0 的 `dologctl verify-anchor` 接受锚定 JSON 文件路径 + `--pubkey`）
 
 ---
 
@@ -248,6 +250,8 @@ Record(N):
 | Syslog | TCP/TLS (RFC 5425) | 可选 mTLS |
 | Webhook | HTTPS | Bearer Token |
 | OTel | HTTPS (OTLP/HTTP) | Bearer Token |
+
+（注：v0.1.0 实际 Kafka sink 配置使用逗号分隔的 `brokers` 字符串 + `enable_tls`/`sasl_username`/`sasl_password`，见 `core/src/sink/kafka.rs`）
 
 ### 控制面安全
 

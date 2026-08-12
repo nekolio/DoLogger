@@ -117,7 +117,7 @@ sudo sysctl --system
 
 Huge pages (2 MB or 1 GB) reduce TLB (Translation Lookaside Buffer) misses by mapping larger chunks of virtual memory with a single TLB entry. This is beneficial when the ring buffer exceeds 1 million slots.
 
-**Huge page sizing formula:**
+**Huge page sizing formula (illustrative formula — not a command):**
 
 ```
 Number of 2MB huge pages needed = CEIL(buffer_size_bytes / 2097152) + 16 (margin)
@@ -271,6 +271,8 @@ ps -eLo pid,tid,comm,psr | grep dologger
 
 The ring buffer is the primary defense against backpressure. Size it correctly.
 
+(illustrative formula — not a command):
+
 ```
 Ring Buffer Size (slots) = Peak Records/Second x Max Tolerable Drain Time (seconds)
                            / Safety Factor
@@ -307,6 +309,8 @@ The ring buffer size **MUST** be a power of two. The engine uses bitmask modulo 
 
 The memory consumed per ring buffer slot depends on the record template size:
 
+(illustrative formula — not a command):
+
 ```
 Memory per slot = sizeof(dologger_record_t) + average message length + field overhead
 
@@ -331,10 +335,10 @@ export DO_LOG_BUF_SIZE=524288
 ### Monitoring Buffer Utilization
 
 ```bash
-# Check current utilization
-# (the v0.1.0 /status response has no ring_buffer object yet — the output
-# below is illustrative of the planned metrics)
-curl -s http://127.0.0.1:9090/status | jq .ring_buffer
+# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# the planned /status response has no ring_buffer object yet — the output
+# below is illustrative of the planned metrics
+# curl -s http://127.0.0.1:9090/status | jq .ring_buffer
 
 # Output:
 # {
@@ -434,6 +438,8 @@ If you need both fast and slow sinks:
 
 The total memory used by a DoLogger engine instance is the sum of:
 
+(illustrative formula — not a command):
+
 ```
 Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine Overhead
 ```
@@ -477,9 +483,9 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 # Check process RSS
 ps -o pid,rss,comm -p $(pgrep -f dologger)
 
-# (planned — the v0.1.0 /status response has no .memory object)
-# Or via status endpoint
-curl -s http://127.0.0.1:9090/status | jq .memory
+# (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# the planned /status response has no .memory object)
+# curl -s http://127.0.0.1:9090/status | jq .memory
 ```
 
 ---
@@ -655,10 +661,12 @@ sudo sysctl -w vm.nr_hugepages=272
 ### Diagnostic Workflow
 
 ```text
-(illustrative workflow — the .ring_buffer/.memory fields are planned metrics;
-the v0.1.0 /status response is {"status","level","profile","plugins","signature_enabled"})
+(pseudocode/illustrative — diagnostic workflow; the control plane is not
+started in v0.1.0 (M3+); the .ring_buffer/.memory fields are planned metrics
+and the /status handler's response is
+{"status","level","profile","plugins","signature_enabled"})
 1. Check overall health
-   curl http://127.0.0.1:9090/status | jq .
+   # curl http://127.0.0.1:9090/status | jq .
 
 2. Check ring buffer utilization
    -> pct_used > 50%: consumer is falling behind
@@ -697,8 +705,9 @@ the v0.1.0 /status response is {"status","level","profile","plugins","signature_
 ### Quick Diagnostic Commands
 
 ```bash
-# Engine status
-curl -s http://127.0.0.1:9090/status | jq .
+# Engine status (pseudocode/illustrative — the control plane is not started
+# in v0.1.0 (M3+))
+# curl -s http://127.0.0.1:9090/status | jq .
 
 # CPU profile (60-second sample)
 perf top -p $(pgrep -f dologger)   # Linux

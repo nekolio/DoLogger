@@ -59,7 +59,7 @@
 
 ```mermaid
 flowchart TD
-    A["HOST APPLICATION<br/>dologger_log() / dologger_logv()<br/>102 ns P50 (CAS push)"] --> RB
+    A["HOST APPLICATION<br/>dologger_log()<br/>102 ns P50 (CAS push)"] --> RB
 
     subgraph RB["LOCK-FREE MPSC RING BUFFER"]
         B1["Normal Partition (90%)<br/>CAS-based enqueue<br/>Wait-free producers"]
@@ -142,7 +142,7 @@ flowchart TD
 
 ### Enqueue Algorithm (Producer)
 
-(pseudocode — illustrative, not compiled):
+(pseudocode — illustrative, not compiled. The actual implementation is in `core/src/buffer/ring.rs`):
 
 ```
 producer_push(record):
@@ -158,7 +158,7 @@ producer_push(record):
 
 ### Dequeue Algorithm (Consumer)
 
-(pseudocode — illustrative, not compiled):
+(pseudocode — illustrative, not compiled. The actual implementation is in `core/src/buffer/ring_buffer.rs`):
 
 ```
 consumer_drain(batch_size):
@@ -178,7 +178,7 @@ consumer_drain(batch_size):
 
 Records are pre-allocated in a `RecordPool` to avoid heap allocation on the hot path:
 
-(pseudocode — illustrative, not compiled):
+(pseudocode — illustrative, not compiled. The actual implementation is in `core/src/buffer/object_pool.rs`):
 
 ```
 Allocation:
@@ -510,7 +510,8 @@ flowchart TD
 
 ```
 Engine Startup:
-  1. Check for emergency buffer file: dologger_emergency_<pid>_<ts>.buf
+  1. Check for emergency buffer file: dologger_emergency_<pid>_<spill_id>.buf
+     (in the `dologger/` subfolder of the system temp directory)
   2. If found:
      a. Read all spilled records
      b. LSN-based deduplication (skip records with already-seen LSNs)
@@ -550,7 +551,7 @@ flowchart TD
     subgraph AUDIT["AUDIT Consumer Thread (dedicated, never shared)"]
         A1["Name: dologger-audit-pipeline<br/>Priority: Normal<br/>Work: Read → Sign → Dual-write (WORM + Security) → Pool return"]
     end
-    subgraph WATCH["Config Watcher Thread (1 thread)"]
+    subgraph WATCH["Config Watcher Thread (1 thread) — planned<br/>(ConfigWatcher is not wired into Engine::init in v0.1.0)"]
         W1["Name: dologger-config-watcher<br/>Work: Poll config file every 1s (500ms debounce)"]
     end
 ```
@@ -601,7 +602,7 @@ The pipeline scheduler uses a work-stealing thread pool (`crossbeam_channel`):
 
 All VTable functions follow this contract:
 
-(pseudocode — illustrative, not compiled; see `core/include/dologger_core.h` for the concrete VTable types):
+(pseudocode — illustrative contract template; the real v0.1.0 VTable functions return `int` and are defined per type in `core/include/dologger_core.h`):
 
 ```c
 // (pseudocode — illustrative, not compiled)
@@ -626,7 +627,7 @@ sequenceDiagram
         E->>P: dlopen(plugin_path) — load shared library
         E->>P: dlsym("plugin_query") → PluginInfo
         Note over E,P: Validate ABI version, type, license SPDX
-        E->>P: dlsym("dologger_vtable") → VTable struct
+        Note over E,P: VTable read via PluginInfo.vtable pointer (no separate symbol export in v0.1.0)
         Note over E,P: Validate required function pointers
         Note over E: (Blue only) Verify Ed25519 signature
         Note over E: Apply sandbox policy (seccomp / AppContainer)
@@ -642,7 +643,7 @@ sequenceDiagram
 
 ### Required C ABI Exports
 
-Every plugin MUST export:
+Every plugin MUST export (v0.1.0 actual signatures, see `core/include/dologger_core.h`):
 
 ```c
 /* 1. Identity + VTable — called once at load */
@@ -754,15 +755,24 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### Running Benchmarks
 
-The workspace ships no `cargo bench` targets; use the built-in `dologctl perf` benchmark instead:
-
 ```bash
-# Run the built-in benchmark (100K records, 80-byte messages)
-dologctl perf --count 100000
+# Run the built-in benchmark suite (core/benches)
+cargo bench
 
-# Larger run for throughput stability measurements
-dologctl perf --count 1000000
+# Single-record submission latency
+cargo bench --bench latency
 
-# JSON output for automated collection
-dologctl perf --count 100000 -o json
+# Throughput benchmark
+cargo bench --bench throughput
+
+# Latency percentile distribution
+cargo bench --bench latency_percentiles
 ```
+
+The CLI also ships a quick local benchmark: `dologctl perf` (single-thread push latency, default 100K records / 80-byte messages; use `dologctl perf --count 100000 -o json` for machine-readable output).
+
+---
+
+## Complete Specification
+
+This document is the authoritative design reference for DoLogger architecture decisions, APIs, and security properties.

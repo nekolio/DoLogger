@@ -243,7 +243,7 @@ dologctl verify-log audit-000001.worm
 | 症状 | 解决方案 |
 |:-:|:-:|
 | 构建失败，提示"CMake not found" | 安装 CMake 3.20+：`apt install cmake` / `brew install cmake` |
-| `dologctl run` 立即退出 | 使用 `dologctl config validate` 检查 `dologger.toml` 语法 |
+| `dologctl run` 立即退出 | 引擎长驻启动为 M3+；使用 `dologctl run --trace` 运行管道，或 `dologctl run --dry-run` 校验配置 |
 | 无输出出现 | 验证至少有一个接收器 `enabled = true` |
 | 插件加载失败 | 检查 `dologger_internal.log` 以获取 ABI 不匹配详情 |
 

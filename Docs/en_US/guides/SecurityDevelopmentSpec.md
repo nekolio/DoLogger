@@ -199,7 +199,9 @@ The sandbox restricts which operating system operations a plugin can perform. It
 ### Developing Within Sandbox Constraints
 
 ```c
-// (illustrative pseudocode — not compiled)
+// (illustrative pseudocode — not compiled; the v0.1.0 actual plugin entry is
+// `int plugin_init(const void *config)` and `dologger_plugin_config_t` does
+// not exist)
 // YELLOW PLUGIN: Do NOT do this -- network is denied
 dologger_error_t my_plugin_init(const dologger_plugin_config_t *config) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -464,25 +466,42 @@ cargo audit --ignore RUSTSEC-2024-XXXX
 The project `deny.toml` (repository root) contains the canonical deny configuration. The excerpt below shows the intent; the shipped file's exact allow/deny lists may differ, so always check the real `deny.toml` in the repository root:
 
 ```toml
-# deny.toml (illustrative excerpt — see the real deny.toml in the repo root
-# for the exact lists)
-[advisories]
-vulnerability = "deny"       # Deny any crate with a security advisory
-unmaintained = "warn"
-yanked = "warn"
+# deny.toml (excerpt — matches the repository's actual file)
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+private = { ignore = true }
+
+[licenses.allow]
+mit = "allow"
+apache-2.0 = "allow"
+bsd-2-clause = "allow"
+bsd-3-clause = "allow"
+isc = "allow"
+zlib = "allow"
+# ... (see the deny.toml in the repo root for the full list) ...
+
+[licenses.deny]
+gpl-2.0-only = "deny"
+gpl-2.0-or-later = "deny"
+gpl-3.0-only = "deny"
+gpl-3.0-or-later = "deny"
+agpl-3.0-only = "deny"
+agpl-3.0-or-later = "deny"
+# ... (see the deny.toml in the repo root for the full list) ...
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"           # Deny wildcard dependencies
 
-[licenses]
-unlicensed = "deny"
-copyleft = "deny"            # GPL, AGPL -- not permitted
-allow = [
-    "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause",
-    "ISC", "Zlib", "MPL-2.0", "LGPL-3.0-or-later"
-]
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
 ```
+
+(Note: this file uses cargo-deny's `version = 2` mapping format, which requires cargo-deny 1.x+; cargo-deny 0.x fails with an "expected an array" parse error. The repository currently has no `[advisories]` section.)
 
 ### Clippy Configuration
 

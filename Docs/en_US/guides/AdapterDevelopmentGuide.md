@@ -471,7 +471,7 @@ The tradeoff is an added dependency. Use `ctypes` for zero-dependency adapters; 
 ## Go Adapter
 
 > [!NOTE]
-> The Go adapter is planned for M4 (see [Host Integration Guide](HostIntegrationGuide.md#go-m4-milestone)). The code below is illustrative — signatures have been corrected to the shipped C ABI, but the blocks are not compiled in the repository.
+> The packaged M4 managed adapter is planned (see [Host Integration Guide](HostIntegrationGuide.md#go-m4-milestone)). The repository already ships a reference implementation at `adapters/go/dologger.go` (module `github.com/dologger/adapters/go`). The code below is illustrative — signatures have been corrected to the shipped C ABI, but the blocks are not compiled in the repository.
 
 ### cgo Approach (Recommended)
 
@@ -630,6 +630,8 @@ func (e *Engine) Audit(msg string) error { return e.Log(LevelAudit, msg) }
 - **Do not call `Log()` from a finalizer.** The Go runtime may invoke finalizers after the C library is unloaded.
 
 ### Go build tags
+
+(snippet — not a complete file, only illustrates the build-tag syntax):
 
 ```go
 //go:build linux || darwin
@@ -821,6 +823,8 @@ def check_error(rc, context):
     raise err_cls(rc, f"{context} failed (code {rc})")
 ```
 
+(snippet — helper-function excerpt from engine.go, not a complete file):
+
 ```go
 // Go: return error values
 func engineError(code int) error {
@@ -864,6 +868,8 @@ The C ABI is thread-safe for concurrent `dologger_log()` calls. Adapters must do
 - The `dologger-core` crate uses `Send + Sync` markers. The `Engine` handle is safe to share across `std::thread` boundaries.
 
 ### Shutdown Synchronization
+
+(snippet — excerpted from the engine.go Shutdown() implementation above):
 
 ```go
 // Go example: safe concurrent shutdown (illustrative — Go adapter is planned M4)
@@ -976,9 +982,9 @@ class TestEngine:
 
 ### Cross-Platform CI Configuration
 
+(example CI configuration — the YAML syntax is valid, but this workflow file does not exist in the v0.1.0 repository yet; `pip install -e adapters/python/` also requires packaging metadata to be added to the Python adapter):
+
 ```yaml
-# (illustrative template — no adapters/python or adapters/go directory exists
-# in the repository yet; adapt the paths when those adapters land)
 # .github/workflows/adapter-tests.yml
 name: Adapter Tests
 
@@ -1018,9 +1024,7 @@ jobs:
 ### Python (PyPI)
 
 ```toml
-# (illustrative template — the Python adapter is planned; no adapters/python
-# package ships in v0.1.0)
-# pyproject.toml
+# pyproject.toml (illustrative template)
 [project]
 name = "dologger"
 version = "0.1.0"
@@ -1039,26 +1043,25 @@ The Python adapter should be a pure-Python package (no native compilation). User
 ### Go (Module)
 
 ```go
-// (illustrative template — the Go adapter is planned for M4)
-// go.mod
-module github.com/Nekolio/DoLogger-go
+// go.mod (matches the repository's adapters/go/go.mod)
+module github.com/dologger/adapters/go
 
-go 1.22
+go 1.21
 ```
 
-Users install via `go get github.com/Nekolio/DoLogger-go`. The `libdologger_core` shared library must be installed system-wide or discoverable via `CGO_LDFLAGS`.
+Users install via `go get github.com/dologger/adapters/go`. The `libdologger_core` shared library must be installed system-wide or discoverable via `CGO_LDFLAGS`.
 
 ### Rust (Crate)
 
 ```toml
-# Cargo.toml — matches core/Cargo.toml (lib name dologger_core, libloading 0.8)
+# Cargo.toml (matches the repository's adapters/rust/Cargo.toml)
 [package]
-name = "dologger-core"
+name = "dologger-sdk"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-libloading = "0.8"
+dologger-core = { path = "../../core" }
 ```
 
 ### Documentation Requirements
