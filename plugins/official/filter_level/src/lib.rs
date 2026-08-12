@@ -389,6 +389,7 @@ mod tests {
 
     #[test]
     fn test_plugin_query_returns_valid_info() {
+        let _guard = lock_globals();
         let info = unsafe { &*plugin_query() };
         assert_eq!(info.plugin_type, PLUGIN_TYPE_FILTER);
         assert_eq!(info.abi_version, CORE_ABI_VERSION);
@@ -398,6 +399,7 @@ mod tests {
 
     #[test]
     fn test_null_record_returns_error() {
+        let _guard = lock_globals();
         assert_eq!(
             unsafe { filter_impl(std::ptr::null(), std::ptr::null()) },
             -1
@@ -466,6 +468,7 @@ mod tests {
 
     #[test]
     fn test_invalid_config_returns_error() {
+        let _guard = lock_globals();
         let bad_config = CString::new("not valid json!!").unwrap();
         let rec = record_with_level(LogLevel::Info);
 
@@ -475,6 +478,7 @@ mod tests {
 
     #[test]
     fn test_config_with_unknown_level_returns_error() {
+        let _guard = lock_globals();
         let bad_config = CString::new(r#"{"min_level":"INVALID"}"#).unwrap();
         let rec = record_with_level(LogLevel::Info);
 
@@ -484,6 +488,7 @@ mod tests {
 
     #[test]
     fn test_config_non_utf8_returns_error() {
+        let _guard = lock_globals();
         // Create a non-UTF-8 byte sequence — 0xFF 0xFE are a BOM-like
         // sequence that is not valid UTF-8.  CString::new adds its own
         // NUL terminator so these two bytes are the entire payload.
@@ -498,6 +503,7 @@ mod tests {
 
     #[test]
     fn test_per_call_config_overrides_statics() {
+        let _guard = lock_globals();
         // Set static min to DEBUG
         MIN_LEVEL.store(LogLevel::Debug as u8, Ordering::Relaxed);
 
@@ -525,6 +531,7 @@ mod tests {
 
     #[test]
     fn test_drop_trace_flag() {
+        let _guard = lock_globals();
         MIN_LEVEL.store(LogLevel::Info as u8, Ordering::Relaxed);
 
         let trace_rec = record_with_level(LogLevel::Trace);
@@ -546,6 +553,7 @@ mod tests {
 
     #[test]
     fn test_drop_debug_flag() {
+        let _guard = lock_globals();
         MIN_LEVEL.store(LogLevel::Info as u8, Ordering::Relaxed);
 
         let trace_rec = record_with_level(LogLevel::Trace);
@@ -563,6 +571,7 @@ mod tests {
 
     #[test]
     fn test_init_parses_min_level() {
+        let _guard = lock_globals();
         let config = CString::new(r#"{"min_level":"DEBUG"}"#).unwrap();
         assert_eq!(
             plugin_init(config.as_ptr() as *const std::ffi::c_void),
@@ -578,6 +587,7 @@ mod tests {
 
     #[test]
     fn test_init_parses_drop_flags() {
+        let _guard = lock_globals();
         let config =
             CString::new(r#"{"min_level":"INFO","drop_debug":true,"drop_trace":true}"#).unwrap();
         assert_eq!(
@@ -594,6 +604,7 @@ mod tests {
 
     #[test]
     fn test_init_null_config_uses_defaults() {
+        let _guard = lock_globals();
         // Reset to something else first
         MIN_LEVEL.store(LogLevel::Warn as u8, Ordering::Relaxed);
 
@@ -610,6 +621,7 @@ mod tests {
 
     #[test]
     fn test_init_invalid_level_returns_error() {
+        let _guard = lock_globals();
         let config = CString::new(r#"{"min_level":"GARBAGE"}"#).unwrap();
         assert_eq!(
             plugin_init(config.as_ptr() as *const std::ffi::c_void),
@@ -619,6 +631,7 @@ mod tests {
 
     #[test]
     fn test_shutdown_returns_ok() {
+        let _guard = lock_globals();
         assert_eq!(plugin_shutdown(), DO_LOG_OK);
     }
 }
