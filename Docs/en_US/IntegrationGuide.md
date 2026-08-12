@@ -4,7 +4,7 @@
 >
 > **Purpose**: Learn how to embed DoLogger into your application. Covers the C API, configuration, domain inheritance, plugin selection, and language adapters. If you are brand new, start with the [Quick Start Guide](QuickStart.md) first.
 >
-> 🌐 **语言 / Language**: [English](IntegrationGuide.md) | [中文文档索引](../zh_CN/)
+> 🌐 **语言 / Language**: [English](IntegrationGuide.md) | [中文：DoLogger 集成指南](../zh_CN/IntegrationGuide.md)
 >
 > **Reading Path**: C developers should read [C API Basics](#c-api-basics) and [Configuration Deep-Dive](#configuration-deep-dive). Rust developers can skip to [Language Adapters](#language-adapters). For the complete C ABI reference with every function signature and error code, see the [Host Integration Guide](guides/HostIntegrationGuide.md).
 

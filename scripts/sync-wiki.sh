@@ -76,6 +76,15 @@ def map_link(m):
     if '#' in target:
         body, anchor = target.split('#', 1)
         anchor = '#' + anchor
+    # Directory-style language links (e.g. ../zh_CN/) — the wiki has no
+    # folders, so map them to the language landing pages.
+    if body.endswith('/'):
+        langdir = body.rstrip('/').split('/')[-1]
+        if langdir == 'zh_CN':
+            return '](Chinese-Home)'
+        if langdir == 'en_US':
+            return '](Home)'
+        return m.group(0)
     if not body.endswith('.md'):
         return m.group(0)
     resolved = os.path.normpath(os.path.join(page_dir, body)).replace('\\', '/')
@@ -188,7 +197,7 @@ cat > "$WORK/wiki/Home.md" <<EOF
 
 > 🌐 **Language / 语言**: English · [中文](Chinese-Home)
 
-*Cross-platform, high-security logging engine — documentation you can read like a book.*
+*You can read documentation like a book.*
 
 [![CI](https://img.shields.io/github/actions/workflow/status/${REPO}/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/${REPO}/actions)
 [![Stars](https://img.shields.io/github/stars/${REPO}?style=flat-square&color=yellow)](https://github.com/${REPO}/stargazers)
@@ -239,7 +248,7 @@ cat > "$WORK/wiki/Chinese-Home.md" <<EOF
 
 > 🌐 **语言 / Language**: [English](Home) · 中文
 
-*跨平台、高安全日志引擎 — 像一本书一样阅读的技术文档。*
+*像读一本书一样读技术文档。*
 
 [![CI](https://img.shields.io/github/actions/workflow/status/${REPO}/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/${REPO}/actions)
 [![Stars](https://img.shields.io/github/stars/${REPO}?style=flat-square&color=yellow)](https://github.com/${REPO}/stargazers)

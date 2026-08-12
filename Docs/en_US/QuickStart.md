@@ -4,7 +4,7 @@
 >
 > **Purpose**: Get DoLogger running in 5 minutes. No prior knowledge assumed.
 >
-> 🌐 **语言 / Language**: [English](QuickStart.md) | [中文文档索引](../zh_CN/)
+> 🌐 **语言 / Language**: [English](QuickStart.md) | [中文：快速开始指南](../zh_CN/QuickStart.md)
 >
 > **Reading Path**: Read this cover-to-cover, then follow the links to the [Integration Guide](IntegrationGuide.md) when you are ready to embed DoLogger into your application.
 
