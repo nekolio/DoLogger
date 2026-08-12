@@ -414,7 +414,7 @@ Written by the engine and `HostInfoProvider` plugin. Read-only for all other plu
 
 Blue and Yellow plugins write to the `verified.*` namespace. Every write appends an `audit_tags` entry recording `{plugin_id, plugin_version, timestamp, field}`. This creates a tamper-evident history of field modifications.
 
-(illustrative example — Ring 2 field signing and audit_tags land in M4):
+(illustrative example — Ring 2 field signing and audit_tags are not implemented yet):
 
 ```json
 {
@@ -467,12 +467,12 @@ flowchart LR
 
 | If you need to... | Use this plugin type | Official Plugin |
 |:-:|:-:|:-:|
-| Control which records are kept | `Filter` | `filter_level`, `filter_sampling` (planned) |
-| Add metadata to every record | `FieldProvider` | `field_container`, `field_cloud` (planned) |
-| Transform or redact content | `Processor` | `proc_pii_mask` (planned) |
+| Control which records are kept | `Filter` | `filter_level` |
+| Add metadata to every record | `FieldProvider` | `field_container` |
+| Transform or redact content | `Processor` | — (not implemented yet) |
 | Change output format | `Formatter` | `fmt_json`, `fmt_text` |
 | Write to a different destination | `IOSink` | 11 built-in sinks |
-| Use external signing keys | `KeyProvider` | `key_file`, `key_hsm` (planned) |
+| Use external signing keys | `KeyProvider` | — (not implemented yet) |
 | Enforce rate limits | `PolicyProvider` | Built-in rate limiter |
 
 ### Recommended Plugin Set by Use Case
@@ -491,12 +491,12 @@ fmt_json (machine-parseable) + field_container (container metadata)
 
 **Production (compliance):**
 ```
-fmt_json + field_container + proc_pii_mask (mask PII before disk)
+fmt_json + field_container\n(PII auto-masking is not implemented yet)
 ```
 
 **Audit/Compliance:**
 ```
-key_file (persistent signing key) + fmt_json + proc_pii_mask
+fmt_json + field_container\n(the LSN-signed audit chain is built into the engine)
 ```
 
 ### Plugin Trust Colors
@@ -690,7 +690,7 @@ Change the log level at runtime to debug issues in production:
 
 ```bash
 # pseudocode/illustrative — the control plane endpoint (POST /level) is not
-# started with the engine in v0.1.0 (M3+)
+# started with the engine in v0.1.0
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -732,7 +732,7 @@ Change the log level at runtime to debug issues in production:
 **Checklist:**
 1. Verify `performance_profile` -- a `dev` profile uses small buffers and batches
 2. Check if `enable_signature = true` -- Ed25519 signing adds ~17 us per record
-3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+); drop-rate metrics are planned, M4)
+3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (pseudocode/illustrative — the control plane is not started in v0.1.0; richer metrics are planned)
 4. Run `dologctl perf` to baseline the engine on your hardware
 5. Check if `fsync_on_write = true` -- forces I/O flush on every record
 

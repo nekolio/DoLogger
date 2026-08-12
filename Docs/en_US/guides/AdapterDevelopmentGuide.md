@@ -471,7 +471,7 @@ The tradeoff is an added dependency. Use `ctypes` for zero-dependency adapters; 
 ## Go Adapter
 
 > [!NOTE]
-> The packaged M4 managed adapter is planned (see [Host Integration Guide](HostIntegrationGuide.md#go-m4-milestone)). The repository already ships a reference implementation at `adapters/go/dologger.go` (module `github.com/dologger/adapters/go`). The code below is illustrative — signatures have been corrected to the shipped C ABI, but the blocks are not compiled in the repository.
+> A packaged managed adapter is planned (see [Host Integration Guide](HostIntegrationGuide.md)). The repository already ships a reference implementation at `adapters/go/dologger.go` (module `github.com/dologger/adapters/go`). The code below is illustrative — signatures have been corrected to the shipped C ABI, but the blocks are not compiled in the repository.
 
 ### cgo Approach (Recommended)
 
@@ -872,7 +872,7 @@ The C ABI is thread-safe for concurrent `dologger_log()` calls. Adapters must do
 (snippet — excerpted from the engine.go Shutdown() implementation above):
 
 ```go
-// Go example: safe concurrent shutdown (illustrative — Go adapter is planned M4)
+// Go example: safe concurrent shutdown (illustrative — packaged Go adapter is planned)
 func (e *Engine) Shutdown() error {
     e.mu.Lock()
     defer e.mu.Unlock()

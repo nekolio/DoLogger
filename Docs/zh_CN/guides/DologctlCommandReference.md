@@ -105,7 +105,7 @@ dologctl config validate -c /etc/dologger.toml --strict
 
 ### dologctl run
 
-运行 DoLogger 引擎(v0.1.0 仅支持 `--dry-run` 校验与 `--trace` 计时两种模式;长驻前台模式为 M3+)。
+运行 DoLogger 引擎(v0.1.0 仅支持 `--dry-run` 校验与 `--trace` 计时两种模式;长驻前台模式尚未实现)。
 
 ```text
 dologctl run [--dry-run] [--config <path>] [--trace]
@@ -125,7 +125,7 @@ dologctl run --trace --config dologger.toml     # 逐条记录管道计时（v0.
 ```
 
 > [!NOTE]
-> v0.1.0 尚未接通长驻引擎的启动路径:直接 `dologctl run` 会以退出码 `1` 报 `Engine startup not yet implemented (M3+)`。请使用 `--dry-run` 校验配置,或使用 `--trace` 进行计时管道运行。
+> v0.1.0 尚未接通长驻引擎的启动路径:直接 `dologctl run` 会以退出码 `1` 报 `Engine startup not yet implemented`。请使用 `--dry-run` 校验配置,或使用 `--trace` 进行计时管道运行。
 
 ---
 

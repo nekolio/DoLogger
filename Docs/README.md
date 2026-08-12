@@ -76,11 +76,11 @@ Deep dive into the full specification?
 | [Performance Benchmark Guide](en_US/guides/PerformanceBenchmarkGuide.md) | Running and interpreting benchmarks, CI regression detection |
 | [Versioning & Deprecation Policy](en_US/guides/VersioningAndDeprecation.md) | Semantic versioning, ABI compatibility, migration guides |
 
-### English Documents (en_US) — Planning
+### English Documents (en_US) — Official Plugins
 
 | Document | Description |
 |:-:|:-:|
-| [Official Plugin Roadmap](en_US/OfficialPluginRoadmap.md) | Official plugin standard library — 3 tiers, 15 plugins |
+| [Official Plugins](en_US/OfficialPluginRoadmap.md) | Official plugins shipped in v0.1.0 — inventory, not a roadmap |
 
 ### 中文文档 (zh_CN) — 分层学习路径
 
@@ -113,11 +113,11 @@ Deep dive into the full specification?
 | [性能基准测试指南](zh_CN/guides/PerformanceBenchmarkGuide.md) | 运行和解读基准测试、CI 回归检测 |
 | [版本与废弃策略](zh_CN/guides/VersioningAndDeprecation.md) | 语义化版本、ABI 兼容、迁移指南 |
 
-### 中文文档 (zh_CN) — 规划
+### 中文文档 (zh_CN) — 官方插件
 
 | 文档 | 说明 |
 |:-:|:-:|
-| [官方插件路线图](zh_CN/OfficialPluginRoadmap.md) | 官方插件标准库 — 3 个层级，15 个插件 |
+| [官方插件](zh_CN/OfficialPluginRoadmap.md) | v0.1.0 随附的官方插件清单 — 非路线图 |
 
 ### 设计规范
 
@@ -132,7 +132,6 @@ Deep dive into the full specification?
 | [GitHub Releases](../releases) | Release history — each release page is the changelog |
 | [adapters/README.md](../adapters/README.md) | Language adapter SDKs (Rust, Python, Go) |
 | [compliance/README.md](../compliance/README.md) | GDPR / HIPAA / PCI-DSS compliance templates |
-| [plugins/index/README.md](../plugins/index/README.md) | Plugin index format and publishing guide |
 | [conanfile.py](../conanfile.py) | Conan 2.x C dependency recipe |
 | [scripts/](../scripts/) | Build, setup, and CI automation scripts |
 | [.conan/profiles/](../.conan/profiles/) | Pre-built Conan cross-compilation profiles |

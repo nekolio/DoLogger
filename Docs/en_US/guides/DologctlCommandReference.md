@@ -105,7 +105,7 @@ dologctl config validate -c /etc/dologger.toml --strict
 
 ### dologctl run
 
-Run the DoLogger engine (v0.1.0 supports `--dry-run` validation and `--trace` timing modes only; the long-running foreground mode is M3+).
+Run the DoLogger engine (v0.1.0 supports `--dry-run` validation and `--trace` timing modes only; the long-running foreground mode is not implemented yet).
 
 ```text
 dologctl run [--dry-run] [--config <path>] [--trace]
@@ -125,7 +125,7 @@ dologctl run --trace --config dologger.toml     # per-record pipeline timings (v
 ```
 
 > [!NOTE]
-> In v0.1.0 the long-running engine startup path is not yet wired up: plain `dologctl run` exits `1` with `Engine startup not yet implemented (M3+)`. Use `--dry-run` for validation or `--trace` for a timed pipeline run.
+> In v0.1.0 the long-running engine startup path is not yet wired up: plain `dologctl run` exits `1` with `Engine startup not yet implemented`. Use `--dry-run` for validation or `--trace` for a timed pipeline run.
 
 ---
 

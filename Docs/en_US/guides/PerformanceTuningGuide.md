@@ -93,7 +93,7 @@ Overrides are merged on top of the profile defaults. Non-downgradable security i
 | `kernel.sched_rt_runtime_us` | 950000 | **-1** (disable RT throttling) | If using `SCHED_FIFO` for pipeline threads, prevents the kernel from throttling them. |
 | `vm.nr_hugepages` | 0 | **See formula below** | Huge pages reduce TLB misses on the ring buffer. Recommended for buffers > 1M slots. |
 | `vm.hugetlb_shm_group` | 0 | GID of `dologger` group | Allows the engine to use huge pages for shared memory segments. |
-| `fs.aio-max-nr` | 65536 | **262144** | If using AIO for file sink writes (planned M4). |
+| `fs.aio-max-nr` | 65536 | **262144** | If using AIO for file sink writes (planned). |
 
 ### Applying Kernel Parameters
 
@@ -335,7 +335,7 @@ export DO_LOG_BUF_SIZE=524288
 ### Monitoring Buffer Utilization
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# pseudocode/illustrative — the control plane is not started in v0.1.0;
 # the planned /status response has no ring_buffer object yet — the output
 # below is illustrative of the planned metrics
 # curl -s http://127.0.0.1:9090/status | jq .ring_buffer
@@ -483,7 +483,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 # Check process RSS
 ps -o pid,rss,comm -p $(pgrep -f dologger)
 
-# (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# (pseudocode/illustrative — the control plane is not started in v0.1.0;
 # the planned /status response has no .memory object)
 # curl -s http://127.0.0.1:9090/status | jq .memory
 ```
@@ -662,7 +662,7 @@ sudo sysctl -w vm.nr_hugepages=272
 
 ```text
 (pseudocode/illustrative — diagnostic workflow; the control plane is not
-started in v0.1.0 (M3+); the .ring_buffer/.memory fields are planned metrics
+started in v0.1.0; the .ring_buffer/.memory fields are planned metrics
 and the /status handler's response is
 {"status","level","profile","plugins","signature_enabled"})
 1. Check overall health
@@ -706,7 +706,7 @@ and the /status handler's response is
 
 ```bash
 # Engine status (pseudocode/illustrative — the control plane is not started
-# in v0.1.0 (M3+))
+# in v0.1.0)
 # curl -s http://127.0.0.1:9090/status | jq .
 
 # CPU profile (60-second sample)

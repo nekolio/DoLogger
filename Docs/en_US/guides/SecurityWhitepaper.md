@@ -85,9 +85,9 @@ DoLogger's design has been analyzed against the STRIDE threat classification fra
 | **Spoofing**    | Forged log records or plugin identity | Ed25519 signature verification + plugin certificate validation | Implemented |
 | **Tampering**   | Modification of committed log records | LSN hash chain + `prev_hash` linking + WORM file immutability | Implemented |
 | **Repudiation** | Denial of log record authorship | Ed25519 non-repudiation signatures on every audit record | Implemented |
-| **Information Disclosure** | Sensitive fields leaked to unauthorized plugins | Ring 0–3 permission control + field-level access gating | Implemented; auto-redaction Processor planned M4 |
+| **Information Disclosure** | Sensitive fields leaked to unauthorized plugins | Ring 0–3 permission control + field-level access gating | Implemented; auto-redaction Processor planned |
 | **Denial of Service** | Log flooding overwhelming the system | Token-bucket rate limiter + backpressure control + circuit breaker pattern | Implemented |
-| **Elevation of Privilege** | Red plugin escaping sandbox to gain system access | seccomp-bpf / AppContainer isolation + syscall allowlist | Implemented (M3 framework) |
+| **Elevation of Privilege** | Red plugin escaping sandbox to gain system access | seccomp-bpf / AppContainer isolation + syscall allowlist | Implemented (basic framework) |
 
 ### Attack Vector Analysis
 
@@ -335,11 +335,11 @@ Windows isolation uses LowBox Token with capability SID removal:
 - **Yellow plugins**: Process token is converted to LowBox with `WIN://NO_NETWORK` and `WIN://NO_PROCESS_CREATION` capability SIDs withheld.
 - **Red plugins**: Full AppContainer isolation. Only the `WIN://LOWBOX` base capability is present.
 
-Full process-level isolation for Windows (spawning plugin code in a separate, contained child process) is planned for M4.
+Full process-level isolation for Windows (spawning plugin code in a separate, contained child process) is not yet implemented.
 
 ### macOS Sandbox (App Sandbox)
 
-Sandbox profiles applied via `sandbox_init(3)` with seatbelt/SBPL rules. M4 will implement complete profile sets for each trust tier.
+Sandbox profiles applied via `sandbox_init(3)` with seatbelt/SBPL rules. Complete profile sets for each trust tier are planned.
 
 ### Implemented Security Tests (15 Items)
 
@@ -436,7 +436,7 @@ dologctl config validate \
 | Ring 0/1 fields   | Ed25519 signature (~16.96 us per record)    | Moderate             | Cryptographic tamper evidence |
 | Audit chain       | SHA-256 prev\_hash                         | Low (~120 ns)        | Chain-of-custody proof |
 | WORM files        | `fsync` + read-only lock (I/O bound)       | Moderate             | Post-commit immutability |
-| External anchor   | Periodic root hash publication (M4)        | N/A (offline)        | Long-term tamper resistance |
+| External anchor   | Periodic root hash publication (planned)        | N/A (offline)        | Long-term tamper resistance |
 
 ### Tamper Detection Workflow
 
@@ -458,7 +458,7 @@ verify-log takes a single file path)
    LSN gaps detected:       1  ← Missing records
    Chain intact:        99,997
 
-4. External anchor verification (M4):
+4. External anchor verification (planned):
    - Fetch root hash from S3 anchor for the same LSN range
    - Compute local root hash (Merkle tree over all signatures)
    - Compare → PASS / FAIL
@@ -532,7 +532,7 @@ cargo deny check sources
 | `cargo audit` | Every CI run | Known CVE in Rust dependency graph |
 | `cargo deny check advisories` | Every CI run | RustSec advisory database |
 | `cargo deny check bans` | Every CI run | Duplicate crate versions, wildcard deps |
-| OSS-Fuzz (planned M4) | Continuous | Fuzz testing of record parsing, signature verification |
+| OSS-Fuzz (planned) | Continuous | Fuzz testing of record parsing, signature verification |
 
 ---
 
@@ -571,12 +571,12 @@ All TLS connections require TLS 1.2 or higher. TLS 1.0 and 1.1 are rejected at t
 
 ### Control Plane Security
 
-**M3 (current):**
+**Current:**
 - HTTP listener bound to `127.0.0.1:9090`
 - No authentication (localhost-only access)
 - Recommended: host firewall restricts port 9090 to loopback
 
-**M4 (planned):**
+**Planned:**
 - gRPC with mTLS for remote access
 - JWT bearer token authentication
 - Role-based access control (read-only observer vs. admin)
@@ -624,18 +624,18 @@ dologctl compliance report \
 
 ## Known Limitations and Planned Improvements
 
-### Current Limitations (M3)
+### Current Limitations
 
 | Limitation | Impact | Mitigation | Target |
 |:-:|:-:|:-:|:-:|
-| **SIF format** | Uses a simplified binary frame format | Full FlatBuffers SIF with schema evolution is planned | M4 |
-| **Process isolation** | Yellow/Red plugins run in-process with seccomp filter | Full child-process isolation with IPC is planned | M4 |
-| **External anchoring** | No external root hash publication | S3/HTTP anchor proof for long-term tamper resistance | M4 |
-| **Secret detection** | No automatic PII/password detection in log messages | Auto-redaction Processor with regex + ML patterns | M4 |
-| **Key rotation** | No key rotation mechanism | CRL (Certificate Revocation List) + multi-key parallel verification | M4 |
-| **Multi-producer ring buffer** | Single CAS cursor contended under >8 threads | Sharded ring buffer with per-thread partitions | M4 |
-| **Plugin hot reload** | Plugins require engine restart to load/unload | Dynamic plugin load/unload without restart | M4 |
-| **Metrics export** | Control plane `/status` only; no Prometheus endpoint | Prometheus `/metrics` endpoint with histograms | M4 |
+| **SIF format** | Uses a simplified binary frame format | Full FlatBuffers SIF with schema evolution is planned | Planned |
+| **Process isolation** | Yellow/Red plugins run in-process with seccomp filter | Full child-process isolation with IPC is planned | Planned |
+| **External anchoring** | No external root hash publication | S3/HTTP anchor proof for long-term tamper resistance | Planned |
+| **Secret detection** | No automatic PII/password detection in log messages | Auto-redaction Processor with regex + ML patterns | Planned |
+| **Key rotation** | No key rotation mechanism | CRL (Certificate Revocation List) + multi-key parallel verification | Planned |
+| **Multi-producer ring buffer** | Single CAS cursor contended under >8 threads | Sharded ring buffer with per-thread partitions | Planned |
+| **Plugin hot reload** | Plugins require engine restart to load/unload | Dynamic plugin load/unload without restart | Planned |
+| **Metrics export** | Control plane `/status` only; no Prometheus endpoint | Prometheus `/metrics` endpoint with histograms | Planned |
 
 ### Security Audit Roadmap
 
@@ -652,4 +652,4 @@ dologctl compliance report \
 
 Security vulnerabilities in DoLogger should be reported to `nekoliowork+DoLogger@gmail.com`. Please do not file public issues for security-sensitive bugs. The project follows a 90-day disclosure deadline. Critical vulnerabilities (RCE, sandbox escape, signature bypass) will be patched within 7 days of confirmation.
 
-**Bug Bounty**: A bug bounty program covering the DoLogger core engine, official plugins, and `dologctl` CLI is planned for M4.
+**Bug Bounty**: A bug bounty program covering the DoLogger core engine, official plugins, and `dologctl` CLI is planned.

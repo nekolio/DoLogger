@@ -394,7 +394,7 @@ fuzz_target!(|data: &[u8]| {
 - [ ] 插件发布前 24 小时零崩溃模糊测试
 - [ ] 模糊测试期间启用 AddressSanitizer（`-Z sanitizer=address`）
 - [ ] 模糊测试语料库签入仓库（`fuzz/corpus/`）
-- [ ] OSS-Fuzz 集成（计划 M4）
+- [ ] OSS-Fuzz 集成（规划中）
 
 ### 本地运行模糊测试
 

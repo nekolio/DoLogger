@@ -8,7 +8,7 @@
   <a href="https://github.com/Nekolio/DoLogger/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nekolio/DoLogger/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
   <a href="https://github.com/Nekolio/DoLogger/stargazers"><img src="https://img.shields.io/github/stars/Nekolio/DoLogger?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="https://github.com/Nekolio/DoLogger/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License"></a>
-  <img src="https://img.shields.io/badge/rust-1.97.1%2B-orange?style=flat-square" alt="Rust">
+  <img src="https://img.shields.io/badge/rust-stable-orange?style=flat-square" alt="Rust">
   <img src="https://img.shields.io/badge/platform-Linux_|_macOS_|_Windows-808080?style=flat-square" alt="Platform">
   <a href="https://github.com/Nekolio/DoLogger/commits/main"><img src="https://img.shields.io/github/last-commit/Nekolio/DoLogger?style=flat-square&label=last%20commit" alt="Last commit"></a>
 </p>
@@ -171,7 +171,7 @@ Global flags: `--output json|text`, `--color auto|always|never`, `--quiet`, `--c
 
 ## Performance
 
-Measured on Windows 11 LTSC, Rust 1.97.1, Intel i5-12400F, release + LTO:
+Measured on Windows 11 LTSC, Rust stable, Intel i5-12400F, release + LTO:
 
 | Benchmark | P50 | Throughput |
 |:-:|:-:|:-:|

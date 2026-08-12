@@ -398,7 +398,7 @@ fuzz_target!(|data: &[u8]| {
 - [ ] 24 hours of fuzzing with zero crashes before plugin release
 - [ ] AddressSanitizer (`-Z sanitizer=address`) enabled during fuzzing
 - [ ] Fuzzing corpus checked into the repository (`fuzz/corpus/`)
-- [ ] OSS-Fuzz integration (planned M4)
+- [ ] OSS-Fuzz integration (planned)
 
 ### Running Fuzz Tests Locally
 

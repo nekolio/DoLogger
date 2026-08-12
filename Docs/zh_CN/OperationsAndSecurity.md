@@ -115,7 +115,7 @@ DO_LOG_CONFIG_FILE=./dologger.toml ./myapp
 ### Sidecar 部署
 
 ```bash
-# 伪代码 — v0.1.0 的 dologctl run 无 --mode 选项（长驻 sidecar 模式为 M3+）
+# 伪代码 — v0.1.0 的 dologctl run 无 --mode 选项（长驻 sidecar 模式尚未实现）
 # dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
 ```
 
@@ -141,7 +141,7 @@ full_policy = "drop_oldest" # SHM 满时的行为
 
 **Linux（systemd）：**
 
-（伪代码/示意 — daemon 模式与长驻 `dologctl run` 为 M3+；v0.1.0 的 `dologctl run` 仅支持 `--dry-run`/`--trace` 后即退出）：
+（伪代码/示意 — daemon 模式与长驻 `dologctl run` 尚未实现；v0.1.0 的 `dologctl run` 仅支持 `--dry-run`/`--trace` 后即退出）：
 
 ```ini
 # /etc/systemd/system/dologger.service
@@ -224,7 +224,7 @@ sudo systemctl status dologger
 ### 状态端点
 
 ```bash
-# 伪代码/示意 — 控制面（GET /status）在 v0.1.0 尚未随引擎启动（M3+）
+# 伪代码/示意 — 控制面（GET /status）在 v0.1.0 尚未随引擎启动
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
 
@@ -274,7 +274,7 @@ sudo systemctl status dologger
 ### 动态日志级别调整
 
 ```bash
-# 伪代码/示意 — POST /level 在 v0.1.0 尚未随引擎启动（M3+）
+# 伪代码/示意 — POST /level 在 v0.1.0 尚未随引擎启动
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -289,14 +289,14 @@ export DO_LOG_CONFIG_LOCK=1
 # 编辑配置文件
 vim /etc/dologger/default.toml
 
-# 伪代码/示意 — POST /reload 在 v0.1.0 尚未随引擎启动（M3+）
+# 伪代码/示意 — POST /reload 在 v0.1.0 尚未随引擎启动
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
 ### 控制面安全
 
-- 默认绑定到 `127.0.0.1:9090`（仅本地主机；规划中 — v0.1.0 未随引擎启动，M3+）
-- M4 将添加 mTLS + JWT 认证以支持远程访问
+- 默认绑定到 `127.0.0.1:9090`（仅本地主机；规划中 — v0.1.0 未随引擎启动）
+- mTLS + JWT 认证（远程访问）为规划中
 - 生产环境：使用主机防火墙限制访问
 
 ```bash
@@ -313,7 +313,7 @@ sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
 
 | 密钥类型 | 描述 | 管理方 |
 |:-:|:-:|:-:|
-| 签名密钥 | 用于日志记录签名的 Ed25519 私钥 | `KeyProvider` 插件 |
+| 签名密钥 | 用于日志记录签名的 Ed25519 私钥 | 内置 `DefaultKeyProvider`（临时、内存中） |
 | 验证密钥 | 用于签名验证的 Ed25519 公钥 | 随日志分发 |
 | 根密钥 | 用于 Blue 插件签名的 DoLogger 团队密钥 | 编译进引擎 |
 
@@ -327,18 +327,9 @@ sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
 
 ### 生产密钥管理
 
-对于生产环境，部署提供持久密钥存储的 `KeyProvider` 插件：
-
-```toml
-# （示意 — v0.1.0 不解析插件配置节）
-[plugins.key-file]
-type = "key_provider"
-path = "/usr/lib/dologger/plugins/libkey_file.so"
-
-[plugins.key-file.config]
-path = "/etc/dologger/signing_key"       # 需要 0600 权限
-require_owner = true
-```
+引擎使用内置的 `DefaultKeyProvider` 对记录签名：启动时在内存中生成随机 Ed25519 密钥对。
+私钥永不落盘，公钥通过 API 提供以便离线验证。持久化密钥存储（文件或 HSM 后端）在
+v0.1.0 中尚未实现：`KeyProvider` 插件接口已定义，但本次发布未随附任何实现。
 
 ### 密钥轮换生命周期
 
@@ -412,7 +403,7 @@ Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 
 ### `dologctl verify-anchor`
 
-验证外部锚定哈希（M4）：
+验证外部锚定哈希（规划中）：
 
 ```bash
 # verify-anchor 接受锚定 JSON 文件路径 + --pubkey；v0.1.0 无 --anchor-file/--worm-path 选项
@@ -539,14 +530,14 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **分类：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .ring_buffer
    # 检查 pct_used、drops_total、emergency_spills
    ```
 
 2. **识别瓶颈：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
@@ -580,19 +571,19 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **检查当前配置文件：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **检查接收器健康状态：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **检查签名是否意外启用：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    # Ed25519 签名每条记录增加约 17 us
    ```
@@ -605,7 +596,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 5. **缓解：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
    ```
 
@@ -818,7 +809,7 @@ cargo bench --bench latency -- --baseline prod-baseline
 ### 运行时性能监控
 
 ```bash
-# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
 # watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 ```
 
@@ -828,19 +819,19 @@ cargo bench --bench latency -- --baseline prod-baseline
 
 1. **比较配置文件**：`performance_profile` 是否已更改？
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **检查签名开销**：Ed25519 签名是否意外启用？
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    ```
 
 3. **检查接收器健康状态**：慢速下游导致背压。
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 

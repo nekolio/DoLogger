@@ -242,7 +242,7 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 
 ### Hot Reload
 
-(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or — from M3+ — trigger a reload via the control plane.)
+(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or trigger a reload via the control plane (planned).)
 
 1. Non-security keys are reloaded immediately.
 2. Security-tier keys (non-downgradable items) — changes tightening them are accepted; changes loosening them are **rejected with a `CONFIG_RELOAD_DENIED` sysmon event**.
@@ -253,7 +253,7 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 # Change log level without restart
 # sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
 
-# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+# pseudocode/illustrative — the control plane is not started in v0.1.0
 # curl -X POST http://127.0.0.1:9090/reload
 
 # curl http://127.0.0.1:9090/status | jq .level
@@ -368,7 +368,7 @@ The System Monitor (`sysmon`) emits structured events to `stderr` by default. Ea
 
 ```bash
 # pseudocode/illustrative — the control plane is not started with the engine
-# in v0.1.0 (M3+); the response format below matches the /status handler in
+# in v0.1.0; the response format below matches the /status handler in
 # core/src/sys/control_plane.rs
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
@@ -420,10 +420,10 @@ The System Monitor (`sysmon`) emits structured events to `stderr` by default. Ea
 | Sandbox violations           | 0              | > 0               | > 0 (any)           | sysmon `SANDBOX_VIOLATION` |
 | LSN gaps                     | 0              | > 0               | > 0 (any)           | sysmon `LSN_GAP_DETECTED` |
 
-### Prometheus Integration (M4)
+### Prometheus Integration (planned)
 
 ```yaml
-# prometheus.yml scrape config (illustrative — planned M4)
+# prometheus.yml scrape config (illustrative — planned)
 scrape_configs:
   - job_name: 'dologger'
     static_configs:
@@ -455,7 +455,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### HTTP API Endpoints
 
-**Table 5: Control Plane API (M3)** — planned: none of these endpoints are started with the engine in v0.1.0.
+**Table 5: Control Plane API (planned)** — none of these endpoints are started with the engine in v0.1.0.
 
 | Method | Path       | Auth | Description |
 |:-:|:-:|:-:|:-:|
@@ -467,7 +467,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 ### Changing Log Level at Runtime
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+# pseudocode/illustrative — the control plane is not started in v0.1.0
 # Temporarily increase verbosity for debugging
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
@@ -485,7 +485,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 ### Triggering Configuration Reload
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+# pseudocode/illustrative — the control plane is not started in v0.1.0
 # Reload without validation (applies changes if syntax is valid)
 # curl -X POST http://127.0.0.1:9090/reload
 
@@ -498,8 +498,8 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### Security Considerations
 
-- The control plane listens on `127.0.0.1:9090` by default (planned — the control plane is not started in v0.1.0; M3+) — only processes on the same host can reach it.
-- M4 will add mTLS + JWT authentication for remote access.
+- The control plane listens on `127.0.0.1:9090` by default (planned — the control plane is not started in v0.1.0) — only processes on the same host can reach it.
+- mTLS + JWT authentication for remote access is planned.
 - Production deployments should use host-level firewall rules to restrict access to the control plane port:
   ```bash
   # iptables: restrict to localhost only
@@ -552,7 +552,7 @@ Retention is checked once per rotation. If both `retention_days` and `retention_
 | Warm | Local HDD        | 7–90 days | Zstd-compressed   | `dologctl query`, incident investigation |
 | Cold | S3 / GCS / ABS  | 90+ days  | Parquet columnar  | Compliance audits, long-term analytics |
 
-**Automated tiering (planned M4):**
+**Automated tiering (planned):**
 
 ```toml
 # (planned — illustrative schema)
@@ -611,7 +611,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
 # {"latest_lsn": 100042,"root_hash": "a3f8b2c1..."}
 
 # Publish root hash to an external witness (S3 object metadata, blockchain anchor, etc.)
-# M4: dologctl anchor publish --s3-bucket audit-anchors --root-hash "a3f8b2c1..."
+# planned: dologctl anchor publish --s3-bucket audit-anchors --root-hash "a3f8b2c1..."
 ```
 
 ### Emergency Buffer Recovery
@@ -636,7 +636,7 @@ On recovery (when the ring buffer has free space):
 ls -la /tmp/dologger/dologger_emergency_*.buf
 
 # If the engine is running and the file persists, check engine status
-# (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# (pseudocode/illustrative — the control plane is not started in v0.1.0;
 # the planned /status response has no ring_buffer object yet)
 # curl http://127.0.0.1:9090/status
 
@@ -746,7 +746,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 - [ ] `SIGNATURE_FAILURE` and `SANDBOX_VIOLATION` events trigger PagerDuty alerts
 - [ ] `dologctl verify-log` runs daily via cron and reports failures
 - [ ] Non-downgradable items audited weekly against production configuration
-- [ ] Key rotation schedule established (manual for M3; automated for M4)
+- [ ] Key rotation schedule established (manual today; automated rotation planned)
 - [ ] Plugin signatures verified on every engine startup
 - [ ] Control plane restricted to localhost via firewall
 - [ ] TLS certificates for network sinks monitored for expiry
@@ -764,7 +764,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
 **Response:**
 
-1. **Triage**: `curl http://127.0.0.1:9090/status | jq .ring_buffer` (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+))
+1. **Triage**: `curl http://127.0.0.1:9090/status | jq .ring_buffer` (pseudocode/illustrative — the control plane is not started in v0.1.0)
 2. **Check drops**: Look at `pct_used`, `drops_total`, `emergency_spills`
 3. **Identify bottleneck**: Sink health status — is a sink in `circuit_open` state?
 4. **Mitigation**:
@@ -833,7 +833,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 1. **Baseline**: Run `cargo bench` to confirm the engine itself is performing as expected.
 2. **Profile**: Verify `performance_profile` — has it been changed to a lower-throughput profile?
    ```bash
-   # (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+))
+   # (pseudocode/illustrative — the control plane is not started in v0.1.0)
    curl http://127.0.0.1:9090/status | jq .profile
    ```
 3. **Check sinks**: Are sinks healthy? A slow downstream can cause backpressure.

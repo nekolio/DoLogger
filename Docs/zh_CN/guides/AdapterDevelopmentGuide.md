@@ -471,7 +471,7 @@ _lib = ffi.dlopen("libdologger_core.so")
 ## Go 适配器
 
 > [!NOTE]
-> M4 规划的托管适配器为规划中（见[宿主集成指南](HostIntegrationGuide.md#go-m4-里程碑)）。仓库已有参考实现 `adapters/go/dologger.go`（模块 `github.com/dologger/adapters/go`）。下方代码为示意——签名已按已发布的 C ABI 修正，但这些块未在仓库中编译。
+> 打包的托管适配器为规划中（见[宿主集成指南](HostIntegrationGuide.md)）。仓库已有参考实现 `adapters/go/dologger.go`（模块 `github.com/dologger/adapters/go`）。下方代码为示意——签名已按已发布的 C ABI 修正，但这些块未在仓库中编译。
 
 ### cgo 方式（推荐）
 

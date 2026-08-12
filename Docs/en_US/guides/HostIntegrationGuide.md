@@ -281,7 +281,7 @@ shutdown_timeout_ms = 5000
 
 ### Configuration Hot Reload
 
-(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or — from M3+ — trigger a reload via the control plane.)
+(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or trigger a reload via the control plane (planned).)
 
 ```bash
 # pseudocode/illustrative — not automatic in v0.1.0
@@ -296,7 +296,7 @@ Changes are logged via sysmon as `CONFIG_RELOAD` events. Security-tier keys (non
 
 ```bash
 # pseudocode/illustrative — the control plane is not started with the engine
-# in v0.1.0 (M3+)
+# in v0.1.0
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
@@ -470,7 +470,7 @@ int main(void) {
 
 ### Known Limitation
 
-The ring buffer does not support true multi-producer lock-free enqueue across threads. Multiple producer threads contend on a single CAS cursor. In practice this is acceptable up to approximately 8 concurrent producer threads. Beyond that, consider using a sharded ring buffer (planned for M4).
+The ring buffer does not support true multi-producer lock-free enqueue across threads. Multiple producer threads contend on a single CAS cursor. In practice this is acceptable up to approximately 8 concurrent producer threads. Beyond that, consider using a sharded ring buffer (planned).
 
 ---
 
@@ -507,9 +507,9 @@ fn main() {
 
 The SDK (`dologger_sdk::Logger`) provides level helpers (`trace` … `audit`) around `Engine`. RAII-style `Drop`, `serde` deserialization, and a builder for `DologgerConfig` are planned for a later release.
 
-### Python (M4 Milestone)
+### Python (planned)
 
-The packaged M4 managed adapter is planned. The repository already ships a working ctypes adapter (`adapters/python/dologger.py`) whose `DoLogger` class is importable as `from dologger import DoLogger` and has been verified to run with v0.1.0. The code below is an illustrative preview of the planned M4 interface (pseudocode, not runnable):
+A packaged managed adapter is planned. The repository already ships a working ctypes adapter (`adapters/python/dologger.py`) whose `DoLogger` class is importable as `from dologger import DoLogger` and has been verified to run with v0.1.0. The code below is an illustrative preview of the planned interface (pseudocode, not runnable):
 
 ```python
 import dologger
@@ -521,9 +521,9 @@ logger.shutdown()
 
 The Python adapter uses `ctypes` to load `libdologger_core` and provides a `logging.Handler`-compatible interface.
 
-### Go (M4 Milestone)
+### Go (planned)
 
-The packaged M4 managed adapter is planned. The repository already ships `adapters/go` (module `github.com/dologger/adapters/go`). The code below is an illustrative preview of the planned M4 interface (pseudocode, not runnable):
+A packaged managed adapter is planned. The repository already ships `adapters/go` (module `github.com/dologger/adapters/go`). The code below is an illustrative preview of the planned interface (pseudocode, not runnable):
 
 ```go
 package main
@@ -612,7 +612,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### Diagnostic Checklist
 
-1. **Engine health**: `curl http://127.0.0.1:9090/status` (pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+))
+1. **Engine health**: `curl http://127.0.0.1:9090/status` (pseudocode/illustrative — the control plane is not started in v0.1.0)
 2. **Sysmon events**: Redirect `stderr` and watch for `PIPELINE_BACKLOG`, `SHM_DROP`, `SINK_CIRCUIT_OPEN`, `SANDBOX_VIOLATION`, `SIGNATURE_FAILURE`.
 3. **Internal log**: `tail -f dologger_internal.log`
 4. **Configuration**: `dologctl config validate --config /path/to/dologger.toml --strict`
@@ -621,7 +621,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 ### Collecting a Debug Report
 
 ```bash
-# `dologctl diag collect` is planned (M4); gather the pieces manually today:
+# `dologctl diag collect` is planned; gather the pieces manually today:
 dologctl about --output json > diag-report.json
 dologctl config validate --strict
 ```

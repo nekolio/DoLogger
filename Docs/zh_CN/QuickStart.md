@@ -74,7 +74,7 @@ enable_signature = false
 ./target/release/dologctl run --trace
 ```
 
-`--trace` 模式启动引擎并提交 10 条跟踪记录，逐条报告管道阶段计时（v0.1.0 的长驻前台模式为 M3+）。典型输出：
+`--trace` 模式启动引擎并提交 10 条跟踪记录，逐条报告管道阶段计时（v0.1.0 的长驻前台模式尚未实现）。典型输出：
 
 ```text
 Configuration file: dologger.toml (auto-detected)
@@ -243,7 +243,7 @@ dologctl verify-log audit-000001.worm
 | 症状 | 解决方案 |
 |:-:|:-:|
 | 构建失败，提示"CMake not found" | 安装 CMake 3.20+：`apt install cmake` / `brew install cmake` |
-| `dologctl run` 立即退出 | 引擎长驻启动为 M3+；使用 `dologctl run --trace` 运行管道，或 `dologctl run --dry-run` 校验配置 |
+| `dologctl run` 立即退出 | v0.1.0 尚未实现引擎长驻启动；使用 `dologctl run --trace` 运行管道，或 `dologctl run --dry-run` 校验配置 |
 | 无输出出现 | 验证至少有一个接收器 `enabled = true` |
 | 插件加载失败 | 检查 `dologger_internal.log` 以获取 ABI 不匹配详情 |
 

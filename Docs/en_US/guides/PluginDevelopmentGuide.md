@@ -213,7 +213,7 @@ third_party = [  # (planned)
 [compatibility]
 # (planned — v0.1.0 enforces `abi_version` equality instead)
 min_engine_version = "0.1.0"
-max_engine_version = "0.2.0"
+max_engine_version = "0.1.0"
 ```
 
 ### Manifest Field Reference
@@ -507,11 +507,11 @@ Windows sandboxing uses LowBox Token + Restricted SID:
 - Yellow plugins: LowBox token with `WIN://NO_NETWORK` and `WIN://NO_PROCESS_CREATION` capability SIDs removed.
 - Red plugins: Full AppContainer isolation with no capability SIDs.
 
-Full process-level isolation is planned for M4.
+Full process-level isolation is not implemented yet.
 
 ### macOS (App Sandbox)
 
-Sandbox profiles are applied via `sandbox_init(3)` with seatbelt/SBPL rules. M4 will implement complete sandbox profiles per trust tier.
+Sandbox profiles are applied via `sandbox_init(3)` with seatbelt/SBPL rules. Complete sandbox profiles per trust tier are planned.
 
 ### Capability Declaration Enforcement
 
@@ -661,25 +661,30 @@ dologctl sign plugin \
 # The .sig file must accompany the .so file in the distribution
 ```
 
-### Official Plugin Repository (M4)
+### Plugin Distribution (v0.1.0)
+
+v0.1.0 ships local plugin management only — there is no remote registry,
+and no `dologctl sign` command yet. Blue-trust plugins are therefore not
+publishable yet; the signing and distribution pipeline has no target
+version.
+
+The commands that exist today:
 
 ```bash
-# (planned — v0.1.0 ships only: plugin install <path>, plugin list, plugin
-# remove <name>, plugin verify [name], plugin scan)
-# Search the registry
-dologctl plugin search kafka
-
-# Install a plugin from the registry
-dologctl plugin install kafka-sink
+# Install a plugin library into ./plugins/
+dologctl plugin install ./my-plugin-1.0.0/libmy_plugin.so
 
 # List installed plugins
 dologctl plugin list
 
-# Verify plugin integrity
+# Remove a plugin
+dologctl plugin remove my-plugin
+
+# Verify ABI version, trust level, and symbol resolution
 dologctl plugin verify my-plugin
 
-# Update all plugins
-dologctl plugin update --all
+# Scan for suspicious exported symbols (fork, exec, system, dlopen)
+dologctl plugin scan
 ```
 
 ### Distribution Checklist

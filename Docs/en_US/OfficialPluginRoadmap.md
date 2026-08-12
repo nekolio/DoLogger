@@ -1,13 +1,17 @@
-# DoLogger Official Plugin Roadmap
+# DoLogger Official Plugins
 
 > **Version**: v0.1.0
 
-> 🌐 **语言 / Language**: [English](OfficialPluginRoadmap.md) | [中文：官方插件路线图](../zh_CN/OfficialPluginRoadmap.md)
+> 🌐 **语言 / Language**: [English](OfficialPluginRoadmap.md) | [中文：官方插件](../zh_CN/OfficialPluginRoadmap.md)
 
-The DoLogger engine ships with a curated set of official plugins — analogous to
-a language standard library — that cover the most common logging, formatting,
-security, and observability needs.  Third-party plugins extend this foundation
-for domain-specific requirements.
+DoLogger ships a curated set of official plugins — analogous to a language
+standard library — covering the most common logging, formatting, and
+observability needs. Third-party plugins extend this foundation for
+domain-specific requirements.
+
+**This page is an inventory of what ships in the current release. It is not
+a roadmap — nothing here is a commitment to future versions.** It is
+updated in the release that adds or changes plugins.
 
 ## Plugin Types and Pipeline Position
 
@@ -17,180 +21,109 @@ for domain-specific requirements.
 PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4) → Formatting(5) → Sink(6)
 ```
 
-| Stage | Plugin Type | Official Count | Status |
+| Stage | Plugin Type | Status in v0.1.0 |
+|:-:|:-:|:-:|
+| 0 | PolicyProvider | Built into the core: `rate_limiter`, `drop_level` |
+| 1 | Filter | Official plugin: `filter_level` |
+| 2 | FieldProvider | Built into the core: `host_info`; official plugin: `field_container` |
+| 3 | Assembly | Core-only: LSN + Ed25519 signature |
+| 4 | Processor | Built into the core: `secret_detector` |
+| 5 | Formatter | Official plugins: `fmt_json`, `fmt_text` |
+| 6 | IOSink | 11 sinks built into the core |
+| — | KeyProvider | Not implemented — the core loads signing keys itself |
+| — | ConfigProvider | Not implemented |
+| — | SyscallBroker | Not implemented |
+
+## Official Plugins
+
+The four official plugins live under `plugins/official/`. They are Cargo
+workspace members (`cargo build --workspace` builds them), export the
+`plugin_query` / `plugin_init` / `plugin_shutdown` C ABI symbols, and each
+ships a `PluginManifest.toml`.
+
+| Plugin | Type | Phase | Description |
 |:-:|:-:|:-:|:-:|
-| 0 | PolicyProvider | 2 | Built-in (rate_limiter, drop_level) |
-| 1 | Filter | 3 | Planned |
-| 2 | FieldProvider | 3 | 1 partial (host_info built-in) |
-| 3 | Assembly | 0 | Core-only (LSN + Ed25519 sign) |
-| 4 | Processor | 3 | 1 done (secret_detector) |
-| 5 | Formatter | 3 | Planned |
-| 6 | IOSink | 11 | All built-in |
-| — | KeyProvider | 2 | Planned |
-| — | ConfigProvider | 0 | Deferred (remote config centers) |
-| — | SyscallBroker | 0 | Deferred (platform-specific) |
+| `filter_level` | Filter | Filter (1) | Drops records below a configurable severity level, with per-domain overrides. |
+| `fmt_json` | Formatter | Formatting (5) | Serializes `Record` fields to structured JSON. |
+| `fmt_text` | Formatter | Formatting (5) | Human-readable text output. |
+| `field_container` | FieldProvider | FieldProvider (2) | Injects container metadata: container ID, pod name, namespace, node name (Docker, Kubernetes, podman). |
 
----
-
-## Tier 1 — Essential (v0.2.0 target)
-
-These plugins cover the baseline needs of every production deployment.
-
-### Filter: `filter_level`
+### filter_level
 
 | Property | Value |
 |:-:|:-:|
 | Phase | Filter (1) |
 | Trust | Blue |
-| Description | Drop records below a configurable log level (per-domain override). |
-| Config | `min_level: "INFO"`, `drop_below: true` |
-| Rationale | Decouples log-level filtering from the core engine; allows per-domain rules without touching the global rate limiter. Replaces the built-in `DropLevelPolicy` for domain-specific use. |
+| Config | `min_level` (default `"INFO"`), `drop_trace`, `drop_debug`, per-domain overrides |
+| Tests | 17 unit tests |
 
-### Formatter: `fmt_json`
+Drops records below a configurable severity level, with optional per-domain
+overrides. Replaces the built-in `DropLevelPolicy` for domain-specific use.
 
-| Property | Value |
-|:-:|:-:|
-| Phase | Formatting (5) |
-| Trust | Blue |
-| Description | Serialize Record fields to structured JSON with configurable field inclusion. |
-| Config | `pretty: false`, `include_ring3: false`, `timestamp_format: "rfc3339"` |
-| Rationale | JSON is the universal interchange format for log aggregation systems (ELK, Loki, Datadog). Every deployment needs this. |
-
-### Formatter: `fmt_text`
+### fmt_json
 
 | Property | Value |
 |:-:|:-:|
 | Phase | Formatting (5) |
 | Trust | Blue |
-| Description | Human-readable colored text output with configurable field columns (matches ConsoleSink format but as a loadable plugin). |
-| Config | `color: true`, `show_thread: true`, `show_timestamp: true`, `timestamp_format: "elapsed"` |
-| Rationale | Development and debugging. Moves the ConsoleSink formatting logic into a swappable plugin so other sinks can reuse it. |
+| Config | Not wired yet — the plugin runs with its default behavior |
+| Tests | 9 unit tests |
 
-### FieldProvider: `field_container`
+Serializes a `Record`'s fields (level, message, timestamp, thread, process,
+source file/function/line) into a JSON object. Config parsing (`pretty`,
+`include_ring3`, `timestamp_format`) is not implemented yet.
+
+### fmt_text
+
+| Property | Value |
+|:-:|:-:|
+| Phase | Formatting (5) |
+| Trust | Blue |
+| Config | Not wired yet — the plugin runs with its default behavior |
+| Tests | 3 unit tests |
+
+Human-readable text output. Config parsing (`color`, `show_thread`,
+`show_timestamp`, `timestamp_format`) is not implemented yet.
+
+### field_container
 
 | Property | Value |
 |:-:|:-:|
 | Phase | FieldProvider (2) |
 | Trust | Blue |
-| Description | Inject container orchestration metadata: container ID (from `/proc/self/cgroup` or `$CONTAINER_ID`), pod name, namespace, node name (from Kubernetes downward API). |
-| Config | `source: "auto"` (auto-detect Docker/Kubernetes/podman) |
-| Rationale | In 2026, the majority of production workloads run in containers. Automatic container context injection is table stakes. |
+| Config | Not wired yet — the plugin runs with its default behavior (`source: auto`) |
+| Tests | 3 unit tests |
 
----
+Injects container orchestration metadata: container ID (from
+`/proc/self/cgroup` or `$CONTAINER_ID`), pod name, namespace, and node name.
+Auto-detects Docker, Kubernetes, and podman. Config parsing (`source`) is
+not implemented yet.
 
-## Tier 2 — Production (v0.3.0 target)
+## Building and Testing
 
-These plugins address security, compliance, and operational requirements.
+```bash
+# Build all official plugins
+cargo build --release -p dologger-plugin-filter-level \
+                      -p dologger-plugin-fmt-json \
+                      -p dologger-plugin-fmt-text \
+                      -p dologger-plugin-field-container
 
-### Processor: `proc_pii_mask`
-
-| Property | Value |
-|:-:|:-:|
-| Phase | Processing (4) |
-| Trust | Blue |
-| Description | Mask/replace PII patterns in log messages before they reach any sink. |
-| Patterns | Email addresses, credit card numbers (Luhn check), SSN (US), phone numbers (E.164), IBAN (EU), IP addresses (optional) |
-| Config | `mode: "mask"` (replace middle chars) or `mode: "hash"` (SHA-256 pseudonym), `custom_patterns: []` |
-| Rationale | GDPR/CCPA/HIPAA compliance gate. Run BEFORE formatting so masked data never hits disk or network. Complements the existing `secret_detector` (which handles API keys/tokens). |
-
-### Processor: `proc_field_enrich`
-
-| Property | Value |
-|:-:|:-:|
-| Phase | Processing (4) |
-| Trust | Blue |
-| Description | Add user-defined static or computed key-value fields to every record passing through the pipeline. |
-| Config | `fields: { "datacenter": "us-east-1", "team": "payments" }`, `env_inherit: ["DEPLOY_VERSION", "REGION"]` |
-| Rationale | Common operational need — tagging records with deployment metadata without changing application code. |
-
-### FieldProvider: `field_cloud`
-
-| Property | Value |
-|:-:|:-:|
-| Phase | FieldProvider (2) |
-| Trust | Blue |
-| Description | Inject cloud provider metadata: instance ID, region, availability zone, account ID (AWS IMDSv2 / GCP metadata server / Azure IMDS). |
-| Config | `provider: "auto"`, `timeout_ms: 100` |
-| Rationale | Essential for multi-cloud / hybrid-cloud deployments. Avoids baking cloud specifics into application config. |
-
-### Filter: `filter_sampling`
-
-| Property | Value |
-|:-:|:-:|
-| Phase | Filter (1) |
-| Trust | Blue |
-| Description | Probabilistic record sampling — keep 1/N records deterministically (by trace_id hash) or randomly. |
-| Config | `rate: 0.01` (keep 1%), `key: "trace_id"` (deterministic by field), `min_level: "WARN"` (always keep WARN+) |
-| Rationale | High-throughput systems cannot afford to store every DEBUG/TRACE record. Deterministic sampling preserves trace continuity. |
-
-### KeyProvider: `key_file`
-
-| Property | Value |
-|:-:|:-:|
-| Phase | KeyProvider (load-time) |
-| Trust | Blue |
-| Description | Read Ed25519 signing key from the filesystem with permission checks (must be 0600, owner-only). |
-| Config | `path: "/etc/dologger/signing_key"`, `require_owner: true` |
-| Rationale | Production deployments cannot embed keys in config TOML. This is the baseline external key provider. |
-
----
-
-## Tier 3 — Extended (v0.4.0+)
-
-These plugins address advanced or specialized use cases.
-
-| Plugin | Phase | Description | Priority |
-|:-:|:-:|:-:|:-:|
-| `fmt_csv` | Formatting | RFC 4180 CSV output for analytics/warehouse import | Medium |
-| `filter_regex` | Filter | Drop records matching regex patterns on `message` or named fields | Medium |
-| `proc_geoip` | Processing | Add `geo.country`, `geo.city` from MaxMind GeoLite2 database | Low |
-| `field_process` | FieldProvider | Process stats: PID, parent PID, command line, uptime, RSS | Medium |
-| `key_env` | KeyProvider | Read signing key from environment variable (CI/CD, short-lived tokens) | Medium |
-| `key_hsm` | KeyProvider | PKCS#11 interface to hardware security modules (YubiHSM, AWS CloudHSM) | Low |
-| `policy_quota` | PolicyProvider | Per-domain record quota (count + byte budget per second) | Medium |
-
----
-
-## Development Strategy
-
-### Phase 1: Scaffolding (now)
-1. Create `plugins/official/` directory structure
-2. Each plugin gets a Cargo workspace member crate
-3. Standardized `Cargo.toml` template with `license.workspace = true`
-4. `PluginManifest.toml` per plugin with metadata
-
-### Phase 2: Tier 1 implementation (v0.2.0)
-1. `fmt_json` — highest impact, unblocks structured logging for all sinks
-2. `field_container` — universal container metadata
-3. `filter_level` + `fmt_text` — parity with built-in behaviors, but as plugins
-
-### Phase 3: Tier 2 implementation (v0.3.0)
-1. `proc_pii_mask` — compliance gate
-2. `key_file` — production key management
-3. `proc_field_enrich` + `field_cloud` + `filter_sampling`
-
-### Phase 4: Tier 3 (v0.4.0+)
-Community-driven with official reference implementations.
-
-### Plugin Crate Template
-
-(illustrative directory layout):
-
-```text
-plugins/official/fmt_json/
-├── Cargo.toml
-├── PluginManifest.toml
-└── src/
-    └── lib.rs
+# filter_level uses global statics — its tests must run single-threaded
+cargo test -p dologger-plugin-filter-level -- --test-threads=1
+cargo test -p dologger-plugin-fmt-json
+cargo test -p dologger-plugin-fmt-text
+cargo test -p dologger-plugin-field-container
 ```
 
-Each official plugin:
-- Exports `plugin_query`, `plugin_init`, `plugin_shutdown` C ABI symbols
-- Declares `license.workspace = true`
-- Includes a `PluginManifest.toml` for the plugin index
-- Has unit tests covering the VTable contract
-- Is signed with the DoLogger root key (Blue trust level)
+## Not Implemented Yet
+
+These are deliberately absent from v0.1.0 and have no target version:
+
+- Remote plugin registry (`dologctl plugin search` / `plugin update`) — the
+  CLI ships `list`, `install <path>`, `remove`, `verify`, and `scan` only.
+- Plugin signing tooling (`dologctl sign`) and root key provisioning.
+- KeyProvider, ConfigProvider, and SyscallBroker plugin types.
 
 ---
 
-*Last updated: 2026-08-12*
+*Last updated: 2026-08-13*

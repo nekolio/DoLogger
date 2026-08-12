@@ -74,7 +74,7 @@ enable_signature = false
 ./target/release/dologctl run --trace
 ```
 
-This initializes the engine and pushes 10 trace records through the pipeline, reporting per-record pipeline stage timings (the long-running foreground mode lands in M3+). Typical output:
+This initializes the engine and pushes 10 trace records through the pipeline, reporting per-record pipeline stage timings (the long-running foreground mode is not implemented yet). Typical output:
 
 ```text
 Configuration file: dologger.toml (auto-detected)
@@ -238,7 +238,7 @@ dologctl verify-log audit-000001.worm
 | Symptom | Solution |
 |:-:|:-:|
 | Build fails with "CMake not found" | Install CMake 3.20+: `apt install cmake` / `brew install cmake` |
-| `dologctl run` exits immediately | Engine startup lands in M3; use `dologctl run --trace` to exercise the pipeline, or `dologctl run --dry-run` to validate configuration |
+| `dologctl run` exits immediately | Engine startup is not implemented in v0.1.0; use `dologctl run --trace` to exercise the pipeline, or `dologctl run --dry-run` to validate configuration |
 | No output appears | Verify at least one sink has `enabled = true` |
 | Plugin fails to load | Check `dologger_internal.log` for ABI mismatch details |
 

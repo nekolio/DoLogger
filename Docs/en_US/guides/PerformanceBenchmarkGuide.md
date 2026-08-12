@@ -240,7 +240,7 @@ All official benchmark numbers reported in DoLogger documentation are measured o
 | **RAM** | 64 GB DDR5-6000 (2 x 32 GB, dual-channel) |
 | **Storage** | Samsung 990 Pro 2 TB NVMe (PCIe 4.0 x4) |
 | **OS** | Ubuntu 24.04 LTS, Linux kernel 6.8 |
-| **Rust** | 1.97.1 stable, `RUSTFLAGS="-C target-cpu=native -C lto=fat"` |
+| **Rust** | latest stable, `RUSTFLAGS="-C target-cpu=native -C lto=fat"` |
 | **Compile flags** | `--release`, LTO enabled, `codegen-units=1` |
 
 ### Secondary Reference Machines
@@ -311,7 +311,7 @@ Throughput numbers should be read with these caveats:
 | Gradual throughput degradation over time | Thermal throttling or memory leak | Monitor CPU temp and process RSS during benchmark |
 | High variance (>20% between runs) | Turbo boost not disabled, background process interference | Verify prerequisites in [Environment Preparation](#environment-preparation) |
 | P99.9 spike exceeding 100x P50 | Page faults from memory allocation on hot path | Check for heap allocation in VTable functions; use `perf record -e page-faults` |
-| Throughput cliff at N threads | Ring buffer CAS contention (single cursor) | Known limitation — sharded ring buffer planned for M4; see [Architecture Reference](../ArchitectureReference.md#known-limitation) |
+| Throughput cliff at N threads | Ring buffer CAS contention (single cursor) | Known limitation — sharded ring buffer not yet implemented; see [Architecture Reference](../ArchitectureReference.md#known-limitation) |
 
 ### Statistical Rigor
 

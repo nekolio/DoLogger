@@ -240,7 +240,7 @@ DoLogger 文档中报告的所有官方基准测试数据均在此硬件配置�
 | **RAM** | 64 GB DDR5-6000（2 x 32 GB，双通道） |
 | **存储** | Samsung 990 Pro 2 TB NVMe（PCIe 4.0 x4） |
 | **操作系统** | Ubuntu 24.04 LTS，Linux 内核 6.8 |
-| **Rust** | 1.97.1 stable，`RUSTFLAGS="-C target-cpu=native -C lto=fat"` |
+| **Rust** | 最新稳定版，`RUSTFLAGS="-C target-cpu=native -C lto=fat"` |
 | **编译标志** | `--release`，LTO 启用，`codegen-units=1` |
 
 ### 次要参考机器
@@ -311,7 +311,7 @@ DoLogger 文档中报告的所有官方基准测试数据均在此硬件配置�
 | 随时间渐进式吞吐量下降 | 热节流或内存泄漏 | 基准测试期间监控 CPU 温度和进程 RSS |
 | 高方差（运行间 >20%） | Turbo boost 未禁用，后台进程干扰 | 验证[环境准备](#环境准备)中的前提条件 |
 | P99.9 峰值超过 P50 的 100 倍 | 热路径上内存分配导致的缺页 | 检查 VTable 函数中的堆分配；使用 `perf record -e page-faults` |
-| N 线程时吞吐量断崖 | 环形缓冲区 CAS 竞争（单一游标） | 已知限制——分片环形缓冲区计划在 M4 中实现；参见[架构参考](../ArchitectureReference.md#已知限制) |
+| N 线程时吞吐量断崖 | 环形缓冲区 CAS 竞争（单一游标） | 已知限制——分片环形缓冲区尚未实现；参见[架构参考](../ArchitectureReference.md#已知限制) |
 
 ### 统计严谨性
 

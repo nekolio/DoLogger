@@ -238,7 +238,7 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 
 ### 热重载
 
-（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或 — M3+ 起 — 通过控制面触发重载。）
+（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或通过控制面触发重载（规划中）。）
 
 1. 非安全键立即生效。
 2. 安全级键（不可降级项）— 收紧变更会被接受；放宽变更会被**拒绝，并产生一条 `CONFIG_RELOAD_DENIED` sysmon 事件**。
@@ -249,7 +249,7 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 # 无需重启修改日志级别
 # sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
 
-# 伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）
+# 伪代码/示意 — v0.1.0 中控制面尚未启动
 # curl -X POST http://127.0.0.1:9090/reload
 
 # curl http://127.0.0.1:9090/status | jq .level
@@ -364,7 +364,7 @@ ring_buffer_size = 524288       # 覆盖 262144 默认值
 ### 控制面状态端点
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面尚未随引擎启动（M3+）；
+# 伪代码/示意 — v0.1.0 中控制面尚未随引擎启动；
 # 下方响应格式与 core/src/sys/control_plane.rs 的 /status 处理器一致
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
@@ -416,10 +416,10 @@ ring_buffer_size = 524288       # 覆盖 262144 默认值
 | 沙箱违规 | 0 | > 0 | > 0（任意） | sysmon `SANDBOX_VIOLATION` |
 | LSN 缺口 | 0 | > 0 | > 0（任意） | sysmon `LSN_GAP_DETECTED` |
 
-### Prometheus 集成（M4）
+### Prometheus 集成（规划中）
 
 ```yaml
-# prometheus.yml 抓取配置（示意 — M4 规划中）
+# prometheus.yml 抓取配置（示意 — 规划中）
 scrape_configs:
   - job_name: 'dologger'
     static_configs:
@@ -451,7 +451,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### HTTP API 端点
 
-**表 5：控制面 API（M3）** — 规划中：v0.1.0 中这些端点均未随引擎启动。
+**表 5：控制面 API（规划中）** — v0.1.0 中这些端点均未随引擎启动。
 
 | 方法 | 路径 | 认证 | 说明 |
 |:-:|:-:|:-:|:-:|
@@ -463,7 +463,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 ### 运行时修改日志级别
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）
+# 伪代码/示意 — v0.1.0 中控制面尚未启动
 # 调试时临时提高日志详细程度
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
@@ -481,7 +481,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 ### 触发配置重载
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）
+# 伪代码/示意 — v0.1.0 中控制面尚未启动
 # 直接重载（语法合法即应用变更）
 # curl -X POST http://127.0.0.1:9090/reload
 
@@ -494,8 +494,8 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### 安全注意事项
 
-- 控制面默认监听 `127.0.0.1:9090`（规划中 — v0.1.0 中控制面未启动；M3+）— 仅同主机进程可达。
-- M4 将为远程访问增加 mTLS + JWT 认证。
+- 控制面默认监听 `127.0.0.1:9090`（规划中 — v0.1.0 中控制面未启动）— 仅同主机进程可达。
+- mTLS + JWT 认证（远程访问）为规划中。
 - 生产部署应使用主机级防火墙规则限制对控制面端口的访问：
   ```bash
   # iptables：仅允许本机访问
@@ -548,7 +548,7 @@ retention_total_size = "10GB"   # 总量超过 10 GB 时删除最旧文件
 | 温层 | 本地 HDD | 7–90 天 | Zstd 压缩 | `dologctl query`、事件调查 |
 | 冷层 | S3 / GCS / ABS | 90 天以上 | Parquet 列存 | 合规审计、长期分析 |
 
-**自动分层（M4 规划中）：**
+**自动分层（规划中）：**
 
 ```toml
 # （规划中 — 示意 schema）
@@ -607,7 +607,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
 # {"latest_lsn": 100042,"root_hash": "a3f8b2c1..."}
 
 # 将根哈希发布到外部见证（S3 对象元数据、区块链锚点等）
-# M4：dologctl anchor publish --s3-bucket audit-anchors --root-hash "a3f8b2c1..."
+# 规划中：dologctl anchor publish --s3-bucket audit-anchors --root-hash "a3f8b2c1..."
 ```
 
 ### 紧急缓冲恢复
@@ -632,7 +632,7 @@ dologger_emergency_<pid>_<spill_id>.buf
 ls -la /tmp/dologger/dologger_emergency_*.buf
 
 # 若引擎正在运行且文件持续存在，检查引擎状态
-# （伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）；
+# （伪代码/示意 — v0.1.0 中控制面尚未启动；
 # 规划中的 /status 响应尚无 ring_buffer 对象）
 # curl http://127.0.0.1:9090/status
 
@@ -742,7 +742,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 - [ ] `SIGNATURE_FAILURE` 与 `SANDBOX_VIOLATION` 事件触发 PagerDuty 告警
 - [ ] `dologctl verify-log` 通过 cron 每日运行并上报失败
 - [ ] 每周对照生产配置审计不可降级项
-- [ ] 制定密钥轮换计划（M3 手动；M4 自动化）
+- [ ] 制定密钥轮换计划（当前手动；自动化轮换为规划中）
 - [ ] 每次引擎启动时验证插件签名
 - [ ] 控制面已通过防火墙限制为仅本机访问
 - [ ] 网络 Sink 的 TLS 证书到期时间受监控
@@ -761,7 +761,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
 **响应：**
 
-1. **分诊**：`curl http://127.0.0.1:9090/status | jq .ring_buffer`（伪代码/示意 — v0.1.0 中控制面尚未启动（M3+））
+1. **分诊**：`curl http://127.0.0.1:9090/status | jq .ring_buffer`（伪代码/示意 — v0.1.0 中控制面尚未启动）
 2. **检查丢弃情况**：查看 `pct_used`、`drops_total`、`emergency_spills`
 3. **定位瓶颈**：Sink 健康状态 — 是否有 Sink 处于 `circuit_open` 状态？
 4. **缓解措施**：
@@ -833,7 +833,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 1. **基线**：运行 `cargo bench` 确认引擎自身性能符合预期。
 2. **Profile 检查**：核对 `performance_profile` — 是否被改为低吞吐 Profile？
    ```bash
-   # （伪代码/示意 — v0.1.0 中控制面尚未启动（M3+））
+   # （伪代码/示意 — v0.1.0 中控制面尚未启动）
    curl http://127.0.0.1:9090/status | jq .profile
    ```
 3. **检查 Sink**：Sink 是否健康？下游变慢会引起背压。

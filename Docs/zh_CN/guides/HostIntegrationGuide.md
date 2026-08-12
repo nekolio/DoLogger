@@ -277,7 +277,7 @@ shutdown_timeout_ms = 5000
 
 ### 配置热重载
 
-（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或 — 从 M3+ 起 — 通过控制面触发重载。）
+（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或通过控制面触发重载（规划中）。）
 
 ```bash
 # 伪代码/示意 — v0.1.0 不会自动生效
@@ -291,7 +291,7 @@ shutdown_timeout_ms = 5000
 ### 控制面重载
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面未随引擎启动（M3+）
+# 伪代码/示意 — v0.1.0 中控制面未随引擎启动
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
@@ -465,7 +465,7 @@ int main(void) {
 
 ### 已知限制
 
-环形缓冲区不支持跨线程的真正多生产者无锁入队。多个生产者线程会在同一个 CAS 游标上竞争。实际应用中，约 8 个并发生产者线程以内是可接受的。超过该数量，建议使用分片环形缓冲区（M4 规划中）。
+环形缓冲区不支持跨线程的真正多生产者无锁入队。多个生产者线程会在同一个 CAS 游标上竞争。实际应用中，约 8 个并发生产者线程以内是可接受的。超过该数量，建议使用分片环形缓冲区（规划中）。
 
 ---
 
@@ -502,9 +502,9 @@ fn main() {
 
 SDK（`dologger_sdk::Logger`）在 `Engine` 之上提供级别辅助函数（`trace` … `audit`）。RAII 风格的 `Drop`、`serde` 反序列化以及 `DologgerConfig` 的 builder 将在后续版本中提供。
 
-### Python (M4)
+### Python（规划中）
 
-（伪代码/示意 — M4 规划的托管适配器；仓库已附带可运行的 ctypes 适配器（`adapters/python/dologger.py`），其 `DoLogger` 类可通过 `from dologger import DoLogger` 导入，并已随 v0.1.0 实测运行。以下代码为规划的 M4 接口的示意预览（伪代码，不可直接运行）：）
+（伪代码/示意 — 打包的托管适配器为规划中；仓库已附带可运行的 ctypes 适配器（`adapters/python/dologger.py`），其 `DoLogger` 类可通过 `from dologger import DoLogger` 导入，并已随 v0.1.0 实测运行。以下代码为规划的接口的示意预览（伪代码，不可直接运行）：）
 
 ```python
 import dologger
@@ -516,9 +516,9 @@ logger.shutdown()
 
 Python 适配器使用 `ctypes` 加载 `libdologger_core`，并提供兼容 `logging.Handler` 的接口。
 
-### Go (M4)
+### Go（规划中）
 
-（伪代码/示意 — M4 规划的托管适配器；仓库已附带 `adapters/go`（模块 `github.com/dologger/adapters/go`）。以下代码为规划的 M4 接口的示意预览（伪代码，不可直接运行）：）
+（伪代码/示意 — 打包的托管适配器为规划中；仓库已附带 `adapters/go`（模块 `github.com/dologger/adapters/go`）。以下代码为规划的接口的示意预览（伪代码，不可直接运行）：）
 
 ```go
 package main
@@ -607,7 +607,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### 诊断检查清单
 
-1. **引擎健康**：`curl http://127.0.0.1:9090/status`（伪代码/示意 — v0.1.0 中控制面未启动（M3+））
+1. **引擎健康**：`curl http://127.0.0.1:9090/status`（伪代码/示意 — v0.1.0 中控制面未启动）
 2. **Sysmon 事件**：重定向 `stderr`，关注 `PIPELINE_BACKLOG`、`SHM_DROP`、`SINK_CIRCUIT_OPEN`、`SANDBOX_VIOLATION`、`SIGNATURE_FAILURE`。
 3. **内部日志**：`tail -f dologger_internal.log`
 4. **配置**：`dologctl config validate --config /path/to/dologger.toml --strict`
@@ -616,7 +616,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 ### 收集调试报告
 
 ```bash
-# `dologctl diag collect` 尚在规划中（M4）；目前请手动收集以下材料：
+# `dologctl diag collect` 尚在规划中；目前请手动收集以下材料：
 dologctl about --output json > diag-report.json
 dologctl config validate --strict
 ```

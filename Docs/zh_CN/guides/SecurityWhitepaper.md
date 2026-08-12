@@ -81,9 +81,9 @@ DoLogger 的设计已依据 STRIDE 威胁分类框架进行分析。
 | **Spoofing** | 伪造日志记录或插件身份 | Ed25519 签名验证 + 插件证书验证 | 已实现 |
 | **Tampering** | 修改已提交的日志记录 | LSN 哈希链 + `prev_hash` 链接 + WORM 文件不可变性 | 已实现 |
 | **Repudiation** | 否认日志记录的作者身份 | 每条审计记录上的 Ed25519 不可否认签名 | 已实现 |
-| **Information Disclosure** | 敏感字段泄露给未授权插件 | Ring 0–3 权限控制 + 字段级访问门控 | 已实现；自动脱敏 Processor 规划于 M4 |
+| **Information Disclosure** | 敏感字段泄露给未授权插件 | Ring 0–3 权限控制 + 字段级访问门控 | 已实现；自动脱敏 Processor 为规划中 |
 | **Denial of Service** | 日志洪泛压垮系统 | 令牌桶限速器 + 背压控制 + 断路器模式 | 已实现 |
-| **Elevation of Privilege** | Red 插件逃逸沙箱以获取系统权限 | seccomp-bpf / AppContainer 隔离 + 系统调用白名单 | 已实现（M3 框架） |
+| **Elevation of Privilege** | Red 插件逃逸沙箱以获取系统权限 | seccomp-bpf / AppContainer 隔离 + 系统调用白名单 | 已实现（基础框架） |
 
 ### 攻击向量分析
 
@@ -331,11 +331,11 @@ Windows 隔离使用 LowBox Token 并移除能力 SID：
 - **Yellow 插件**：进程令牌转换为 LowBox，并收回 `WIN://NO_NETWORK` 和 `WIN://NO_PROCESS_CREATION` 能力 SID。
 - **Red 插件**：完整 AppContainer 隔离。仅保留 `WIN://LOWBOX` 基础能力。
 
-Windows 的完整进程级隔离（将插件代码运行在单独、受控的子进程中）规划于 M4。
+Windows 的完整进程级隔离（将插件代码运行在单独、受控的子进程中）尚未实现。
 
 ### macOS 沙箱 (App Sandbox)
 
-沙箱配置文件通过 `sandbox_init(3)` 与 seatbelt/SBPL 规则应用。M4 将为每个信任级别实现完整的配置文件集。
+沙箱配置文件通过 `sandbox_init(3)` 与 seatbelt/SBPL 规则应用。计划为每个信任级别实现完整的配置文件集。
 
 ### 已实现的安全测试 (15 项)
 
@@ -432,7 +432,7 @@ dologctl config validate \
 | Ring 0/1 字段 | Ed25519 签名（每条记录约 16.96 us） | 中等 | 密码学篡改证据 |
 | 审计链 | SHA-256 prev\_hash | 低（约 120 ns） | 保管链证明 |
 | WORM 文件 | `fsync` + 只读锁（I/O 绑定） | 中等 | 提交后不可变性 |
-| 外部锚定 | 定期根哈希发布（M4） | N/A（离线） | 长期防篡改 |
+| 外部锚定 | 定期根哈希发布（规划中） | N/A（离线） | 长期防篡改 |
 
 ### 篡改检测工作流
 
@@ -453,7 +453,7 @@ dologctl config validate \
    LSN gaps detected:       1  ← 缺失记录
    Chain intact:        99,997
 
-4. 外部锚定验证 (M4)：
+4. 外部锚定验证（规划中）：
    - 从 S3 锚点获取同一 LSN 范围的根哈希
    - 计算本地根哈希（基于所有签名的 Merkle 树）
    - 比较 → PASS / FAIL
@@ -527,7 +527,7 @@ cargo deny check sources
 | `cargo audit` | 每次 CI 运行 | Rust 依赖图中的已知 CVE |
 | `cargo deny check advisories` | 每次 CI 运行 | RustSec 公告数据库 |
 | `cargo deny check bans` | 每次 CI 运行 | 重复 crate 版本、通配符依赖 |
-| OSS-Fuzz（规划 M4） | 持续 | 记录解析、签名验证的模糊测试 |
+| OSS-Fuzz（规划中） | 持续 | 记录解析、签名验证的模糊测试 |
 
 ---
 
@@ -566,12 +566,12 @@ tls_min_version = "1.2"
 
 ### 控制面安全
 
-**M3（当前）：**
+**当前：**
 - HTTP 监听器绑定于 `127.0.0.1:9090`
 - 无认证（仅限本机访问）
 - 建议：宿主机防火墙将 9090 端口限制在回环接口
 
-**M4（规划中）：**
+**规划中：**
 - 支持远程访问的 gRPC + mTLS
 - JWT Bearer Token 认证
 - 基于角色的访问控制（只读观察者 vs. 管理员）
@@ -619,18 +619,18 @@ dologctl compliance report \
 
 ## 已知限制与待改进项
 
-### 当前限制 (M3)
+### 当前限制
 
 | 限制 | 影响 | 缓解 | 目标 |
 |:-:|:-:|:-:|:-:|
-| **SIF 格式** | 使用简化的二进制帧格式 | 规划完整的带模式演进的 FlatBuffers SIF | M4 |
-| **进程隔离** | Yellow/Red 插件与 seccomp 过滤器进程内运行 | 规划带 IPC 的完整子进程隔离 | M4 |
-| **外部锚定** | 无外部根哈希发布 | S3/HTTP 锚定证明用于长期防篡改 | M4 |
-| **秘密检测** | 日志消息中无自动 PII/密码检测 | 带正则 + ML 模式的自动脱敏 Processor | M4 |
-| **密钥轮换** | 无密钥轮换机制 | CRL（证书吊销列表）+ 多密钥并行验证 | M4 |
-| **多生产者环形缓冲区** | 单一 CAS 游标在 >8 线程下争用 | 按线程分区的分片环形缓冲区 | M4 |
-| **插件热重载** | 插件加载/卸载需要引擎重启 | 无需重启的动态插件加载/卸载 | M4 |
-| **指标导出** | 控制面仅 `/status`；无 Prometheus 端点 | 带直方图的 Prometheus `/metrics` 端点 | M4 |
+| **SIF 格式** | 使用简化的二进制帧格式 | 规划完整的带模式演进的 FlatBuffers SIF | 规划中 |
+| **进程隔离** | Yellow/Red 插件与 seccomp 过滤器进程内运行 | 规划带 IPC 的完整子进程隔离 | 规划中 |
+| **外部锚定** | 无外部根哈希发布 | S3/HTTP 锚定证明用于长期防篡改 | 规划中 |
+| **秘密检测** | 日志消息中无自动 PII/密码检测 | 带正则 + ML 模式的自动脱敏 Processor | 规划中 |
+| **密钥轮换** | 无密钥轮换机制 | CRL（证书吊销列表）+ 多密钥并行验证 | 规划中 |
+| **多生产者环形缓冲区** | 单一 CAS 游标在 >8 线程下争用 | 按线程分区的分片环形缓冲区 | 规划中 |
+| **插件热重载** | 插件加载/卸载需要引擎重启 | 无需重启的动态插件加载/卸载 | 规划中 |
+| **指标导出** | 控制面仅 `/status`；无 Prometheus 端点 | 带直方图的 Prometheus `/metrics` 端点 | 规划中 |
 
 ### 安全审计路线图
 
@@ -647,4 +647,4 @@ dologctl compliance report \
 
 DoLogger 的安全漏洞请报告至 `nekoliowork+DoLogger@gmail.com`。请勿为安全敏感缺陷提交公开 issue。项目遵循 90 天披露期限。关键漏洞（RCE、沙箱逃逸、签名绕过）将在确认后 7 天内修复。
 
-**漏洞赏金**：覆盖 DoLogger 核心引擎、官方插件与 `dologctl` CLI 的漏洞赏金计划规划于 M4。
+**漏洞赏金**：覆盖 DoLogger 核心引擎、官方插件与 `dologctl` CLI 的漏洞赏金计划为规划中。

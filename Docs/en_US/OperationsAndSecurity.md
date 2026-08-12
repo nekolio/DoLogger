@@ -116,7 +116,7 @@ DO_LOG_CONFIG_FILE=./dologger.toml ./myapp
 
 ```bash
 # Start the sidecar process (illustrative — the long-running sidecar mode lands
-# in M3; today dologctl run supports --dry-run and --trace only)
+# not implemented yet; today dologctl run supports --dry-run and --trace only)
 dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
 
 # Configure host applications to use sink_shm
@@ -144,7 +144,7 @@ Install as a system service:
 
 **Linux (systemd):**
 
-(illustrative unit file — engine daemon mode lands in M3; `dologctl run` currently supports `--dry-run` and `--trace` only):
+(illustrative unit file — engine daemon mode is not implemented yet; `dologctl run` currently supports `--dry-run` and `--trace` only):
 
 ```ini
 # /etc/systemd/system/dologger.service
@@ -205,7 +205,7 @@ The System Monitor emits structured JSON events to `stderr` (or configurable out
 
 ### Control Plane API
 
-The control plane provides a lightweight HTTP API for runtime management — planned: none of these endpoints are started with the engine in v0.1.0 (M3+).
+The control plane provides a lightweight HTTP API for runtime management — planned: none of these endpoints are started with the engine in v0.1.0.
 
 | Method | Path | Auth | Description |
 |:-:|:-:|:-:|:-:|
@@ -217,7 +217,7 @@ The control plane provides a lightweight HTTP API for runtime management — pla
 ### Health Check
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+);
+# pseudocode/illustrative — the control plane is not started in v0.1.0;
 # the current implementation (core/src/sys/control_plane.rs) only has
 # GET /status, POST /level, POST /reload — no /health endpoint
 # curl -s http://127.0.0.1:9090/health
@@ -228,7 +228,7 @@ The control plane provides a lightweight HTTP API for runtime management — pla
 
 ```bash
 # pseudocode/illustrative — the control plane (GET /status) is not started
-# with the engine in v0.1.0 (M3+)
+# with the engine in v0.1.0
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
 
@@ -236,7 +236,7 @@ The control plane provides a lightweight HTTP API for runtime management — pla
 {"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false}
 ```
 
-The response is deliberately minimal today; richer metrics (uptime, ring buffer statistics, per-sink health, pipeline counters) are planned for M4.
+The response is deliberately minimal today; richer metrics (uptime, ring buffer statistics, per-sink health, pipeline counters) are planned.
 
 ### Alerting Thresholds
 
@@ -254,7 +254,7 @@ The response is deliberately minimal today; richer metrics (uptime, ring buffer 
 
 ```bash
 # pseudocode/illustrative — the control plane (POST /level) is not started
-# with the engine in v0.1.0 (M3+)
+# with the engine in v0.1.0
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -275,7 +275,7 @@ export DO_LOG_CONFIG_LOCK=1
 vim /etc/dologger/default.toml
 
 # pseudocode/illustrative — the control plane (POST /reload) is not started
-# with the engine in v0.1.0 (M3+)
+# with the engine in v0.1.0
 # curl -X POST http://127.0.0.1:9090/reload
 
 # Dry-run first (planned — the reload endpoint ignores the request body today)
@@ -286,8 +286,8 @@ vim /etc/dologger/default.toml
 
 ### Control Plane Security
 
-- Binds to `127.0.0.1:9090` by default (localhost only; planned — the control plane is not started in v0.1.0 (M3+))
-- M4 will add mTLS + JWT authentication for remote access
+- Binds to `127.0.0.1:9090` by default (localhost only; planned — the control plane is not started in v0.1.0)
+- mTLS + JWT authentication for remote access is planned
 - Production: use host firewall to restrict access
 
 ```bash
@@ -304,7 +304,7 @@ sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
 
 | Key Type | Description | Managed By |
 |:-:|:-:|:-:|
-| Signing key | Ed25519 private key for log record signing | `KeyProvider` plugin |
+| Signing key | Ed25519 private key for log record signing | Built-in `DefaultKeyProvider` (ephemeral, in-memory) |
 | Verification key | Ed25519 public key for signature verification | Distributed with logs |
 | Root key | DoLogger team key for Blue plugin signing | Compiled into engine |
 
@@ -318,18 +318,11 @@ In the default configuration without a `KeyProvider` plugin:
 
 ### Production Key Management
 
-For production, deploy a `KeyProvider` plugin that provides persistent key storage:
-
-```toml
-# (illustrative — plugin config sections are not parsed in v0.1.0)
-[plugins.key-file]
-type = "key_provider"
-path = "/usr/lib/dologger/plugins/libkey_file.so"
-
-[plugins.key-file.config]
-path = "/etc/dologger/signing_key"       # 0600 permissions required
-require_owner = true
-```
+The engine signs records with the built-in `DefaultKeyProvider`: a random Ed25519 key pair
+generated in memory at startup. The private key never touches disk, and the public key is
+exposed via the API for offline verification. Persistent key storage — file-based or
+HSM-backed — is not implemented in v0.1.0: the `KeyProvider` plugin interface is defined,
+but no such plugin ships with this release.
 
 ### Key Rotation Lifecycle
 
@@ -414,7 +407,7 @@ When a problem is found, per-record details are printed on stderr, e.g. `CHAIN B
 
 ### `dologctl verify-anchor`
 
-Verify external anchoring hashes (M4):
+Verify external anchoring hashes (planned):
 
 ```bash
 # Takes the anchor JSON file path + --pubkey; v0.1.0 has no
@@ -511,7 +504,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Identify the violating plugin:**
 
-   (illustrative example — sandbox enforcement lands in M4; real sysmon events use the `sysmon_version`/`error_code`/`category`/`description`/`timestamp_ms`/`severity` shape shown in the Monitoring section):
+   (illustrative example — sandbox enforcement is not implemented yet; real sysmon events use the `sysmon_version`/`error_code`/`category`/`description`/`timestamp_ms`/`severity` shape shown in the Monitoring section):
 
    ```json
    {"event":"SANDBOX_VIOLATION","plugin":"untrusted-plugin","syscall":"fork","action":"KILL","tid":12345}
@@ -544,14 +537,14 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Triage:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .ring_buffer
    # Check pct_used, drops_total, emergency_spills
    ```
 
 2. **Identify bottleneck:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
@@ -586,19 +579,19 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Check current profile:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **Check sink health:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **Check if signing is unexpectedly enabled:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    # Ed25519 signing adds ~17 us per record
    ```
@@ -611,7 +604,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 5. **Mitigation:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
    ```
 
@@ -740,7 +733,7 @@ shutdown_timeout_ms = 10000
 
 ### Linux Sandbox (seccomp-bpf)
 
-(illustrative allowlist sketch — sandbox enforcement lands in M4):
+(illustrative allowlist sketch — sandbox enforcement is not implemented yet):
 
 ```
 Yellow plugin syscall allowlist:
@@ -777,7 +770,7 @@ Sandbox profiles applied via `sandbox_init(3)` with seatbelt/SBPL rules per trus
 
 ### Enabling Red Plugins
 
-Red plugins are disabled by default. Enable with (illustrative — red-plugin sandbox enforcement lands in M4):
+Red plugins are disabled by default. Enable with (illustrative — red-plugin sandbox enforcement is not implemented yet):
 
 ```toml
 [dologger]
@@ -792,7 +785,7 @@ Monitor sandbox violations in real time:
 
 ```bash
 # Watch sysmon events for sandbox violations (illustrative — sandbox
-# enforcement lands in M4; real events use the "category" field)
+# enforcement is not implemented yet; real events use the "category" field)
 tail -f dologger_internal.log | jq 'select(.category == "SANDBOX_VIOLATION")'
 ```
 
@@ -827,11 +820,11 @@ A regression is flagged when:
 ### Runtime Performance Monitoring
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+# pseudocode/illustrative — the control plane is not started in v0.1.0
 # watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 
 # Key metrics today: status, level, profile, plugins, signature_enabled.
-# Richer metrics (pipeline counters, ring buffer usage) are planned (M4).
+# Richer metrics (pipeline counters, ring buffer usage) are planned.
 ```
 
 ### Performance Regression Response
@@ -840,19 +833,19 @@ If performance degrades after a change:
 
 1. **Compare profiles**: Has `performance_profile` been changed?
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **Check signing overhead**: Is Ed25519 signing unexpectedly enabled?
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    ```
 
 3. **Check sink health**: A slow downstream causes backpressure.
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0 (M3+)
+   # pseudocode/illustrative — the control plane is not started in v0.1.0
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 

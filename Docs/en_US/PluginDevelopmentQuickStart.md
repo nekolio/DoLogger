@@ -461,7 +461,7 @@ This header declares:
 | **Types** | `dologger_plugin_info_t`, `dologger_filter_vtable_t`, `dologger_formatter_vtable_t`, ... |
 | **Error codes** | `DO_LOG_OK`, `DO_LOG_ERR_INVALID_ARG`, `DO_LOG_ERR_NOT_SUPPORTED`, ... |
 | **Phase constants** | `DO_LOG_PHASE_FILTER`, `DO_LOG_PHASE_FORMATTING`, `DO_LOG_PHASE_SINK`, ... |
-| **Trust levels** | *(planned — sandbox trust levels land in M4)* |
+| **Trust levels** | *(planned — sandbox trust levels not yet implemented)* |
 | **Log levels** | `DO_LOG_TRACE` through `DO_LOG_AUDIT` |
 | **Record accessors** | `dologger_field_get()`, `dologger_field_set()`, ... |
 | **ABI version** | Declared per plugin in the `plugin_info.abi_version` field (e.g. `0x000100` = 0.1.0); the header has no global `DO_LOG_ABI_VERSION` / `DO_LOG_CORE_ABI_VERSION` macro |

@@ -450,12 +450,12 @@ flowchart LR
 
 | 如果您需要... | 使用此插件类型 | 官方插件 |
 |:-:|:-:|:-:|
-| 控制保留哪些记录 | `Filter` | `filter_level`、`filter_sampling`（计划中） |
-| 为每条记录添加元数据 | `FieldProvider` | `field_container`、`field_cloud`（计划中） |
-| 转换或脱敏内容 | `Processor` | `proc_pii_mask`（计划中） |
+| 控制保留哪些记录 | `Filter` | `filter_level` |
+| 为每条记录添加元数据 | `FieldProvider` | `field_container` |
+| 转换或脱敏内容 | `Processor` | —（尚未实现） |
 | 更改输出格式 | `Formatter` | `fmt_json`、`fmt_text` |
 | 写入不同目标 | `IOSink` | 11 个内置接收器 |
-| 使用外部签名密钥 | `KeyProvider` | `key_file`、`key_hsm`（计划中） |
+| 使用外部签名密钥 | `KeyProvider` | —（尚未实现） |
 | 强制速率限制 | `PolicyProvider` | 内置速率限制器 |
 
 ### 按用例推荐的插件集
@@ -475,13 +475,13 @@ fmt_json（机器可解析）+ field_container（容器元数据）
 **生产环境（合规）：**
 ```
 （伪代码 — 插件组合示意，非命令）
-fmt_json + field_container + proc_pii_mask（落盘前掩码 PII）
+fmt_json + field_container\n（PII 自动掩码尚未实现）
 ```
 
 **审计/合规：**
 ```
 （伪代码 — 插件组合示意，非命令）
-key_file（持久签名密钥）+ fmt_json + proc_pii_mask
+fmt_json + field_container\n（带 LSN 签名的审计链为引擎内置能力）
 ```
 
 ### 插件信任颜色
@@ -707,7 +707,7 @@ int main(void) {
 在运行时更改日志级别以调试生产中的问题：
 
 ```bash
-# 伪代码/示意 — 控制平面端点（POST /level）在 v0.1.0 尚未随引擎启动（M3+）
+# 伪代码/示意 — 控制平面端点（POST /level）在 v0.1.0 尚未随引擎启动
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -749,7 +749,7 @@ int main(void) {
 **检查清单：**
 1. 验证 `performance_profile`——`dev` 配置文件使用小缓冲区和批次
 2. 检查 `enable_signature = true`——Ed25519 签名每条记录增加约 17 us
-3. 运行 `curl http://127.0.0.1:9090/status | jq .pipeline` 检查丢弃率（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+））
+3. 运行 `curl http://127.0.0.1:9090/status | jq .pipeline` 检查丢弃率（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动）
 4. 运行 `cargo bench` 在您的硬件上建立引擎基准
 5. 检查 `fsync_on_write = true`——强制每条记录 I/O 刷新
 

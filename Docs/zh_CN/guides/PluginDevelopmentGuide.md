@@ -206,7 +206,7 @@ third_party = [  # （规划中）
 [compatibility]
 # （规划中 — v0.1.0 目前只强制校验 `abi_version` 相等）
 min_engine_version = "0.1.0"
-max_engine_version = "0.2.0"
+max_engine_version = "0.1.0"
 ```
 
 ### Manifest 字段参考
@@ -499,11 +499,11 @@ Windows 沙箱使用 LowBox Token + 受限 SID：
 - Yellow 插件：移除 `WIN://NO_NETWORK` 和 `WIN://NO_PROCESS_CREATION` 能力 SID 的 LowBox token。
 - Red 插件：不含任何能力 SID 的完整 AppContainer 隔离。
 
-完整的进程级隔离规划于 M4。
+完整的进程级隔离尚未实现。
 
 ### macOS（App Sandbox）
 
-沙箱配置文件通过带 seatbelt/SBPL 规则的 `sandbox_init(3)` 应用。M4 将为每个信任等级实现完整的沙箱配置文件。
+沙箱配置文件通过带 seatbelt/SBPL 规则的 `sandbox_init(3)` 应用。计划为每个信任等级实现完整的沙箱配置文件。
 
 ### 能力声明强制执行
 
@@ -652,25 +652,28 @@ dologctl sign plugin \
 # .sig 文件必须随 .so 文件一同分发
 ```
 
-### 官方插件仓库（M4）
+### 插件分发（v0.1.0）
+
+v0.1.0 仅提供本地插件管理——没有远程注册表，也还没有 `dologctl sign`
+命令。Blue 信任级插件因此暂时无法发布；签名与分发管道没有目标版本。
+
+当前可用的命令：
 
 ```bash
-# （规划中 — v0.1.0 仅随附：plugin install <path>、plugin list、
-# plugin remove <name>、plugin verify [name]、plugin scan）
-# 搜索注册表
-dologctl plugin search kafka
-
-# 从注册表安装插件
-dologctl plugin install kafka-sink
+# 将插件库安装到 ./plugins/
+dologctl plugin install ./my-plugin-1.0.0/libmy_plugin.so
 
 # 列出已安装插件
 dologctl plugin list
 
-# 验证插件完整性
+# 删除插件
+dologctl plugin remove my-plugin
+
+# 校验 ABI 版本、信任级别与符号解析
 dologctl plugin verify my-plugin
 
-# 更新所有插件
-dologctl plugin update --all
+# 扫描可疑的导出符号（fork、exec、system、dlopen）
+dologctl plugin scan
 ```
 
 ### 分发检查清单

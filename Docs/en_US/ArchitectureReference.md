@@ -205,7 +205,7 @@ Deallocation:
 
 ### Known Limitation
 
-The ring buffer uses a single CAS cursor for all producers. Under heavy multi-threaded submission (>8 concurrent producer threads), CAS contention can become a bottleneck. A sharded ring buffer with per-thread partitions is planned for M4.
+The ring buffer uses a single CAS cursor for all producers. Under heavy multi-threaded submission (>8 concurrent producer threads), CAS contention can become a bottleneck. A sharded ring buffer with per-thread partitions is planned.
 
 ---
 
@@ -292,7 +292,7 @@ Measured on AMD Ryzen 9 7950X, single core, ed25519-dalek 2.0:
 | SHA-256 (64 bytes) | ~120 ns | ~8.3M hashes/s |
 | CRC32C (64 bytes) | ~3 ns | ~330M checks/s |
 
-### External Anchoring (M4)
+### External Anchoring (planned)
 
 Periodic Merkle root hashes are published to immutable external storage (S3, blockchain) to provide long-term tamper resistance:
 
@@ -705,7 +705,7 @@ SIF (Structured Interchange Format) is the binary log record format used for WOR
 
 ### Future Direction
 
-The current SIF format is a simplified binary frame. M4 will introduce a full FlatBuffers-based SIF with schema evolution support for forward/backward compatibility.
+The current SIF format is a simplified binary frame. A full FlatBuffers-based SIF with schema evolution support for forward/backward compatibility is planned.
 
 ---
 
@@ -719,7 +719,7 @@ The current SIF format is a simplified binary frame. M4 will introduce a full Fl
 | RAM | DDR5-6000 |
 | Storage | Samsung 990 Pro NVMe |
 | OS | Linux 6.x |
-| Rust | 1.97.1, release + LTO |
+| Rust | stable, release + LTO |
 
 ### Benchmark Results
 
