@@ -47,6 +47,7 @@ from ctypes import (
     POINTER,
     Structure,
     byref,
+    c_char,
     c_char_p,
     c_int32,
     c_size_t,

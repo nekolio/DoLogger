@@ -124,7 +124,8 @@ enum Commands {
         /// Domain name for test records
         domain: String,
         /// Output SIF file path
-        #[arg(short, long)]
+        // Short flag is -f: -o is taken by the global --output format flag.
+        #[arg(short = 'f', long)]
         output: String,
         /// Duration in seconds
         #[arg(short, long, default_value = "10")]
