@@ -5,11 +5,12 @@
 [English](README.md) | [中文](README.zh_CN.md)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License">
+  <a href="https://github.com/Nekolio/DoLogger/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nekolio/DoLogger/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://github.com/Nekolio/DoLogger/stargazers"><img src="https://img.shields.io/github/stars/Nekolio/DoLogger?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/Nekolio/DoLogger/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/rust-1.97.1%2B-orange?style=flat-square" alt="Rust">
-  <img src="https://img.shields.io/badge/tests-178_passed-brightgreen?style=flat-square" alt="Tests">
-  <img src="https://img.shields.io/badge/M4-94%25_complete-9cf?style=flat-square" alt="Milestone">
   <img src="https://img.shields.io/badge/platform-Linux_|_macOS_|_Windows-808080?style=flat-square" alt="Platform">
+  <a href="https://github.com/Nekolio/DoLogger/commits/main"><img src="https://img.shields.io/github/last-commit/Nekolio/DoLogger?style=flat-square&label=last%20commit" alt="Last commit"></a>
 </p>
 
 ---
@@ -47,17 +48,30 @@ cargo build --release
 ./target/release/dologctl run --config dologger.toml
 ```
 
+> [!NOTE]
+> 每个 [GitHub Release](https://github.com/Nekolio/DoLogger/releases) 都附带预编译二进制,命名规则为 `dologctl-<os>-<arch>`(Windows 上为 `.exe`)。请使用随附的 `checksums-sha256.txt` 校验下载文件。
+
 ### Shell 补全
 
 ```bash
-source <(dologctl completions bash)   # bash
-source <(dologctl completions zsh)    # zsh
-dologctl completions fish | source    # fish
+source <(dologctl completions bash)                              # bash
+source <(dologctl completions zsh)                               # zsh
+dologctl completions fish | source                               # fish
+dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 ```
+
+> [!TIP]
+> 将补全脚本写入 shell 配置文件,让每个新终端自动生效,例如 `dologctl completions bash > ~/.dologctl-complete.bash && echo 'source ~/.dologctl-complete.bash' >> ~/.bashrc`。
 
 ---
 
 ## 架构
+
+> [!IMPORTANT]
+> DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化 —— 生产环境请锁定到确切版本。详见[版本管理与弃用策略](Docs/zh_CN/guides/VersioningAndDeprecation.md)。
+
+<details open>
+<summary>架构总览</summary>
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -88,6 +102,8 @@ dologctl completions fish | source    # fish
 │  WORM │ Shared Memory │ OpenTelemetry │ Security File   │
 └─────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ### 关键设计决策
 
@@ -204,6 +220,9 @@ dologctl init --template pci     # PCI-DSS
 
 ## 项目结构
 
+<details>
+<summary>仓库目录布局</summary>
+
 ```
 DoLogger/
 ├── core/                       # 核心引擎（Rust cdylib）
@@ -225,6 +244,8 @@ DoLogger/
 └── scripts/                    # 开发环境搭建脚本
 ```
 
+</details>
+
 ---
 
 ## 编译
@@ -242,6 +263,9 @@ cargo check --target x86_64-apple-darwin
 cargo check --target aarch64-apple-darwin
 ```
 
+> [!WARNING]
+> `sink-kafka` 需要 librdkafka(通过 Conan 或系统包管理器安装)。CI 仅在 Linux 上构建该特性;macOS 和 Windows 的发布构建不包含它。
+
 ---
 
 ## 参与贡献
@@ -251,8 +275,20 @@ C/C++/Go 插件开发请参阅 [插件开发快速入门](Docs/en_US/PluginDevel
 
 ## 许可证
 
-基于 [Apache License 2.0](LICENSE) 或 [MIT license](LICENSE-MIT) 二者选一进行许可。
+基于 [Apache License 2.0](LICENSE-APACHE) 或 [MIT license](LICENSE-MIT) 二者选一进行许可。
 
 ---
 
-*由 [@Nekolio](https://github.com/Nekolio) 用 ❤️ 构建 | dologger@nekolio.dev*
+## Star 曲线
+
+<a href="https://star-history.com/#Nekolio/DoLogger&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nekolio/DoLogger&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nekolio/DoLogger&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nekolio/DoLogger&type=Date" />
+  </picture>
+</a>
+
+---
+
+*由 [@Nekolio](https://github.com/Nekolio) 用 ❤️ 构建 | nekoliowork+DoLogger@gmail.com*

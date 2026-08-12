@@ -1,0 +1,58 @@
+name: Bug Report
+description: Report a bug in DoLogger (security issues go to the email in SECURITY.md instead)
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > [!IMPORTANT]
+        > **Security vulnerabilities must NOT be filed here.** Report them per [SECURITY.md](../../SECURITY.md) to nekoliowork+DoLogger@gmail.com.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `dologctl version`
+      placeholder: dologctl 0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux x86_64
+        - Linux aarch64
+        - macOS (Apple Silicon)
+        - Windows x86_64
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps to reproduce, with config/plugin snippets if relevant.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / diagnostics
+      description: Output of `dologctl diag collect` (attach the archive) or relevant log excerpts.
+      render: text

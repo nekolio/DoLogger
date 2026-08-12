@@ -5,11 +5,12 @@
 [English](README.md) | [中文](README.zh_CN.md)
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License">
+  <a href="https://github.com/Nekolio/DoLogger/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nekolio/DoLogger/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://github.com/Nekolio/DoLogger/stargazers"><img src="https://img.shields.io/github/stars/Nekolio/DoLogger?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/Nekolio/DoLogger/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/rust-1.97.1%2B-orange?style=flat-square" alt="Rust">
-  <img src="https://img.shields.io/badge/tests-178_passed-brightgreen?style=flat-square" alt="Tests">
-  <img src="https://img.shields.io/badge/M4-94%25_complete-9cf?style=flat-square" alt="Milestone">
   <img src="https://img.shields.io/badge/platform-Linux_|_macOS_|_Windows-808080?style=flat-square" alt="Platform">
+  <a href="https://github.com/Nekolio/DoLogger/commits/main"><img src="https://img.shields.io/github/last-commit/Nekolio/DoLogger?style=flat-square&label=last%20commit" alt="Last commit"></a>
 </p>
 
 ---
@@ -51,17 +52,30 @@ cargo build --release
 ./target/release/dologctl run --config dologger.toml
 ```
 
+> [!NOTE]
+> Prebuilt binaries are attached to every [GitHub Release](https://github.com/Nekolio/DoLogger/releases) and follow the naming pattern `dologctl-<os>-<arch>` (`.exe` on Windows). Verify each download against the attached `checksums-sha256.txt`.
+
 ### Shell Completions
 
 ```bash
-source <(dologctl completions bash)   # bash
-source <(dologctl completions zsh)    # zsh
-dologctl completions fish | source    # fish
+source <(dologctl completions bash)                              # bash
+source <(dologctl completions zsh)                               # zsh
+dologctl completions fish | source                               # fish
+dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 ```
+
+> [!TIP]
+> Persist the completion script in your shell profile so every new terminal has it, e.g. `dologctl completions bash > ~/.dologctl-complete.bash && echo 'source ~/.dologctl-complete.bash' >> ~/.bashrc`.
 
 ---
 
 ## Architecture
+
+> [!IMPORTANT]
+> DoLogger is **pre-1.0**. MINOR releases may include breaking changes and the ABI may change — pin to an exact version in production. See the [Versioning & Deprecation Policy](Docs/en_US/guides/VersioningAndDeprecation.md).
+
+<details open>
+<summary>Architecture overview</summary>
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -93,6 +107,8 @@ dologctl completions fish | source    # fish
 │  WORM │ Shared Memory │ OpenTelemetry │ Security File   │
 └─────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ### Key Design Decisions
 
@@ -209,6 +225,9 @@ Templates automatically activate non-downgradable security items and enforce aud
 
 ## Project Structure
 
+<details>
+<summary>Repository layout</summary>
+
 ```
 DoLogger/
 ├── core/                       # Core engine (Rust cdylib)
@@ -230,6 +249,8 @@ DoLogger/
 └── scripts/                    # Dev environment setup scripts
 ```
 
+</details>
+
 ---
 
 ## Building
@@ -247,6 +268,9 @@ cargo check --target x86_64-apple-darwin
 cargo check --target aarch64-apple-darwin
 ```
 
+> [!WARNING]
+> `sink-kafka` requires librdkafka (via Conan or the system package manager). CI builds it on Linux only; macOS and Windows release builds exclude it.
+
 ---
 
 ## Contributing
@@ -257,8 +281,20 @@ See [Plugin Development QuickStart](Docs/en_US/PluginDevelopmentQuickStart.md) f
 
 ## License
 
-Licensed under either of [Apache License 2.0](LICENSE) or [MIT license](LICENSE-MIT) at your option.
+Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
 
 ---
 
-*Built with ❤️ by [@Nekolio](https://github.com/Nekolio) | dologger@nekolio.dev*
+## Star History
+
+<a href="https://star-history.com/#Nekolio/DoLogger&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nekolio/DoLogger&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nekolio/DoLogger&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nekolio/DoLogger&type=Date" />
+  </picture>
+</a>
+
+---
+
+*Built with ❤️ by [@Nekolio](https://github.com/Nekolio) | nekoliowork+DoLogger@gmail.com*
