@@ -143,8 +143,10 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (full history for release notes)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -164,27 +166,24 @@ jobs:
           cd release-artifacts
           sha256sum * > checksums-sha256.txt
 
+      # Release notes: changelog sections (EN + ZH) + commit list since the
+      # previous tag + usage + asset naming conventions + verification notes.
+      - name: Generate release notes
+        shell: bash
+        run: |
+          bash scripts/gen-release-notes.sh "${{ github.ref_name }}" > release-notes.md
+          echo "---- release-notes.md ----"
+          cat release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: DoLogger ${{ github.ref_name }}
-          body: |
-            # DoLogger ${{ github.ref_name }}
-
-            ## Artifacts
-
-            | Platform | Binary |
-            |----------|--------|
-            | Linux x86_64 | `dologctl-linux-x86_64` |
-            | Linux ARM64 (aarch64) | `dologctl-linux-aarch64` |
-            | Windows x86_64 | `dologctl-windows-x86_64.exe` |
-            | macOS ARM64 (Apple Silicon) | `dologctl-macos-aarch64` |
-
-            See `checksums-sha256.txt` for file integrity verification.
+          body_path: release-notes.md
           files: |
             release-artifacts/*
           draft: false
           # All versions before 1.0.0 are pre-releases.
           # After 1.0.0, only -rc/-alpha/-beta/-pre suffixes trigger pre-release.
-          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-pre') }}
-          generate_release_notes: true
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-pre') }
+          generate_release_notes: false
