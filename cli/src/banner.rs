@@ -101,7 +101,7 @@ fn print_info() {
 
 {dim}  ───────────────────────────{reset}
   {bold}Author{reset}      {bright_magenta}@Nekolio{reset} {dim}<https://github.com/Nekolio>{reset}
-  {bold}Contact{reset}     dologger@nekolio.dev
+  {bold}Contact{reset}     nekoliowork+DoLogger@gmail.com
 
   {dim}Plugins: 10 VTable types | Sinks: 9 built-in | Audit: Ed25519 + LSN chain{reset}
   {dim}Performance: 102ns P50 submit | 13.3M rec/s batch throughput{reset}

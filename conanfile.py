@@ -23,7 +23,7 @@ class DologgerConan(ConanFile):
     name = "dologger"
     version = "0.1.0"
     license = "Apache-2.0 OR MIT"
-    author = "DoLogger Contributors <dologger@nekolio.dev>"
+    author = "DoLogger Contributors <nekoliowork+DoLogger@gmail.com>"
     url = "https://github.com/Nekolio/DoLogger"
     description = "Cross-platform, high-security logging engine — C dependency package"
     topics = ("logging", "security", "audit", "observability")

@@ -18,7 +18,7 @@ color = "blue"
 
 [plugin.author]
 name = "DoLogger Core Team"
-email = "core@dologger.dev"
+email = "nekoliowork+DoLogger@gmail.com"
 url = "https://github.com/Nekolio/DoLogger"
 
 [capabilities]
