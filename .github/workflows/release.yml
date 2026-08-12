@@ -258,7 +258,12 @@ jobs:
           # Criterion in bencher format: one clean `test <name> ... bench:`
           # line per benchmark — no ANSI, no truncated report boxes.
           PERF_OUT="$(./target/release/dologctl perf --count 200000 2>&1 | strip_ansi || true)"
-          CRIT_OUT="$(cargo bench --bench latency --bench throughput -- --output-format bencher 2>&1 | strip_ansi | grep -E '^test .*bench:' || true)"
+          CRIT_RAW="$(cargo bench --bench latency --bench throughput -- --output-format bencher 2>&1 | strip_ansi || true)"
+          CRIT_OUT="$(printf '%s\n' "$CRIT_RAW" | grep -E '^test .*bench:' || true)"
+          if [ -z "$CRIT_OUT" ]; then
+            echo "::warning::cargo bench produced no bencher lines — raw output tail:"
+            printf '%s\n' "$CRIT_RAW" | tail -30
+          fi
 
           CPU_MODEL="$(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)"
           MEM_TOTAL="$(free -h | awk '/^Mem:/ {print $2}')"
