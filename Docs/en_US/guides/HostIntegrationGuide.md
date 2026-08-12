@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](HostIntegrationGuide.md) | [中文：宿主集成手册](../../zh_CN/guides/HostIntegrationGuide.md)
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Host Application Developers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Host Application Developers
 >
 > **Purpose**: This document describes how to integrate the DoLogger logging engine into a host application via the C ABI. It covers initialization, log submission, configuration, callbacks, thread safety, language adapters, performance tuning, and troubleshooting.
 >
@@ -47,7 +47,7 @@ DoLogger is a cross-platform, high-security, plugin-architected logging engine. 
 
 ### API Stability
 
-The C ABI follows semantic versioning. All `dologger_*` symbols are versioned via the `DO_LOG_ABI_VERSION` constant returned by `dologger_get_abi_version()`. Minor version bumps add symbols without removing or reordering existing ones.
+The C ABI follows semantic versioning. The version string is available via `dologger_version()`; plugin compatibility is gated by the `abi_version` field checked at load time (see [Versioning & Deprecation](VersioningAndDeprecation.md)). Minor version bumps add symbols without removing or reordering existing ones.
 
 ---
 
@@ -57,18 +57,19 @@ The C ABI follows semantic versioning. All `dologger_*` symbols are versioned vi
 
 ```c
 #include "dologger_core.h"
+#include <stdio.h>
 
 int main(void) {
-    dologger_handle_t *logger = NULL;
-    int rc = dologger_init(NULL, &logger);
-    if (rc != DO_LOG_OK) {
-        fprintf(stderr, "Failed to initialize DoLogger: %d\n", rc);
+    dologger_error_t err;
+    dologger_handle_t *logger = dologger_init(NULL, &err);
+    if (logger == NULL) {
+        fprintf(stderr, "Failed to initialize DoLogger: %s\n", err.message);
         return 1;
     }
 
     // ... use logger ...
 
-    dologger_shutdown(&logger);
+    dologger_shutdown(logger);
     return 0;
 }
 ```
@@ -83,13 +84,13 @@ dologger_record_params_t params = {
     .source_function = "main",
     .source_line     = 42,
 };
-int rc = dologger_log(logger, &params);
+int32_t rc = dologger_log(logger, &params);
 if (rc != DO_LOG_OK) {
     // Handle backpressure — record was dropped or queue is full
-    dologger_error_info_t err;
+    dologger_error_t err;
     dologger_get_last_error(logger, &err);
     fprintf(stderr, "Log submission failed: %s (code 0x%04x)\n",
-            err.message, err.code);
+            err.message, (unsigned)err.code);
 }
 ```
 
@@ -105,10 +106,10 @@ cc -o myapp myapp.c -ldologger_core -L/usr/lib/dologger
 cl /Fe:myapp.exe myapp.c dologger_core.lib
 ```
 
-Verify the ABI version your binary was compiled against:
+Verify the version your binary was compiled against:
 ```c
-uint32_t abi = dologger_get_abi_version();
-printf("DoLogger ABI version: %u\n", abi);
+const char *ver = dologger_version();
+printf("DoLogger version: %s\n", ver);
 ```
 
 ---
@@ -118,40 +119,29 @@ printf("DoLogger ABI version: %u\n", abi);
 ### `dologger_init()`
 
 ```c
-int dologger_init(const dologger_init_params_t *params, dologger_handle_t **handle);
+dologger_handle_t *dologger_init(const char *config_path, dologger_error_t *err);
 ```
 
 **Parameters:**
 
 | Parameter | Direction | Description |
 |:-:|:-:|:-:|
-| `params`  | In        | Initialization parameters. Pass `NULL` for defaults. |
-| `handle`  | Out       | Receives the opaque engine handle. Must not be `NULL`. |
+| `config_path` | In | Path to the TOML config file. Pass `NULL` for auto-discovery (searches `dologger.toml`, `.dologger.toml`). |
+| `err` | Out | Receives error details on failure. Must not be `NULL` on the first call. |
 
 **Return Values:**
 
-| Code              | Value | Meaning |
-|:-:|:-:|:-:|
-| `DO_LOG_OK`       | 0     | Engine initialized successfully. |
-| `DO_LOG_ERR_INIT` | -1    | Internal initialization failure. Check `dologger_internal.log`. |
-| `DO_LOG_ERR_CFG`  | -2    | Configuration parse error. See error info for details. |
+| Result | Meaning |
+|:-:|:-:|
+| Non-`NULL` handle | Engine initialized successfully. |
+| `NULL` | Initialization failed — inspect `err` for details. Calling `dologger_init` a second time returns `NULL` with `DO_LOG_ERR_ALREADY_INITIALIZED`. |
 
-**`dologger_init_params_t` Structure:**
-
-```c
-typedef struct {
-    const char *config_path;     // Path to TOML config file (NULL = default search)
-    const char *config_string;   // Inline TOML config string (overrides file)
-    bool        enable_signature; // Force Ed25519 signing on/off
-    bool        enable_sysmon;    // Enable the system monitor event stream
-    const char *plugin_dir;      // Override plugin search directory
-} dologger_init_params_t;
-```
+There is no `dologger_init_params_t` in v0.1.0 — initialization parameters come from the config file (or `NULL` for defaults) plus the runtime `dologger_config_load_from_string()` API.
 
 ### `dologger_shutdown()`
 
 ```c
-int dologger_shutdown(dologger_handle_t **handle);
+void dologger_shutdown(dologger_handle_t *handle);
 ```
 
 Performs a graceful shutdown:
@@ -160,7 +150,7 @@ Performs a graceful shutdown:
 2. Drains all in-flight records from the ring buffer through the pipeline.
 3. Calls `plugin_shutdown()` on each loaded plugin in reverse dependency order.
 4. Flushes and closes all Sinks.
-5. Sets `*handle` to `NULL`.
+5. Frees the engine and its resources.
 
 **Shutdown Policy** is controlled by the `shutdown_policy` configuration key:
 
@@ -176,7 +166,7 @@ Performs a graceful shutdown:
 ### `dologger_log()`
 
 ```c
-int dologger_log(dologger_handle_t *handle, const dologger_record_params_t *params);
+int32_t dologger_log(dologger_handle_t *handle, const dologger_record_params_t *params);
 ```
 
 This is the hot path. The call pushes the record into a lock-free ring buffer and returns immediately. Filtering, field assembly, formatting, signing, and I/O happen asynchronously on background pipeline threads.
@@ -185,13 +175,17 @@ This is the hot path. The call pushes the record into a lock-free ring buffer an
 
 ```c
 typedef struct {
-    uint8_t     level;            // DO_LOG_TRACE (0) through DO_LOG_AUDIT (6)
-    const char *message;          // UTF-8 encoded log message (required)
-    const char *source_file;      // __FILE__ (optional, may be NULL)
-    const char *source_function;  // __FUNCTION__ (optional, may be NULL)
-    uint32_t    source_line;      // __LINE__ (optional, 0 if unavailable)
-    uint32_t    source_column;    // Column number (optional, 0 if unavailable)
-    const char *request_id;       // Request / trace correlation ID (optional)
+    dologger_level_t level;         // DO_LOG_TRACE (0) through DO_LOG_AUDIT (6)
+    const char      *message;       // UTF-8 encoded log message (required)
+    const char      *source_file;   // __FILE__ (optional, may be NULL)
+    const char      *source_function; // __FUNCTION__ (optional, may be NULL)
+    uint32_t         source_line;   // __LINE__ (optional, 0 if unavailable)
+    uint32_t         source_column; // Column number (optional, 0 if unavailable)
+    const char      *domain;        // Logger domain name (NULL = default)
+    const char      *user_id;       // Optional context
+    const char      *session_id;    // Optional context
+    const char      *request_id;    // Request / trace correlation ID (optional)
+    uint8_t          _reserved[16]; // Reserved — must be zero-filled
 } dologger_record_params_t;
 ```
 
@@ -210,6 +204,8 @@ typedef struct {
 ### Convenience Macros
 
 ```c
+// (pseudocode — illustrative, not compiled: dologger_log_fmt is not yet part
+// of the shipped C ABI; the pattern below shows the intended macro shape)
 // Standard logging with automatic file/line/function capture
 #define DO_LOG_TRACE(h, msg, ...)  dologger_log_fmt(h, DO_LOG_TRACE,  __FILE__, __func__, __LINE__, msg, ##__VA_ARGS__)
 #define DO_LOG_DEBUG(h, msg, ...)  dologger_log_fmt(h, DO_LOG_DEBUG,  __FILE__, __func__, __LINE__, msg, ##__VA_ARGS__)
@@ -222,7 +218,7 @@ typedef struct {
 
 ### AUDIT-Level Backpressure
 
-Records at `DO_LOG_AUDIT` level follow the **Audit Backpressure Iron Law**: under backpressure, the caller may block until the record is durably committed. The default block timeout is 3000 ms. If the timeout expires, the record is written to an emergency spill file (`dologger_emergency_<pid>.buf`) and replayed on recovery. This behavior is non-configurable — it is a [non-downgradable security item](SecurityWhitepaper.md#non-downgradable-items).
+Records at `DO_LOG_AUDIT` level follow the **Audit Backpressure Iron Law**: under backpressure, the caller blocks until the record is durably committed — AUDIT domains enforce an infinite block timeout (`block_timeout_ms = 0`) and a `Never` drop strategy (see `core/src/pipeline/backpressure.rs`). Non-AUDIT domains use the profile's timeout and drop strategy instead. This behavior is non-configurable — it is a [non-downgradable security item](SecurityWhitepaper.md#non-downgradable-items).
 
 ---
 
@@ -279,7 +275,7 @@ shutdown_timeout_ms = 5000
 | `DO_LOG_BUF_SIZE`     | `ring_buffer_size`    | `DO_LOG_BUF_SIZE=524288` |
 | `DO_LOG_PERF_PROFILE` | `performance_profile` | `DO_LOG_PERF_PROFILE=balanced` |
 | `DO_LOG_CONFIG_FILE`  | Config file path      | `DO_LOG_CONFIG_FILE=/opt/myapp/dologger.toml` |
-| `DO_LOG_CONFIG_LOCK`  | Lock config at load   | `DO_LOG_CONFIG_LOCK=1` |
+| `DO_LOG_CONFIG_LOCK`  | Prevent fallback config search (requires `DO_LOG_CONFIG_FILE`) | `DO_LOG_CONFIG_LOCK=1` |
 
 ### Configuration Hot Reload
 
@@ -299,11 +295,11 @@ Changes are logged via sysmon as `CONFIG_RELOAD` events. Security-tier keys (non
 curl -X POST http://127.0.0.1:9090/reload
 ```
 
-The control plane endpoint accepts an optional JSON body to validate before applying:
+In v0.1.0 `/reload` ignores the request body (it simply invokes the registered reload callback); a JSON body with `dry_run` validation is planned:
 ```bash
 curl -X POST http://127.0.0.1:9090/reload \
   -H "Content-Type: application/json" \
-  -d '{"dry_run": true}'
+  -d '{"dry_run": true}'   # illustrative — body not yet honoured
 ```
 
 ---
@@ -356,25 +352,30 @@ The error code space uses hexadecimal nibble categorization:
 
 | Range    | Category          | Example |
 |:-:|:-:|:-:|
-| `0x01xx` | General           | `DO_LOG_ERR_INIT`, `DO_LOG_ERR_INVALID_ARG` |
-| `0x02xx` | Configuration     | `DO_LOG_ERR_CFG_PARSE`, `DO_LOG_ERR_CFG_MISSING` |
-| `0x03xx` | I/O               | `DO_LOG_ERR_IO_WRITE`, `DO_LOG_ERR_IO_FLUSH` |
-| `0x04xx` | Signature/Security| `DO_LOG_ERR_SIG_VERIFY`, `DO_LOG_ERR_SIG_KEY` |
-| `0x05xx` | Plugin            | `DO_LOG_ERR_PLUGIN_LOAD`, `DO_LOG_ERR_PLUGIN_ABI` |
+| `0x01xx` | General           | `DO_LOG_ERR_INTERNAL`, `DO_LOG_ERR_INVALID_ARG` |
+| `0x02xx` | Configuration     | `DO_LOG_ERR_CONFIG_PARSE`, `DO_LOG_ERR_CONFIG_NOT_FOUND` |
+| `0x03xx` | Plugin            | `DO_LOG_ERR_PLUGIN_LOAD_FAILED`, `DO_LOG_ERR_PLUGIN_NOT_FOUND` |
+| `0x04xx` | Record / Field    | `DO_LOG_ERR_FIELD_NOT_FOUND`, `DO_LOG_ERR_FIELD_PERMISSION_DENIED` |
+| `0x05xx` | Ring / Pipeline   | `DO_LOG_ERR_BUFFER_FULL`, `DO_LOG_ERR_PIPELINE_STAGE` |
+| `0x06xx` | Signature / Audit | `DO_LOG_ERR_SIGN_FAILED`, `DO_LOG_ERR_VERIFY_FAILED` |
+| `0x07xx` | Sink / I/O        | `DO_LOG_ERR_SINK_WRITE_FAILED`, `DO_LOG_ERR_WORM_WRITE_FAILED` |
+| `0x08xx` | Sandbox / Security| `DO_LOG_ERR_SANDBOX_INIT_FAILED`, `DO_LOG_ERR_SANDBOX_VIOLATION` |
+| `0x09xx` | Resource / Quota  | `DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED` |
+| `0x0Bxx` | Compliance        | `DO_LOG_ERR_COMPLIANCE_VIOLATION`, `DO_LOG_ERR_CIRCULAR_DEPENDENCY` |
 
 ### Retrieving Detailed Error Information
 
 ```c
 typedef struct {
-    uint32_t    code;           // Error code (hex nibble format)
-    char        message[256];   // Human-readable description
-    const char *source_file;    // File where the error originated
-    uint32_t    source_line;    // Line where the error originated
-    const char *plugin_name;    // Plugin name, if plugin-related
-} dologger_error_info_t;
+    int32_t  code;            // Error code (hex nibble format)
+    char     message[256];    // Human-readable description
+    char     source_file[128]; // File where the error originated
+    uint32_t source_line;     // Line where the error originated
+    uint8_t  _reserved[12];   // Reserved — must be zero-filled
+} dologger_error_t;
 
-int dologger_get_last_error(dologger_handle_t *handle,
-                            dologger_error_info_t *err_info);
+int32_t dologger_get_last_error(const dologger_handle_t *handle,
+                                dologger_error_t *err);
 ```
 
 ### Diagnostic Log
@@ -392,9 +393,13 @@ Do **not** rely on parsing this file programmatically. Use `dologger_get_last_er
 
 ## Callback Sink Registration
 
-Host applications can register a callback to receive formatted log data in-process, bypassing external Sinks:
+> [!NOTE]
+> The C registration API below is planned — the shipped v0.1.0 header has no `dologger_register_callback_sink` symbol. The Rust engine has an internal callback sink (`core/src/sink/callback.rs`, exposed as `dologger_core::sink_callback`) that this API will wrap.
+
+Host applications will be able to register a callback to receive formatted log data in-process, bypassing external Sinks:
 
 ```c
+// (pseudocode — illustrative, not compiled; planned API)
 typedef void (*dologger_sink_callback_t)(
     const uint8_t *data,       // Formatted output bytes (may not be null-terminated)
     size_t         length,     // Length of formatted data
@@ -467,34 +472,38 @@ The ring buffer does not support true multi-producer lock-free enqueue across th
 
 ### Rust Crate Integration
 
+Two crates are available in the workspace: `dologger-core` (the engine, `core/`) and `dologger-sdk` (an ergonomic `Logger` wrapper, `adapters/rust/`). In-tree consumers use path dependencies:
+
 ```toml
 # Cargo.toml
 [dependencies]
-dologger-core = "0.1"
+dologger-core = { path = "../dologger/core" }
+dologger-sdk = { path = "../dologger/adapters/rust" }
 ```
 
 ```rust
-use dologger_core::{Engine, DologgerConfig, LogLevel, Record};
+use dologger_core::config::DologgerConfig;
+use dologger_core::Engine;
+use dologger_sdk::Logger;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    // Low-level core API
     let config = DologgerConfig::default();
-    let mut engine = Engine::init(config)?;
+    let mut engine = Engine::init(config).expect("engine init");
+    engine.shutdown();
 
-    engine.log(LogLevel::Info, "Hello from Rust host")?;
-
-    engine.shutdown()?;
-    Ok(())
+    // High-level SDK wrapper (recommended for hosts)
+    let mut logger = Logger::init(None).expect("sdk init");
+    logger.info("Hello from Rust host");
+    logger.shutdown();
 }
 ```
 
-The Rust crate provides a safe, idiomatic wrapper around the C ABI. It handles:
-
-- Automatic handle lifetime management via RAII
-- `Display` + `Error` implementations for all error codes
-- `serde` support for configuration deserialization
-- Builder pattern for `DologgerConfig`
+The SDK (`dologger_sdk::Logger`) provides level helpers (`trace` … `audit`) around `Engine`. RAII-style `Drop`, `serde` deserialization, and a builder for `DologgerConfig` are planned for a later release.
 
 ### Python (M4 Milestone)
+
+The Python adapter is planned for M4 and not yet available — the code below is an illustrative preview (pseudocode, not runnable):
 
 ```python
 import dologger
@@ -507,6 +516,8 @@ logger.shutdown()
 The Python adapter uses `ctypes` to load `libdologger_core` and provides a `logging.Handler`-compatible interface.
 
 ### Go (M4 Milestone)
+
+The Go adapter is planned for M4 and not yet available — the code below is an illustrative preview (pseudocode, not runnable):
 
 ```go
 package main
@@ -545,11 +556,11 @@ The Go adapter uses cgo to link against `libdologger_core`.
 ### Benchmarking
 
 ```bash
-# Run the built-in benchmark suite
-cargo bench --bench hot_path
+# Run the built-in benchmark suite (core/benches: throughput, latency, latency_percentiles)
+cargo bench --bench throughput
 
 # Profile with perf (Linux)
-perf record --call-graph dwarf ./target/release/benchmarks/hot_path
+perf record --call-graph dwarf -- cargo bench --bench throughput
 perf report
 ```
 
@@ -599,15 +610,17 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 2. **Sysmon events**: Redirect `stderr` and watch for `PIPELINE_BACKLOG`, `SHM_DROP`, `SINK_CIRCUIT_OPEN`, `SANDBOX_VIOLATION`, `SIGNATURE_FAILURE`.
 3. **Internal log**: `tail -f dologger_internal.log`
 4. **Configuration**: `dologctl config validate --config /path/to/dologger.toml --strict`
-5. **Plugin status**: `dologctl plugin list --verbose`
+5. **Plugin status**: `dologctl plugin list --output json`
 
 ### Collecting a Debug Report
 
 ```bash
-dologctl diag collect --output diag-report.tar.gz
+# `dologctl diag collect` is planned (M4); gather the pieces manually today:
+dologctl about --output json > diag-report.json
+dologctl config validate --strict
 ```
 
-This produces an archive containing:
+The planned archive will contain:
 - `dologger_internal.log`
 - Active configuration (with sensitive values redacted)
 - Plugin load manifest

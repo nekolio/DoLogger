@@ -207,6 +207,7 @@ CPUAffinity=2-7
 DoLogger threads can be pinned to specific cores:
 
 ```toml
+# (planned — illustrative schema; v0.1.0 has no threading/affinity config keys)
 [dologger.threading]
 # Pin each thread pool to specific CPUs
 cpu_pool_affinity = [2, 3, 4, 5]    # Pipeline processing threads
@@ -216,7 +217,8 @@ audit_thread_affinity = [8]           # Dedicated audit pipeline thread
 
 **CPU assignment strategy:**
 
-```
+```text
+(illustrative CPU layout)
 CPU 0:     OS, interrupts, system daemons (unpinned)
 CPU 1:     Host application main thread
 CPUs 2-5:  dologger-cpu_pool (Filter, Field, Process, Format) -- compute-bound
@@ -330,6 +332,8 @@ export DO_LOG_BUF_SIZE=524288
 
 ```bash
 # Check current utilization
+# (the v0.1.0 /status response has no ring_buffer object yet — the output
+# below is illustrative of the planned metrics)
 curl -s http://127.0.0.1:9090/status | jq .ring_buffer
 
 # Output:
@@ -359,7 +363,7 @@ Sinks are not created equal. The slowest enabled sink determines your effective 
 **Table 4: Sink Throughput Characteristics (Reference Hardware)**
 
 | Sink | Throughput (rec/s) | Latency Per Write | Bottleneck | Async? |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | Console (`sink_console`) | ~1,200,000 | ~0.8 us | Terminal emulator speed | Yes |
 | File, no fsync (`sink_file`) | ~950,000 | ~1.0 us | Filesystem page cache | Yes |
 | Callback (`sink_callback`) | ~2,000,000 | ~0.5 us | Callback function speed | No (sync) |
@@ -401,7 +405,8 @@ These sinks force at least one I/O synchronization per write (or per batch). Thi
 
 When multiple sinks are enabled, the pipeline dispatches to all sinks in parallel. The effective throughput is:
 
-```
+```text
+(illustrative example)
 Effective throughput = MIN(throughput of slowest enabled sink)
 
 Example:
@@ -449,7 +454,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 **Table 6: RAM Required for Given Throughput Targets**
 
 | Target Throughput | Buffer Size | Object Pool | Total RAM (approx.) | Recommended System RAM |
-|:-:|:-::|:-:|:-::|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | 50K rec/s (light) | 65536 | 65536 | ~25 MB | 512 MB |
 | 100K rec/s (moderate) | 131072 | 131072 | ~48 MB | 1 GB |
 | 250K rec/s (production) | 262144 | 262144 | ~92 MB | 2 GB |
@@ -472,6 +477,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 # Check process RSS
 ps -o pid,rss,comm -p $(pgrep -f dologger)
 
+# (planned — the v0.1.0 /status response has no .memory object)
 # Or via status endpoint
 curl -s http://127.0.0.1:9090/status | jq .memory
 ```
@@ -493,6 +499,7 @@ ring_buffer_size = 1048576      # 1M slots for burst headroom
 batch_size = 512                 # Large batches for throughput
 enable_signature = false         # No audit requirement
 
+# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.kafka]
 type = "sink_kafka"
 enabled = true
@@ -524,11 +531,14 @@ performance_profile = "prod-audit"
 ring_buffer_size = 65536         # 64K -- low rate, focus on durability
 batch_size = 128
 enable_signature = true           # Non-downgradable
+# worm_enabled / fsync_on_write are domain-level items (DomainManager),
+# not [dologger] keys in v0.1.0 — listed for completeness:
 worm_enabled = true               # Non-downgradable
 fsync_on_write = true             # Non-downgradable
 shutdown_policy = "graceful"
 shutdown_timeout_ms = 10000
 
+# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.worm_file]
 type = "sink_worm"
 enabled = true
@@ -557,6 +567,7 @@ performance_profile = "dev"
 level = "DEBUG"
 ring_buffer_size = 65536
 
+# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.console]
 type = "sink_console"
 enabled = true
@@ -577,6 +588,7 @@ performance_profile = "balanced"
 ring_buffer_size = 131072        # Conservative: 17 MB buffer + 17 MB pool
 batch_size = 128
 
+# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.file]
 type = "sink_file"
 enabled = true
@@ -618,6 +630,7 @@ batch_size = 512
 shutdown_policy = "graceful"
 shutdown_timeout_ms = 30000      # 30s -- enough to drain 4M records
 
+# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.file]
 type = "sink_file"
 enabled = true
@@ -641,7 +654,9 @@ sudo sysctl -w vm.nr_hugepages=272
 
 ### Diagnostic Workflow
 
-```
+```text
+(illustrative workflow — the .ring_buffer/.memory fields are planned metrics;
+the v0.1.0 /status response is {"status","level","profile","plugins","signature_enabled"})
 1. Check overall health
    curl http://127.0.0.1:9090/status | jq .
 
@@ -686,7 +701,7 @@ sudo sysctl -w vm.nr_hugepages=272
 curl -s http://127.0.0.1:9090/status | jq .
 
 # CPU profile (60-second sample)
-perf top -p $(pgrep -f dologger)
+perf top -p $(pgrep -f dologger)   # Linux
 
 # Disk latency histogram
 sudo iostat -x 1 10

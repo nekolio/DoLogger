@@ -78,14 +78,15 @@ flowchart TD
 
 ### The ABI Contract
 
-The `DO_LOG_ABI_VERSION` constant is the gate that ensures plugins and hosts are compiled against a compatible ABI. The engine **refuses to load** a plugin whose `abi_version` does not match the running engine's version.
+The ABI gate ensures plugins and hosts are compiled against a compatible ABI. The engine **refuses to load** a plugin whose `abi_version` does not match the running engine's version. In the current implementation this is the `abi_version` field of `dologger_plugin_info_t` (checked against `CORE_ABI_VERSION`, `0x000100` in v0.1.0); `plugin_query` receives `uint32_t core_abi_version` as its parameter.
 
 ```c
-// Defined in dologger_core.h — bumped on every MAJOR release
-#define DO_LOG_ABI_VERSION 1
+// (pseudocode — illustrative, not compiled; the real gate is the abi_version
+// field of dologger_plugin_info_t, see dologger_core.h)
+#define DO_LOG_ABI_VERSION 1   // conceptual macro — bumped on every MAJOR release
 
 // Every plugin reports its compiled-against ABI version
-const dologger_plugin_info_t *plugin_query(void) {
+const dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
     static dologger_plugin_info_t info = {
         .abi_version = DO_LOG_ABI_VERSION,
         // ...
@@ -142,6 +143,9 @@ flowchart TD
 ### Deprecation Macros
 
 ```c
+// (pseudocode — illustrative, not compiled: these macros and function names do
+// not exist in dologger_core.h yet; the pattern will be adopted when the first
+// symbol is deprecated)
 // Mark a function as deprecated in the C header
 #define DO_LOG_DEPRECATED(msg)  __attribute__((deprecated(msg)))
 
@@ -165,6 +169,8 @@ When a configuration key is deprecated:
 3. **MAJOR**: The key is removed. The configuration validator rejects it with `DO_LOG_ERR_CFG_PARSE` and a clear error message naming the replacement key.
 
 ```toml
+# (illustrative example — no keys are deprecated pre-1.0; syntax only, not a
+# schema accepted by the current validator)
 # Example: deprecated key migration
 # Old (deprecated in 1.3, removed in 2.0):
 sink_type = "console"
@@ -202,7 +208,8 @@ flowchart TD
 
 The error message is explicit:
 
-```
+```text
+(illustrative example output)
 [ERROR] Plugin 'json-formatter' (v1.2.0) compiled against ABI version 1,
         but engine requires ABI version 2.
         Recompile the plugin against dologger_core >= 2.0.0.
@@ -210,9 +217,10 @@ The error message is explicit:
 
 ### Plugin Version vs Engine Version
 
-Plugins have their **own** independent version (declared in `manifest.toml`). The engine version and plugin version are separate:
+Plugins have their **own** independent version (declared in `PluginManifest.toml`). The engine version and plugin version are separate:
 
-```
+```text
+(illustrative example output)
 Engine:     2.1.0        (version of libdologger_core)
 Plugin A:   1.5.0        (version of json-formatter)
 Plugin B:   3.2.1        (version of kafka-sink)
@@ -220,17 +228,20 @@ Plugin B:   3.2.1        (version of kafka-sink)
 
 Compatibility is determined solely by `abi_version` matching — not by any comparison of version numbers.
 
-### Compatibility in `manifest.toml`
+### Compatibility in `PluginManifest.toml`
 
-Plugins declare their engine version range in the manifest:
+Plugins declare their ABI/version compatibility in the manifest. The schema shipped in v0.1.0 uses `[plugin]` keys (`abi_version`, `min_core_abi` — see `plugins/official/*/PluginManifest.toml`); a range-based `[compatibility]` section is the intended policy for later releases:
 
 ```toml
+# (illustrative — proposed schema, not yet parsed by the current engine;
+# v0.1.0 manifests declare `abi_version = 1` and `min_core_abi = "0.1.0"`
+# under [plugin] instead)
 [compatibility]
 min_engine_version = "1.0.0"     # Minimum MAJOR.MINOR.PATCH required
 max_engine_version = "2.0.0"     # Exclusive upper bound (this MAJOR series)
 ```
 
-The engine validates at load time:
+The engine validates at load time (v0.1.0 enforces `abi_version` equality; the range checks below are the intended policy):
 
 | Condition | Result |
 |:-:|:-:|
@@ -240,9 +251,11 @@ The engine validates at load time:
 
 ### Plugin Dependency Versioning
 
-Plugins that depend on other plugins (e.g., a `Sink` depending on a `Formatter`) express this in `manifest.toml`:
+Plugins that depend on other plugins (e.g., a `Sink` depending on a `Formatter`) will express this in `PluginManifest.toml`:
 
 ```toml
+# (illustrative — proposed schema, not yet parsed by the current engine;
+# v0.1.0 implements field-level dependencies via `requires_fields` instead)
 [dependencies]
 requires_plugins = [
     { name = "json-formatter", version = ">=1.0, <2.0" }
@@ -260,6 +273,7 @@ The version constraint uses Cargo-style semver ranges. The engine validates the 
 Every MAJOR release is accompanied by a migration guide published in this directory:
 
 ```text
+(illustrative directory layout)
 Docs/en_US/guides/migration/
 ├── v1-to-v2.md     # Migration guide from 1.x to 2.0
 └── v2-to-v3.md     # Migration guide from 2.x to 3.0
@@ -275,7 +289,7 @@ Each migration guide covers:
 
 ### Migration Pattern
 
-A typical migration follows this pattern:
+A typical migration follows this pattern (illustrative pattern — not a literal script; replace the package line with your platform's install method):
 
 ```bash
 # 1. Read the migration guide for the target version
@@ -325,7 +339,8 @@ DoLogger commits to the following backward compatibility windows:
 
 Pre-release versions follow the semver pre-release convention:
 
-```
+```text
+(illustrative example versions)
 2.0.0-alpha.1      ← First alpha of v2.0
 2.0.0-beta.1       ← First beta of v2.0
 2.0.0-rc.1         ← First release candidate
@@ -351,6 +366,7 @@ Every release must pass:
 ### Git Tagging Convention
 
 ```bash
+# (illustrative examples — do not run; the tag names are placeholders)
 # Tags follow the pattern:
 git tag -a v1.4.2 -m "Release v1.4.2 — security patch for CVE-2026-XXXXX"
 git tag -a v1.5.0 -m "Release v1.5.0 — new sink_webhook plugin type"
@@ -366,7 +382,7 @@ git tag -a v2.0.0 -m "Release v2.0.0 — ABI version 2, see migration guide"
 **Table 5: Version Support Matrix**
 
 | Version Track | Support Level | Security Patches | Bug Fixes | EOL |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | Latest MAJOR (N) | **Full** | Yes | Yes | — |
 | Previous MAJOR (N-1) | **Critical** | Security only | No | 6 months after N release |
 | N-2 and older | **None** | No | No | Immediately on N release |
@@ -393,14 +409,15 @@ The first stable release (1.0.0) will mark the beginning of the full compatibili
 
 ### Reporting Compatibility Issues
 
-If you encounter a compatibility issue that violates this policy, file a bug report with:
+If you encounter a compatibility issue that violates this policy, file a bug report with the version and system details captured by:
 
 ```bash
-dologctl diag collect --output compatibility-issue.tar.gz
+dologctl version
+dologctl about --output json > compatibility-info.json
 ```
 
 Attach the diagnostic archive and describe:
-1. Engine version (`dologger_get_abi_version()` output)
+1. Engine version (`dologger_version()` output)
 2. Plugin version and ABI version
 3. Expected behavior vs observed behavior
 4. Any error messages from `dologger_internal.log`

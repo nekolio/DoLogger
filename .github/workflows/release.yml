@@ -97,7 +97,7 @@ jobs:
       - name: Install cross-compilation dependencies (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@1.97.1
@@ -119,6 +119,14 @@ jobs:
       - name: Build release (other targets — sqlite/webhook/otel, without kafka)
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         shell: bash
+        env:
+          # Cross toolchain for the Linux aarch64 target. Without these,
+          # cargo falls back to the host `cc` and the link fails with
+          # "objects incompatible with elf64-x86-64".
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
         run: |
           cargo build --release --workspace --target ${{ matrix.target }} \
             --features dologger-core/sink-sqlite,dologger-core/sink-webhook

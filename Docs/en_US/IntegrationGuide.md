@@ -1,6 +1,6 @@
 # DoLogger Integration Guide
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Application Developers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Application Developers
 >
 > **Purpose**: Learn how to embed DoLogger into your application. Covers the C API, configuration, domain inheritance, plugin selection, and language adapters. If you are brand new, start with the [Quick Start Guide](QuickStart.md) first.
 >
@@ -59,28 +59,38 @@ The minimal integration is three function calls. For complete function signature
 
 ```c
 #include "dologger_core.h"
+#include <stdio.h>
 
 int main(void) {
+    dologger_error_t err = {0};
     dologger_handle_t *logger = NULL;
 
     // 1. Initialize with default configuration
-    int rc = dologger_init(NULL, &logger);
-    if (rc != DO_LOG_OK) return 1;
+    logger = dologger_init(NULL, &err);
+    if (logger == NULL) {
+        printf("DoLogger init failed: %s\n", err.message);
+        return 1;
+    }
 
     // 2. Submit a log record
-    DO_LOG_INFO(logger, "Application started successfully");
+    dologger_record_params_t params = {
+        .level   = DO_LOG_INFO,
+        .message = "Application started successfully",
+    };
+    if (dologger_log(logger, &params) != DO_LOG_OK) return 1;
 
     // 3. Shutdown (drains in-flight records)
-    dologger_shutdown(&logger);
+    dologger_shutdown(logger);
     return 0;
 }
 ```
 
 ### Convenience Macros
 
-Use these macros to automatically capture `__FILE__`, `__func__`, and `__LINE__`:
+(pseudocode — illustrative, not compiled). These convenience macros are planned for the upcoming SDK header. The current C ABI uses `dologger_log()` with a `dologger_record_params_t` struct instead (see the example above); the `DO_LOG_*` symbols that exist today are level constants only:
 
 ```c
+// (pseudocode — illustrative: macro wrappers are not in dologger_core.h yet)
 DO_LOG_TRACE(h, "Frame-level detail: variable x = %d", x);
 DO_LOG_DEBUG(h, "Diagnostic: connection pool size = %d", pool_size);
 DO_LOG_INFO(h,  "User %s logged in from %s", username, ip);
@@ -111,14 +121,20 @@ cc -o myapp myapp.c -ldologger_core -L/usr/lib/dologger
 
 **Windows (MSVC):**
 ```bash
-cl /Fe:myapp.exe myapp.c dologger_core.lib
+cl /Fe:myapp.exe myapp.c dologger_core.dll.lib
 ```
 
 ### Verifying the ABI
 
 ```c
-uint32_t abi = dologger_get_abi_version();
-printf("DoLogger ABI: v%u\n", abi);
+#include "dologger_core.h"
+#include <stdio.h>
+
+int main(void) {
+    const char *version = dologger_version();
+    printf("DoLogger core version: %s\n", version);
+    return 0;
+}
 ```
 
 ---
@@ -128,6 +144,8 @@ printf("DoLogger ABI: v%u\n", abi);
 ### How Configuration is Resolved
 
 DoLoader uses a 7-layer priority system. Lower-numbered layers have lower priority:
+
+(illustrative diagram — describes the intended priority ladder):
 
 ```mermaid
 flowchart TD
@@ -174,8 +192,8 @@ key_rotation_grace_period_days = 7      # Old keys valid after rotation
 | `DO_LOG_CONFIG_FILE` | Config file path | `DO_LOG_CONFIG_FILE=/opt/app/dologger.toml` |
 | `DO_LOG_PLUGIN_DIR` | Plugin directory | `DO_LOG_PLUGIN_DIR=/opt/app/plugins` |
 | `DO_LOG_CONFIG_LOCK` | Lock config at load | `DO_LOG_CONFIG_LOCK=1` |
-| `DO_LOG_SIGN_KEY` | Signing key path | `DO_LOG_SIGN_KEY=/secure/signing.key` |
-| `DO_LOG_VERIFY_KEY` | Verification key | `DO_LOG_VERIFY_KEY=/secure/verify.pub` |
+| `DO_LOG_SIGN_KEY` | Signing key path *(planned)* | `DO_LOG_SIGN_KEY=/secure/signing.key` |
+| `DO_LOG_VERIFY_KEY` | Verification key *(planned)* | `DO_LOG_VERIFY_KEY=/secure/verify.pub` |
 
 ### Sink Configuration
 
@@ -226,10 +244,10 @@ Always validate configuration before deploying:
 # Strict validation
 dologctl config validate --config dologger.toml --strict
 
-# With compliance check
-dologctl config validate --config dologger.toml --compliance gdpr
+# With compliance check (validate the compliance template directly)
+dologctl config validate --config compliance/gdpr.toml --strict
 
-# Show effective configuration after all layers merge
+# Show effective configuration after all layers merge (illustrative — planned CLI feature)
 dologctl config show --effective
 ```
 
@@ -242,6 +260,8 @@ dologctl config show --effective
 Domains let you define separate logging configurations for different subsystems of your application. Child domains inherit from parents and can only tighten security settings.
 
 ### Diagram
+
+(illustrative diagram):
 
 ```mermaid
 flowchart TD
@@ -351,6 +371,8 @@ Measured on AMD Ryzen 9 7950X, DDR5-6000, Samsung 990 Pro NVMe:
 
 Every log record contains fields organized into four permission rings, modeled after CPU privilege levels:
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     subgraph R3["Ring 3 (ext.* fields)<br/>CRC32C only<br/>Red plugins OK"]
@@ -390,6 +412,8 @@ Written by the engine and `HostInfoProvider` plugin. Read-only for all other plu
 
 Blue and Yellow plugins write to the `verified.*` namespace. Every write appends an `audit_tags` entry recording `{plugin_id, plugin_version, timestamp, field}`. This creates a tamper-evident history of field modifications.
 
+(illustrative example — Ring 2 field signing and audit_tags land in M4):
+
 ```json
 {
   "verified.user_id": "u-12345",
@@ -419,8 +443,9 @@ Red plugins write to `ext.*`. These fields have CRC32C only (hardware-accelerate
 // Write a Ring 2 field (via a FieldProvider plugin)
 // Load the field_container plugin in your config and configure its keys
 
-// Write a Ring 3 field (via dologger_record_set_field)
-dologger_record_set_field(record, "ext.my_key", "my_value");
+// Write a Ring 3 field (via dologger_field_set)
+dologger_error_t err = {0};
+int rc = dologger_field_set(record, "ext.my_key", "my_value", &err);
 ```
 
 ---
@@ -428,6 +453,8 @@ dologger_record_set_field(record, "ext.my_key", "my_value");
 ## Plugin Selection Guide
 
 ### Plugin Types and Pipeline Position
+
+(illustrative diagram):
 
 ```mermaid
 flowchart LR
@@ -447,6 +474,8 @@ flowchart LR
 | Enforce rate limits | `PolicyProvider` | Built-in rate limiter |
 
 ### Recommended Plugin Set by Use Case
+
+(illustrative plugin lists — of the plugins named below, `fmt_text`, `fmt_json`, `filter_level`, and `field_container` are the official ones implemented today):
 
 **Development:**
 ```
@@ -487,51 +516,48 @@ Red plugins are disabled by default. Enable with `allow_red_plugins = true`.
 ```toml
 # Cargo.toml
 [dependencies]
-dologger-core = "0.1"
+dologger-sdk = "0.1"
 ```
 
 ```rust
-use dologger_core::{Engine, DologgerConfig, LogLevel};
+use dologger_sdk::Logger;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = DologgerConfig::default();
-    let mut engine = Engine::init(config)?;
-
-    engine.log(LogLevel::Info, "Hello from Rust host")?;
-
-    engine.shutdown()?;
-    Ok(())
+fn main() {
+    let mut logger = Logger::init(None).expect("DoLogger init failed");
+    logger.info("Hello from Rust host");
+    logger.shutdown();
 }
 ```
 
-The Rust crate provides RAII handle management, `Display` + `Error` for all error codes, `serde` support, and a builder pattern for configuration.
+The Rust SDK (`adapters/rust`, crate `dologger-sdk`) wraps `dologger-core` with RAII handle management, `trace`/`debug`/`info`/`warn`/`error`/`fatal`/`audit` convenience methods, and cooperative-helping retry on a full ring buffer. You can also build a `dologger_core::config::DologgerConfig` yourself and pass it to `Logger::init_with_config()`.
 
 ### Python
 
 ```python
-import dologger
+from dologger import DoLogger
 
-logger = dologger.Logger(config_path="/etc/dologger/default.toml")
-logger.info("Hello from Python", extra={"request_id": "abc-123"})
+logger = DoLogger(config_path="/etc/dologger/default.toml")
+logger.info("Hello from Python")
 logger.shutdown()
 ```
 
-Uses `ctypes` to load `libdologger_core`. Compatible with the Python `logging.Handler` interface.
+Uses `ctypes` to load `libdologger_core` (see `adapters/python/` and the C ABI smoke test at `tests/release-smoke/cabi_smoke.py`). Works as a context manager too: `with DoLogger() as logger: ...`
 
 ### Go
 
 ```go
 package main
 
-import "github.com/Nekolio/DoLogger-go"
+import (
+    "log"
+
+    "github.com/dologger/adapters/go"
+)
 
 func main() {
-    logger, err := dologger.New(dologger.Config{
-        Level:   "INFO",
-        Profile: "prod-performance",
-    })
+    logger, err := dologger.NewLogger("/etc/dologger/default.toml")
     if err != nil {
-        panic(err)
+        log.Fatal(err)
     }
     defer logger.Shutdown()
 
@@ -539,7 +565,7 @@ func main() {
 }
 ```
 
-Uses cgo to link against `libdologger_core`.
+Uses cgo to link against `libdologger_core` (see `adapters/go/`).
 
 ### C (Direct ABI)
 
@@ -578,7 +604,10 @@ dologger_log(logger, &params);
 
 Filter out expensive debug computation when the level would drop it:
 
+(pseudocode — illustrative, not compiled: `dologger_would_log()` and the `DO_LOG_DEBUG` macro are not in the current C ABI):
+
 ```c
+// (pseudocode — illustrative, not compiled)
 if (dologger_would_log(logger, DO_LOG_DEBUG)) {
     char *expensive = compute_diagnostic_state();
     DO_LOG_DEBUG(logger, "Diagnostic: %s", expensive);
@@ -588,7 +617,10 @@ if (dologger_would_log(logger, DO_LOG_DEBUG)) {
 
 ### Pattern 4: Graceful Shutdown with Signal Handling
 
+(pseudocode — illustrative, not compiled: use `dologger_log()` with a `dologger_record_params_t` instead of the `DO_LOG_INFO` macro, and note `dologger_shutdown()` takes the handle by value):
+
 ```c
+// (pseudocode — illustrative, not compiled)
 #include <signal.h>
 
 static dologger_handle_t *g_logger = NULL;
@@ -617,7 +649,10 @@ int main(void) {
 
 Register a callback to receive formatted log records directly in-process:
 
+(pseudocode — illustrative, not compiled: `dologger_register_callback_sink()` is planned; the sink callback type will be published with the SDK header):
+
 ```c
+// (pseudocode — illustrative, not compiled)
 static void my_callback(const uint8_t *data, size_t len, void *user) {
     // data points to formatted output (JSON, text, etc.)
     // len is the byte count
@@ -660,7 +695,7 @@ curl -X POST http://127.0.0.1:9090/level \
 
 ### Engine fails to initialize
 
-**Symptom:** `dologger_init()` returns non-zero.
+**Symptom:** `dologger_init()` returns `NULL`.
 
 **Checklist:**
 1. Verify `dologger.toml` syntax: `dologctl config validate --config dologger.toml --strict`
@@ -686,8 +721,8 @@ curl -X POST http://127.0.0.1:9090/level \
 **Checklist:**
 1. Verify `performance_profile` -- a `dev` profile uses small buffers and batches
 2. Check if `enable_signature = true` -- Ed25519 signing adds ~17 us per record
-3. Run `curl http://127.0.0.1:9090/status | jq .pipeline` to check drop rate
-4. Run `cargo bench` to baseline the engine on your hardware
+3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (drop-rate metrics are planned, M4)
+4. Run `dologctl perf` to baseline the engine on your hardware
 5. Check if `fsync_on_write = true` -- forces I/O flush on every record
 
 ### Ring buffer overflow
@@ -705,7 +740,7 @@ curl -X POST http://127.0.0.1:9090/level \
 **Symptom:** Diagnostic log shows `[PLUGIN] load failed`.
 
 **Checklist:**
-1. ABI version mismatch: compare `plugin_query()->abi_version` with `DO_LOG_ABI_VERSION`
+1. ABI version mismatch: compare the plugin's `abi_version` field (from `plugin_query()`) with the core ABI version
 2. Missing dependency: check `manifest.toml` `[dependencies]` section
 3. Blue plugin signature: verify the `.sig` file is present and valid
 4. License incompatibility: the plugin's SPDX identifier may be in a denied category
@@ -716,6 +751,8 @@ curl -X POST http://127.0.0.1:9090/level \
 Windows holds file handles after rotation. Configure the file sink to use `FILE_SHARE_DELETE` and close handles before rotation. If files are locked, stop the engine briefly:
 
 ```bash
+# (illustrative — daemon start/stop commands are planned; the engine
+#  daemon lands in M3, today dologctl run supports --dry-run and --trace)
 dologctl stop
 # Delete or rotate files
 dologctl start
@@ -724,6 +761,7 @@ dologctl start
 ### Collecting a Debug Report
 
 ```bash
+# (illustrative — the diag command is a planned CLI feature, not yet available)
 dologctl diag collect --output diag-report.tar.gz
 ```
 

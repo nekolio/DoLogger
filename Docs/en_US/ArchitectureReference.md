@@ -1,6 +1,6 @@
 # DoLogger Architecture Reference
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Core Developers, Plugin Authors, Systems Engineers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Core Developers, Plugin Authors, Systems Engineers
 >
 > **Purpose**: Definitive reference for the DoLogger engine internals -- pipeline architecture, lock-free data structures, cryptographic audit chain, security model, sink fan-out, backpressure, and performance tuning. Assume familiarity with the [Integration Guide](IntegrationGuide.md).
 >
@@ -55,6 +55,8 @@
 
 ### System Overview
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     A["HOST APPLICATION<br/>dologger_log() / dologger_logv()<br/>102 ns P50 (CAS push)"] --> RB
@@ -100,6 +102,8 @@ flowchart TD
 
 ### Record Lifecycle
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     A["Object Pool (Treiber stack)"] -->|"alloc()"| B["Record (pre-zeroed)"]
@@ -117,6 +121,8 @@ flowchart TD
 ## Ring Buffer Design and Lock-Free Guarantees
 
 ### Architecture
+
+(illustrative diagram):
 
 ```mermaid
 flowchart TD
@@ -136,6 +142,8 @@ flowchart TD
 
 ### Enqueue Algorithm (Producer)
 
+(pseudocode — illustrative, not compiled):
+
 ```
 producer_push(record):
   loop:
@@ -149,6 +157,8 @@ producer_push(record):
 ```
 
 ### Dequeue Algorithm (Consumer)
+
+(pseudocode — illustrative, not compiled):
 
 ```
 consumer_drain(batch_size):
@@ -167,6 +177,8 @@ consumer_drain(batch_size):
 ### Object Pool (Treiber Stack)
 
 Records are pre-allocated in a `RecordPool` to avoid heap allocation on the hot path:
+
+(pseudocode — illustrative, not compiled):
 
 ```
 Allocation:
@@ -201,6 +213,8 @@ The ring buffer uses a single CAS cursor for all producers. Under heavy multi-th
 
 ### Chain Structure
 
+(pseudocode — illustrative, not compiled):
+
 ```
 Record(1):
   lsn       = 1
@@ -219,6 +233,8 @@ Record(3):
 ```
 
 ### Verification Algorithm
+
+(pseudocode — illustrative, not compiled; the shipped verifier is `dologctl verify-log`, see the [Operations & Security Guide](OperationsAndSecurity.md#audit-verification)):
 
 ```
 verify_chain(records):
@@ -274,6 +290,8 @@ Measured on AMD Ryzen 9 7950X, single core, ed25519-dalek 2.0:
 
 Periodic Merkle root hashes are published to immutable external storage (S3, blockchain) to provide long-term tamper resistance:
 
+(pseudocode — illustrative, not compiled):
+
 ```
 // Every N records, compute a Merkle root over the signature chain
 let merkle_root = compute_merkle_root(records[l..r]);
@@ -285,6 +303,8 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 ## Security Model: Ring 0-3 Permissions and Three-Color Trust
 
 ### Field Permission Rings
+
+(illustrative diagram):
 
 ```mermaid
 flowchart TD
@@ -329,6 +349,8 @@ Violation action: `SECCOMP_RET_KILL_PROCESS` -- the plugin thread is terminated 
 ## Sink Fan-Out and Fallback Chains
 
 ### Fan-Out Architecture
+
+(illustrative diagram):
 
 ```mermaid
 flowchart TD
@@ -379,6 +401,8 @@ brokers = ["kafka1:9092"]
 fallback = "file"            # If Kafka is down, write to file instead
 ```
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     A["Primary Sink (Kafka)"] -->|"write failure"| B["Fallback Sink (File)"]
@@ -388,6 +412,8 @@ flowchart TD
 ### Circuit Breaker Per Remote Sink
 
 Each remote sink (Kafka, Syslog, Webhook) has an independent circuit breaker:
+
+(illustrative diagram):
 
 ```mermaid
 stateDiagram-v2
@@ -421,6 +447,8 @@ When the ring buffer is full and the configured `block_timeout_ms` expires, reco
 
 ### Backpressure Thresholds
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     A["0% — normal operation"] --> B["50% — PIPELINE_BACKLOG (WARN sysmon)"]
@@ -432,6 +460,8 @@ flowchart TD
 ### Cooperative Helping
 
 At 90% occupancy, producer threads help drain the ring buffer inline before pushing their own record. This trades a small increase in submission latency for the prevention of buffer overflow:
+
+(pseudocode — illustrative, not compiled):
 
 ```
 if occupancy >= 90%:
@@ -464,6 +494,8 @@ The AUDIT iron law overrides all profiles: AUDIT records never drop.
 
 ### Emergency Buffer Data Flow
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     A["dologger_log()"] --> B["ring_buffer.try_push()"]
@@ -473,6 +505,8 @@ flowchart TD
 ```
 
 ### Recovery
+
+(pseudocode — illustrative, not compiled):
 
 ```
 Engine Startup:
@@ -500,6 +534,8 @@ If these limits are exceeded, the emergency buffer itself drops records and a `E
 
 ### Pool Layout
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     subgraph CPU["cpu_pool — Threads: N, Priority: Normal"]
@@ -522,6 +558,8 @@ flowchart TD
 ### Thread Naming Convention
 
 All threads follow the naming pattern `dologger-<pool>-<id>`:
+
+(illustrative listing):
 
 ```
 dologger-cpu_pool-0
@@ -563,7 +601,10 @@ The pipeline scheduler uses a work-stealing thread pool (`crossbeam_channel`):
 
 All VTable functions follow this contract:
 
+(pseudocode — illustrative, not compiled; see `core/include/dologger_core.h` for the concrete VTable types):
+
 ```c
+// (pseudocode — illustrative, not compiled)
 // Required: Provide function pointer, or NULL if unsupported
 // Return: DO_LOG_OK on success, error code on failure
 // DO_LOG_ERR_FATAL causes the plugin to be unloaded
@@ -572,6 +613,8 @@ typedef dologger_error_t (*vtable_fn_t)(/* parameters */);
 ```
 
 ### Plugin Lifecycle
+
+(illustrative diagram):
 
 ```mermaid
 sequenceDiagram
@@ -602,15 +645,22 @@ sequenceDiagram
 Every plugin MUST export:
 
 ```c
-const dologger_plugin_info_t *plugin_query(void);
-dologger_error_t plugin_init(const dologger_plugin_config_t *config);
-dologger_error_t plugin_shutdown(void);
-const <type>_vtable_t dologger_vtable;   // Type-specific VTable
+/* 1. Identity + VTable — called once at load */
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
+
+/* 2. Configuration — called after plugin_query, before first use */
+int plugin_init(const void *config);
+
+/* 3. Cleanup — called before library unload */
+int plugin_shutdown(void);
 ```
 
-Every plugin MAY export:
+The VTable itself is reached through the `vtable` pointer of `dologger_plugin_info_t` — it is not exported as a separate symbol.
+
+Every plugin MAY export (illustrative — planned state-serialization extension, not yet in the C ABI):
 
 ```c
+// (illustrative — planned, not yet in dologger_core.h)
 dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
 dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 ```
@@ -689,6 +739,8 @@ The current SIF format is a simplified binary frame. M4 will introduce a full Fl
 
 ### OS-Level Tuning
 
+(illustrative — Linux host tuning with external tools, not DoLogger commands):
+
 ```bash
 # Pin pipeline threads to isolated CPUs
 sudo cset shield --cpu 2-3 --kthread=on
@@ -702,16 +754,15 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### Running Benchmarks
 
+The workspace ships no `cargo bench` targets; use the built-in `dologctl perf` benchmark instead:
+
 ```bash
-# Run the built-in benchmark suite
-cargo bench --bench hot_path
+# Run the built-in benchmark (100K records, 80-byte messages)
+dologctl perf --count 100000
 
-# Latency benchmarks
-cargo bench --bench latency
+# Larger run for throughput stability measurements
+dologctl perf --count 1000000
 
-# Throughput benchmarks
-cargo bench --bench throughput
-
-# Latency percentile distribution
-cargo bench --bench latency_percentiles
+# JSON output for automated collection
+dologctl perf --count 100000 -o json
 ```

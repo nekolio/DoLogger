@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](SecurityWhitepaper.md) | [中文：安全白皮书](../../zh_CN/guides/SecurityWhitepaper.md)
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Security Engineers, Compliance Officers, Penetration Testers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Security Engineers, Compliance Officers, Penetration Testers
 >
 > **Purpose**: This document provides a comprehensive security analysis of the DoLogger logging engine. It covers the threat model, cryptographic design, trust boundaries, sandbox architecture, supply chain security, data integrity protections, and compliance mapping for regulated environments.
 >
@@ -40,44 +40,26 @@ DoLogger's security architecture is built on four principles, prioritized in ord
 
 ### Trust Boundaries
 
-```
-+---------------------------------------------------------------+
-|                     Host Application                          |
-|                                                               |
-|  +-------------+   +----------------+   +----------------+    |
-|  | Blue Plugin |   | Yellow Plugin  |   | Red Plugin      |   |
-|  | (Full Trust)|   | (Partial Trust)|   | (Zero Trust)    |   |
-|  +------+------+   +-------+--------+   +-------+--------+    |
-|         |                  |                    |              |
-|         v                  v                    v              |
-|  +--------------------------------------------------------+   |
-|  |              DoLogger Core Engine                       |   |
-|  |                                                        |   |
-|  |  +------------------+  +----------------------------+  |   |
-|  |  | Ring Buffer      |  | Pipeline Scheduler         |  |   |
-|  |  | (lock-free CAS)  |  | (Filter→Field→Process→     |  |   |
-|  |  |                  |  |  Format→Sink)              |  |   |
-|  |  +------------------+  +----------------------------+  |   |
-|  |                                                        |   |
-|  |  +------------------+  +----------------------------+  |   |
-|  |  | Ed25519 Signer   |  | LSN Audit Chain Manager    |  |   |
-|  |  | (KeyProvider)    |  | (prev_hash chaining)       |  |   |
-|  |  +------------------+  +----------------------------+  |   |
-|  |                                                        |   |
-|  |  +------------------+  +----------------------------+  |   |
-|  |  | Config Manager   |  | Sysmon / Diagnostics       |  |   |
-|  |  | (non-downgradable|  | (event stream to stderr)   |  |   |
-|  |  |  item enforcer)  |  |                            |  |   |
-|  |  +------------------+  +----------------------------+  |   |
-|  +--------------------------+------------------------------+   |
-|                             |                                  |
-|                             v                                  |
-|                  +---------------------+                       |
-|                  | Sink Outputs         |                      |
-|                  | (File / Network /    |                      |
-|                  |  Shared Memory)      |                      |
-|                  +---------------------+                       |
-+---------------------------------------------------------------+
+```mermaid
+flowchart TB
+    subgraph host["Host Application"]
+        blue["Blue Plugin<br/>(Full Trust)"]
+        yellow["Yellow Plugin<br/>(Partial Trust)"]
+        red["Red Plugin<br/>(Zero Trust)"]
+        subgraph core["DoLogger Core Engine"]
+            rb["Ring Buffer<br/>(lock-free CAS)"]
+            ps["Pipeline Scheduler<br/>(Filter→Field→Process→Format→Sink)"]
+            es["Ed25519 Signer<br/>(KeyProvider)"]
+            ac["LSN Audit Chain Manager<br/>(prev_hash chaining)"]
+            cm["Config Manager<br/>(non-downgradable item enforcer)"]
+            sd["Sysmon / Diagnostics<br/>(event stream to stderr)"]
+        end
+        sinks["Sink Outputs<br/>(File / Network / Shared Memory)"]
+    end
+    blue --> core
+    yellow --> core
+    red --> core
+    core --> sinks
 ```
 
 ### Security Design Decisions
@@ -174,7 +156,7 @@ These fields provide the environmental context of the log record. They are writt
 
 ### Ring 2 — Verified Extension Fields
 
-Blue and Yellow plugins write to the `verified.*` namespace. Each write operation is audited:
+Blue and Yellow plugins write to the `verified.*` namespace. Each write operation is audited (illustrative example of the audit_tags structure — the real field is a `RecordString` named `security.audit_tags`):
 
 ```json
 {
@@ -218,7 +200,7 @@ Ed25519 signatures cover:
 3. **Configurable** (`sign_ring2 = true`): All Ring 2 fields
 4. **Never**: Ring 3 fields (protected by CRC32C)
 
-The signing process:
+The signing process (pseudocode — illustrative algorithm description):
 
 ```
 1. Serialize covered fields in a canonical order (sorted lexicographically by field name).
@@ -228,7 +210,7 @@ The signing process:
 
 ### LSN Blockchain-Style Audit Chain
 
-Each log record is cryptographically linked to its predecessor:
+Each log record is cryptographically linked to its predecessor (pseudocode — illustrative, not executable):
 
 ```
 Record(N):
@@ -242,7 +224,7 @@ Record(N+1):
   signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
 ```
 
-**Verification algorithm:**
+**Verification algorithm** (pseudocode — illustrative, not executable):
 
 ```
 verify_chain(records):
@@ -270,7 +252,7 @@ Gaps are expected and non-malicious in two scenarios:
 
 ### WORM File Protection
 
-Audit log files are protected with Write-Once-Read-Many (WORM) semantics:
+Audit log files are protected with Write-Once-Read-Many (WORM) semantics (illustrative lifecycle):
 
 ```
 File lifecycle:
@@ -334,7 +316,7 @@ The seccomp-bpf filter is installed per plugin load, before `plugin_init()` is c
 | Network         | `socket`, `connect`, `bind`, `sendto`, `recvfrom`, `accept` | Yes  | No     | No   |
 | Process         | `fork`, `vfork`, `execve`, `execveat`, `wait4`, `kill`     | Yes  | No     | No   |
 
-**Violation behavior:**
+**Violation behavior** (illustrative sequence):
 
 ```
 1. Yellow/Red plugin thread calls fork()
@@ -402,7 +384,7 @@ Six configuration items are designated as non-downgradable. They can only be **t
 
 ### Non-Downgradable Enforcement
 
-Enforcement occurs at configuration merge time. The effective configuration is computed bottom-up (lower priority → higher priority). At each merge step, the non-downgradable items from the higher layer are compared against the lower layer:
+Enforcement occurs at configuration merge time. The effective configuration is computed bottom-up (lower priority → higher priority). At each merge step, the non-downgradable items from the higher layer are compared against the lower layer (pseudocode — illustrative):
 
 ```
 if lower.enable_signature == true AND higher.enable_signature == false:
@@ -424,7 +406,7 @@ This means a compliance template applied at the system level cannot be subverted
 
 Each compliance template sets all non-downgradable items to `true` with regulatory justification comments. Templates also enforce `level = "AUDIT"` and `performance_profile = "prod-audit"`.
 
-**Applying a compliance template:**
+**Applying a compliance template** (illustrative — the `config merge` subcommand and `--compliance` flag are planned, not shipped in v0.1.0; today you merge the TOML files yourself, e.g. keep the `[dologger]` section from `compliance/gdpr.toml`, and then run `dologctl config validate --strict`):
 
 ```bash
 # Merge a compliance template into your base configuration
@@ -458,8 +440,9 @@ dologctl config validate \
 
 ### Tamper Detection Workflow
 
-```
-1. Operator runs: dologctl verify-log --path /var/lib/dologger/audit/
+```text
+(illustrative example output — the summary numbers are fabricated)
+1. Operator runs: dologctl verify-log /var/lib/dologger/audit/
 
 2. For each record in the WORM file:
    a. Parse the record binary format
@@ -503,7 +486,7 @@ This prevents:
 
 ### Plugin Signature Verification
 
-Blue plugins **MUST** be signed by the DoLogger team's Ed25519 key. The verification flow:
+Blue plugins **MUST** be signed by the DoLogger team's Ed25519 key. The verification flow (illustrative sequence):
 
 ```
 1. Engine discovers plugin at configured path
@@ -570,6 +553,9 @@ cargo deny check sources
 ### TLS Configuration
 
 ```toml
+# (illustrative — not the shipped schema; the real Kafka sink config uses
+# `brokers` as a comma-separated string plus `enable_tls` / `sasl_username` /
+# `sasl_password` — see core/src/sink/kafka.rs)
 [sinks.kafka]
 type = "sink_kafka"
 brokers = ["kafka1.internal:9093"]
@@ -617,6 +603,9 @@ All TLS connections require TLS 1.2 or higher. TLS 1.0 and 1.1 are rejected at t
 ### Compliance Validation
 
 ```bash
+# (illustrative — the `--compliance` flag and `compliance report` subcommand
+# are planned, not shipped in v0.1.0; use `dologctl config validate --strict`
+# with a config containing the template's [dologger] settings instead)
 # Validate configuration against GDPR requirements
 dologctl config validate --config /etc/dologger/default.toml --compliance gdpr
 

@@ -106,31 +106,33 @@ process_create = false
 
 ### 必要导出符号
 
+（v0.1.0 实际签名，见 `core/include/dologger_core.h`）：
+
 ```c
 // 查询插件信息（必须导出）
-const dologger_plugin_info_t *plugin_query(void);
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
 
 // 初始化（必须导出）
-dologger_error_t plugin_init(const dologger_plugin_config_t *config);
+int plugin_init(const void *config);
 
 // 关闭（必须导出）
-dologger_error_t plugin_shutdown(void);
+int plugin_shutdown(void);
 
-// 状态序列化（可选，用于热重载）
-dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
+// 状态序列化（伪代码 — 规划中的可选导出，v0.1.0 尚无 dologger_state_buf_t）
+// dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
 
-// 状态反序列化（可选，用于热重载）
-dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
+// 状态反序列化（伪代码 — 同上）
+// dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 ```
 
 ### VTable 函数签名
 
-每种插件类型的 VTable 由函数指针组成：
+每种插件类型的 VTable 由函数指针组成（以 `dologger_core.h` 中的真实定义为例）：
 
 ```c
 typedef struct {
-    dologger_filter_fn_t    filter;
-    dologger_filter_batch_t filter_batch;   // 可选
+    /** Return non-zero to drop the record. MUST NOT perform I/O. */
+    int (*filter)(const dologger_record_handle_t *rec, void *config);
 } dologger_filter_vtable_t;
 ```
 
@@ -140,40 +142,49 @@ typedef struct {
 
 ### Filter 插件示例
 
+（以下示例基于 `core/include/dologger_core.h` 的真实定义，已在 Windows 上以 MSVC 编译验证；完整可编译版见 `plugins/examples/filter/c/example_filter/example_filter.c`）：
+
 ```c
 #include "dologger_core.h"
 
-static dologger_plugin_info_t g_info = {
-    .plugin_type = DO_LOG_PLUGIN_FILTER,
-    .abi_version = DO_LOG_ABI_VERSION,
-    .name = "example-filter",
-    .version = 0x010000,  // 1.0.0
-    .mount_phase = DO_LOG_PHASE_FILTER,
-    .trust_color = DO_LOG_TRUST_YELLOW,
+static int g_min_level = DO_LOG_WARN;
+
+// 前向声明：filter 函数在 VTable 初始化时引用
+static int my_filter(const dologger_record_handle_t *rec, void *config);
+
+static dologger_filter_vtable_t g_vtable = {
+    .filter = my_filter,
 };
 
-const dologger_plugin_info_t *plugin_query(void) {
+static dologger_plugin_info_t g_info = {
+    .name        = "example-filter",
+    .version     = 0x000100,    // 0.1.0
+    .abi_version = 0x000100,    // 核心 ABI 0.1.0
+    .phase       = DO_LOG_PHASE_FILTER,
+    .vtable      = &g_vtable,
+};
+
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
+    (void)core_abi_version;   // 生产插件应校验兼容性，不兼容时返回 NULL
     return &g_info;
 }
 
-dologger_error_t plugin_init(const dologger_plugin_config_t *config) {
-    // Allocate state, validate config
-    return DO_LOG_OK;
+int plugin_init(const void *config) {
+    // Allocate state, validate config；config 为引擎传入的不透明配置
+    (void)config;
+    return 0;
 }
 
-static dologger_error_t my_filter(dologger_record_t *record, dologger_filter_result_t *result) {
-    // Drop records below WARN level
-    if (record->level < DO_LOG_WARN) {
-        result->action = DO_LOG_FILTER_DROP;
-    } else {
-        result->action = DO_LOG_FILTER_PASS;
-    }
-    return DO_LOG_OK;
+// VTable 过滤函数：返回非零丢弃记录
+static int my_filter(const dologger_record_handle_t *rec, void *config) {
+    // 通过 config 指针接收记录级别（int），丢弃低于最小级别的记录
+    int level = config ? *(const int *)config : DO_LOG_TRACE;
+    return (level < g_min_level) ? 1 : 0;
 }
 
-dologger_error_t plugin_shutdown(void) {
+int plugin_shutdown(void) {
     // Free state
-    return DO_LOG_OK;
+    return 0;
 }
 ```
 
@@ -235,7 +246,9 @@ dologger_error_t plugin_shutdown(void) {
 cargo deny check licenses  # 扫描所有依赖许可证
 ```
 
-`deny.toml` 配置位于仓库根目录，自动执行 §6.4.5 策略。
+`deny.toml` 配置位于仓库根目录，自动执行许可证策略。
+
+（注：仓库当前 `deny.toml` 使用 `[licenses.allow]` v2 映射格式，与 cargo-deny 0.x 期望的数组格式不兼容，需 cargo-deny 1.x+ 或调整 deny.toml 后此命令才能通过）
 
 ---
 
@@ -250,9 +263,9 @@ cargo test -p my-plugin
 ### 集成测试
 
 ```bash
-# 启动 DoLogger 并加载插件
-echo '[plugins.my-filter]\ntype = "filter"\npath = "./target/debug/my_filter.so"' > test_config.toml
-cargo run --example simple_logger -- --config test_config.toml
+# 启动 DoLogger 并加载插件（引擎自动扫描 ./plugins 目录，无需在配置中声明）
+cp ./target/debug/my_filter.so ./plugins/
+dologctl run --trace
 ```
 
 ### 诊断日志
@@ -268,7 +281,8 @@ cargo run --example simple_logger -- --config test_config.toml
 M4 阶段提供 `plugins.dologger.dev` 集中索引仓库：
 
 ```bash
-dologctl plugin install kafka
+# 伪代码/示意 — 按名称从远程仓库安装为 M4 规划（v0.1.0 的 install 仅接受本地文件路径）
+# dologctl plugin install kafka
 dologctl plugin list
 dologctl plugin verify my-plugin
 ```

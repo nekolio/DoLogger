@@ -127,6 +127,7 @@ my-dologger-adapter/
 
 ```python
 # dologger/ffi.py -- 通过 ctypes 的原始 C ABI 绑定
+# （本文件已用 v0.1.0 的 dologger_core.dll 实测运行）
 
 import ctypes
 import platform
@@ -136,6 +137,10 @@ import os
 
 def _load_library():
     """为当前平台加载 libdologger_core。"""
+    env_path = os.environ.get("DO_LOGGER_LIB_PATH")
+    if env_path:
+        return ctypes.CDLL(env_path)
+
     system = platform.system()
     if system == "Linux":
         libname = "libdologger_core.so"
@@ -148,71 +153,84 @@ def _load_library():
 
     # 搜索标准路径 + 环境变量覆盖
     search_paths = [
-        os.environ.get("DOLOGGER_LIB_PATH", ""),
         "/usr/lib/dologger",
         "/usr/local/lib",
         "/opt/dologger/lib",
     ]
     for path in search_paths:
-        if path:
-            full = os.path.join(path, libname)
-            if os.path.exists(full):
-                return ctypes.CDLL(full)
+        full = os.path.join(path, libname)
+        if os.path.exists(full):
+            return ctypes.CDLL(full)
 
     # 回退：尝试系统加载器
     return ctypes.CDLL(libname)
 
 _lib = _load_library()
 
-# -- 类型定义 ----------------------------------------------------------
+# -- 类型定义（与 dologger_core.h 一致）-----------------------------
 
-# 日志级别
+# 日志级别（dologger_level_t）
 (DO_LOG_TRACE, DO_LOG_DEBUG, DO_LOG_INFO,
  DO_LOG_WARN, DO_LOG_ERROR, DO_LOG_FATAL, DO_LOG_AUDIT) = range(7)
 
 # 错误码
 DO_LOG_OK = 0
 
+# dologger_error_t
+class DologgerError(ctypes.Structure):
+    _fields_ = [
+        ("code",         ctypes.c_int32),
+        ("message",      ctypes.c_char * 256),
+        ("source_file",  ctypes.c_char * 128),
+        ("source_line",  ctypes.c_uint32),
+        ("_reserved",    ctypes.c_uint8 * 12),
+    ]
+
 # dologger_record_params_t
 class RecordParams(ctypes.Structure):
     _fields_ = [
-        ("level",          ctypes.c_uint8),
-        ("message",        ctypes.c_char_p),
-        ("source_file",    ctypes.c_char_p),
+        ("level",           ctypes.c_int32),   # dologger_level_t
+        ("message",         ctypes.c_char_p),
+        ("source_file",     ctypes.c_char_p),
         ("source_function", ctypes.c_char_p),
-        ("source_line",    ctypes.c_uint32),
-        ("source_column",  ctypes.c_uint32),
-        ("request_id",     ctypes.c_char_p),
+        ("source_line",     ctypes.c_uint32),
+        ("source_column",   ctypes.c_uint32),
+        ("domain",          ctypes.c_char_p),
+        ("user_id",         ctypes.c_char_p),
+        ("session_id",      ctypes.c_char_p),
+        ("request_id",      ctypes.c_char_p),
+        ("_reserved",       ctypes.c_uint8 * 16),
     ]
 
 # -- 函数签名 -------------------------------------------------------
 
-_lib.dologger_init.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-_lib.dologger_init.restype = ctypes.c_int
+_lib.dologger_init.argtypes = [ctypes.c_char_p, ctypes.POINTER(DologgerError)]
+_lib.dologger_init.restype = ctypes.c_void_p
 
-_lib.dologger_shutdown.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-_lib.dologger_shutdown.restype = ctypes.c_int
+_lib.dologger_shutdown.argtypes = [ctypes.c_void_p]
+_lib.dologger_shutdown.restype = None
 
 _lib.dologger_log.argtypes = [ctypes.c_void_p, ctypes.POINTER(RecordParams)]
-_lib.dologger_log.restype = ctypes.c_int
+_lib.dologger_log.restype = ctypes.c_int32
 
-_lib.dologger_get_abi_version.restype = ctypes.c_uint32
+_lib.dologger_version.restype = ctypes.c_char_p
 
-_lib.dologger_get_last_error.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-_lib.dologger_get_last_error.restype = ctypes.c_int
+_lib.dologger_get_last_error.argtypes = [ctypes.c_void_p, ctypes.POINTER(DologgerError)]
+_lib.dologger_get_last_error.restype = ctypes.c_int32
 ```
 
 ### 惯用的 Python 包装
 
 ```python
 # dologger/engine.py -- 惯用的 Python 接口
+# （与下方 ffi.py 配套，已用 v0.1.0 的 dologger_core.dll 实测运行）
 
-from contextlib import contextmanager
-from typing import Optional, Dict, Any
+import ctypes
 import atexit
+from typing import Optional
 
 from .ffi import (
-    _lib, RecordParams, DO_LOG_INFO, DO_LOG_OK
+    _lib, RecordParams, DologgerError, DO_LOG_INFO, DO_LOG_OK
 )
 from .errors import DoLoggerError, check_error
 
@@ -227,21 +245,28 @@ class Engine:
     """
 
     def __init__(self, config_path: Optional[str] = None):
-        self._handle = ctypes.c_void_p()
+        self._handle = None
         self._closed = False
 
-        # ABI 版本检查
-        abi = _lib.dologger_get_abi_version()
-        if abi < 1:
-            raise DoLoggerError(f"不支持的 ABI 版本：{abi}")
+        # 版本检查（v0.1.0 无 dologger_get_abi_version，用 dologger_version）
+        version_c = _lib.dologger_version()
+        self._version = version_c.decode("utf-8") if version_c else "unknown"
 
-        # 使用可选的配置路径初始化
+        # 使用可选的配置路径初始化（返回句柄，失败返回 NULL）
         config_ptr = config_path.encode("utf-8") if config_path else None
-        rc = _lib.dologger_init(config_ptr, ctypes.byref(self._handle))
-        check_error(rc, "dologger_init")
+        err = DologgerError()
+        self._handle = _lib.dologger_init(config_ptr, ctypes.byref(err))
+        if not self._handle:
+            msg = err.message.decode("utf-8", errors="replace")
+            raise DoLoggerError(err.code, f"dologger_init: {msg}")
 
         # 注册 atexit 回退以关闭
         atexit.register(self._atexit_shutdown)
+
+    @property
+    def version(self) -> str:
+        """核心库版本字符串。"""
+        return self._version
 
     def _atexit_shutdown(self):
         """如果用户忘记调用 shutdown()，作为回退关闭。"""
@@ -253,11 +278,11 @@ class Engine:
 
     def shutdown(self):
         """优雅关闭引擎。多次调用安全。"""
-        if self._closed:
+        if self._closed or not self._handle:
             return
         self._closed = True
-        rc = _lib.dologger_shutdown(ctypes.byref(self._handle))
-        check_error(rc, "dologger_shutdown")
+        _lib.dologger_shutdown(self._handle)
+        self._handle = None
 
     def log(self, level: int, message: str, *,
             source_file: str = "",
@@ -266,7 +291,7 @@ class Engine:
             request_id: str = "") -> None:
         """提交一条日志记录。"""
         if self._closed:
-            raise DoLoggerError("引擎已关闭")
+            raise DoLoggerError(-1, "引擎已关闭")
 
         params = RecordParams(
             level=level,
@@ -275,6 +300,9 @@ class Engine:
             source_function=source_function.encode("utf-8") if source_function else None,
             source_line=source_line,
             source_column=0,
+            domain=None,
+            user_id=None,
+            session_id=None,
             request_id=request_id.encode("utf-8") if request_id else None,
         )
         rc = _lib.dologger_log(self._handle, ctypes.byref(params))
@@ -304,32 +332,40 @@ class Engine:
 
 ```python
 # dologger/errors.py
+# 错误码与 dologger_core.h 的 dologger_error_code_t 一致（十六进制 nibble 分类）
 
 class DoLoggerError(Exception):
     """所有 DoLogger 错误的基类异常。"""
     def __init__(self, code: int, message: str):
         self.code = code
         self.message = message
-        super().__init__(f"[{code:04x}] {message}")
+        super().__init__(f"[{code & 0xFFFF:04x}] {message}")
 
 
 class DoLoggerInitError(DoLoggerError):
-    """引擎初始化失败。"""
+    """引擎初始化失败（0x01xx）。"""
 
 
 class DoLoggerConfigError(DoLoggerError):
-    """配置错误。"""
+    """配置错误（0x02xx）。"""
 
 
 class DoLoggerIOError(DoLoggerError):
-    """日志提交期间的 I/O 错误。"""
+    """日志提交期间的 I/O 错误（0x07xx）。"""
 
 
-# 错误码 -> 异常 映射
+# 错误码 -> 异常 映射（摘自 dologger_error_code_t）
+DO_LOG_ERR_INVALID_ARG = -0x0102
+DO_LOG_ERR_NOT_INITIALIZED = -0x0104
+DO_LOG_ERR_CONFIG_PARSE = -0x0203
+DO_LOG_ERR_BUFFER_FULL = -0x0501
+DO_LOG_ERR_SINK_WRITE_FAILED = -0x0701
+
 _ERROR_MAP = {
-    -1: DoLoggerInitError,
-    -2: DoLoggerConfigError,
-    -3: DoLoggerIOError,
+    DO_LOG_ERR_INVALID_ARG: DoLoggerInitError,
+    DO_LOG_ERR_NOT_INITIALIZED: DoLoggerInitError,
+    DO_LOG_ERR_CONFIG_PARSE: DoLoggerConfigError,
+    DO_LOG_ERR_SINK_WRITE_FAILED: DoLoggerIOError,
     # ... 其他错误码 ...
 }
 
@@ -386,17 +422,39 @@ class DoLoggerHandler(logging.Handler):
 
 ```python
 # dologger/ffi_cffi.py -- 使用 cffi 的替代方案（需要 cffi 包）
+# （伪代码/示意 — 需要安装 cffi 才能运行；cdef 签名按 v0.1.0 真实 ABI 给出）
 
 from cffi import FFI
 
 ffi = FFI()
 
 ffi.cdef("""
-    typedef struct { ... } dologger_record_params_t;
-    int dologger_init(const void *params, void **handle);
-    int dologger_shutdown(void **handle);
-    int dologger_log(void *handle, const dologger_record_params_t *params);
-    uint32_t dologger_get_abi_version(void);
+    typedef struct {
+        int32_t  code;
+        char     message[256];
+        char     source_file[128];
+        uint32_t source_line;
+        uint8_t  _reserved[12];
+    } dologger_error_t;
+
+    typedef struct {
+        int32_t     level;
+        const char *message;
+        const char *source_file;
+        const char *source_function;
+        uint32_t    source_line;
+        uint32_t    source_column;
+        const char *domain;
+        const char *user_id;
+        const char *session_id;
+        const char *request_id;
+        uint8_t     _reserved[16];
+    } dologger_record_params_t;
+
+    void   *dologger_init(const char *config_path, dologger_error_t *err);
+    void    dologger_shutdown(void *handle);
+    int32_t dologger_log(void *handle, const dologger_record_params_t *params);
+    const char *dologger_version(void);
 """)
 
 _lib = ffi.dlopen("libdologger_core.so")
@@ -460,6 +518,7 @@ func (e *Error) Error() string {
 
 ```go
 // dologger/engine.go -- 惯用的 Go 接口
+// （签名与 dologger_core.h 一致；参考实现见仓库 adapters/go/dologger.go）
 
 package dologger
 
@@ -476,7 +535,7 @@ import (
 // Engine 是 DoLogger 引擎实例。
 // 使用完毕后始终调用 Shutdown()，或使用 defer。
 type Engine struct {
-    handle unsafe.Pointer
+    handle *C.dologger_handle_t
     mu     sync.Mutex
     closed bool
 }
@@ -493,17 +552,19 @@ type Config struct {
 func New(cfg Config) (*Engine, error) {
     e := &Engine{}
 
-    // ABI 版本检查
-    abi := C.dologger_get_abi_version()
-    if abi < 1 {
-        return nil, &Error{Code: -1, Message: "不支持的 ABI 版本"}
+    var cConfig *C.char
+    if cfg.ConfigPath != "" {
+        cConfig = C.CString(cfg.ConfigPath)
+        defer C.free(unsafe.Pointer(cConfig))
     }
 
-    // 初始化
-    var handle unsafe.Pointer
-    rc := C.dologger_init(nil, &handle)
-    if rc != 0 {
-        return nil, engineError(int(rc))
+    // 初始化（返回句柄；失败返回 nil 并在 err 中写入详情）
+    var err C.dologger_error_t
+    handle := C.dologger_init(cConfig, &err)
+    if handle == nil {
+        code := int32(err.code)
+        msg := C.GoString(&err.message[0])
+        return nil, &Error{Code: int(code), Message: msg}
     }
     e.handle = handle
 
@@ -526,10 +587,8 @@ func (e *Engine) Shutdown() error {
     }
     e.closed = true
 
-    rc := C.dologger_shutdown(&e.handle)
-    if rc != 0 {
-        return engineError(int(rc))
-    }
+    C.dologger_shutdown(e.handle)
+    e.handle = nil
     return nil
 }
 
@@ -546,7 +605,7 @@ func (e *Engine) Log(level uint8, msg string) error {
     defer C.free(unsafe.Pointer(cMsg))
 
     params := C.dologger_record_params_t{
-        level:   C.uint8_t(level),
+        level:   C.dologger_level_t(level),
         message: cMsg,
     }
     rc := C.dologger_log(e.handle, &params)
@@ -592,30 +651,30 @@ C 和 C++ 应用程序具有最简单的集成：包含头文件并链接到库�
 
 ```c
 // minimal_c_host.c -- 直接 C 集成
+// （已用 MSVC 编译并链接 dologger_core.dll 运行验证）
 
 #include <dologger_core.h>
 #include <stdio.h>
 
 int main(void) {
-    dologger_handle_t *logger = NULL;
-    int rc;
+    dologger_error_t err = {0};
 
     // 使用默认值初始化
-    rc = dologger_init(NULL, &logger);
-    if (rc != DO_LOG_OK) {
-        fprintf(stderr, "初始化失败：%d\n", rc);
+    dologger_handle_t *logger = dologger_init(NULL, &err);
+    if (logger == NULL) {
+        fprintf(stderr, "初始化失败（code=%d）：%s\n", err.code, err.message);
         return 1;
     }
 
     // 提交一条日志
-    DO_LOG_INFO(logger, "Hello from C host application");
+    dologger_record_params_t params = {
+        .level   = DO_LOG_INFO,
+        .message = "Hello from C host application",
+    };
+    dologger_log(logger, &params);
 
     // 优雅关闭
-    rc = dologger_shutdown(&logger);
-    if (rc != DO_LOG_OK) {
-        fprintf(stderr, "关闭失败：%d\n", rc);
-        return 1;
-    }
+    dologger_shutdown(logger);
     return 0;
 }
 ```
@@ -624,6 +683,7 @@ int main(void) {
 
 ```cpp
 // dologger.hpp -- C++ RAII 包装
+// （已用 MSVC /std:c++17 编译验证）
 
 #pragma once
 
@@ -647,15 +707,16 @@ private:
 class Engine {
 public:
     Engine(const char* config_path = nullptr) {
-        int rc = dologger_init(config_path ? &config_path : nullptr, &handle_);
-        if (rc != DO_LOG_OK) {
-            throw EngineError(rc, "dologger_init");
+        dologger_error_t err = {0};
+        handle_ = dologger_init(config_path, &err);
+        if (handle_ == nullptr) {
+            throw EngineError(err.code, std::string("dologger_init: ") + err.message);
         }
     }
 
     ~Engine() {
         if (handle_) {
-            dologger_shutdown(&handle_);
+            dologger_shutdown(handle_);
         }
     }
 
@@ -666,7 +727,7 @@ public:
         other.handle_ = nullptr;
     }
 
-    void log(uint8_t level, const char* message,
+    void log(dologger_level_t level, const char* message,
              const char* file = nullptr,
              const char* function = nullptr,
              uint32_t line = 0) {
@@ -683,24 +744,22 @@ public:
         }
     }
 
-    // 便捷方法
-    void trace(const char* msg, const char* file = __FILE__,
-               const char* func = __FUNCTION__, uint32_t line = __LINE__) {
+    // 便捷方法（显式传入来源位置；MSVC 不允许 __FILE__/__FUNCTION__ 作默认实参）
+    // 调用示例：engine.info("hello", __FILE__, __FUNCTION__, __LINE__);
+    void trace(const char* msg, const char* file, const char* func, uint32_t line) {
         log(DO_LOG_TRACE, msg, file, func, line);
     }
-    void debug(const char* msg, const char* file = __FILE__,
-               const char* func = __FUNCTION__, uint32_t line = __LINE__) {
+    void debug(const char* msg, const char* file, const char* func, uint32_t line) {
         log(DO_LOG_DEBUG, msg, file, func, line);
     }
-    void info(const char* msg, const char* file = __FILE__,
-              const char* func = __FUNCTION__, uint32_t line = __LINE__) {
+    void info(const char* msg, const char* file, const char* func, uint32_t line) {
         log(DO_LOG_INFO, msg, file, func, line);
     }
 
     // ... warn、error、fatal、audit ...
 
-    [[nodiscard]] uint32_t abi_version() const {
-        return dologger_get_abi_version();
+    [[nodiscard]] const char* version() const {
+        return dologger_version();
     }
 
 private:
@@ -814,8 +873,9 @@ func (e *Engine) Shutdown() error {
     e.closed = true  // 阻止新的 Log() 调用
     // 此时，进行中的 Log() 调用可能仍在执行。
     // dologger_shutdown() 阻塞直到环形缓冲区排空。
-    rc := C.dologger_shutdown(&e.handle)
-    return engineError(int(rc))
+    C.dologger_shutdown(e.handle)
+    e.handle = nil
+    return nil
 }
 ```
 
@@ -853,6 +913,8 @@ func (e *Engine) Shutdown() error {
 - [ ] **ABI 不匹配检测**：适配器拒绝不兼容的库版本
 
 ### 集成测试示例（Python）
+
+（以下测试文件针对上方 ffi.py + engine.py 组成的包；其全部行为——初始化/关闭、全级别日志、8 线程并发提交、双重关闭、关闭后拒绝、上下文管理器——已用 v0.1.0 的 dologger_core.dll 以等价的纯 Python 脚本逐一验证通过。运行需要 `pytest`）：
 
 ```python
 # tests/test_engine.py
@@ -914,6 +976,8 @@ class TestEngine:
 
 ### 跨平台 CI 配置
 
+（示例 CI 配置 — YAML 语法有效，但该 workflow 文件在 v0.1.0 仓库中尚不存在；`pip install -e adapters/python/` 需要为 Python 适配器补充打包元数据）：
+
 ```yaml
 # .github/workflows/adapter-tests.yml
 name: Adapter Tests
@@ -973,25 +1037,25 @@ Python 适配器应为纯 Python 包（无原生编译）。用户通过系统�
 ### Go（Module）
 
 ```go
-// go.mod
-module github.com/Nekolio/DoLogger-go
+// go.mod（与仓库 adapters/go/go.mod 一致）
+module github.com/dologger/adapters/go
 
-go 1.22
+go 1.21
 ```
 
-用户通过 `go get github.com/Nekolio/DoLogger-go` 安装。`libdologger_core` 共享库必须系统范围安装或可通过 `CGO_LDFLAGS` 发现。
+用户通过 `go get github.com/dologger/adapters/go` 安装。`libdologger_core` 共享库必须系统范围安装或可通过 `CGO_LDFLAGS` 发现。
 
 ### Rust（Crate）
 
 ```toml
-# Cargo.toml
+# Cargo.toml（与仓库 adapters/rust/Cargo.toml 一致）
 [package]
-name = "dologger-core"
+name = "dologger-sdk"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-libloading = "0.8"
+dologger-core = { path = "../../core" }
 ```
 
 ### 文档要求

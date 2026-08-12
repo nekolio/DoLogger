@@ -57,6 +57,7 @@ let record = unsafe { &*record_ptr };
 
 // 不好的写法：
 let record = unsafe { &*record_ptr }; // 无解释
+(伪代码 — 教学示例，仅示意验证模式；`dologger_filter_result_t`、`DO_LOG_MAX_MESSAGE_LEN` 等符号在 v0.1.0 中不存在)：
 ```
 
 违反 R1 的后果：
@@ -118,6 +119,7 @@ dologger_error_t my_filter(dologger_record_t *record,
 
     return DO_LOG_OK;
 }
+(伪代码 — 教学示例，仅示意验证模式；core 中无 `FilterResult`/`FilterAction`/`DoLogError` 类型)：
 ```
 
 ### 验证模式（Rust）
@@ -142,6 +144,7 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 
     Ok(())
 }
+(伪代码 — 教学示例，仅示意沙箱约束；v0.1.0 实际插件入口为 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 ```
 
 ### 原则
@@ -220,6 +223,7 @@ sudo strace -f -e trace=file,network,process \
 
 # 强制 Yellow 沙箱以测试 Blue 插件
 # （编辑 dologger.toml：trust.color = "yellow" 用于测试运行）
+(伪代码 — v0.1.0 无 `dologger_secret_scan()` C 导出；核心内的 SecretDetector 为 Rust 内部 API（`core/src/security/secret_detector.rs`）)：
 ```
 
 ---
@@ -262,6 +266,7 @@ if (scan_result.secret_detected) {
     DO_LOG_AUDIT(logger, "SecretDetector: redacted %zu bytes at offset %zu",
                  scan_result.secret_length, scan_result.secret_offset);
 }
+(伪代码 — v0.1.0 无 `dologger_verify_record_signature()` C 导出，该接口为规划中)：
 ```
 
 ### SecretDetector 检测的内容
@@ -327,6 +332,7 @@ dologger_error_t rc = dologger_verify_record_signature(
 
 // 不要：自己重新实现签名验证
 // ed25519_dalek_verify(record->signature, ...)  <-- 不要！
+(伪代码 — 模糊测试目标模板（`my_formatter`/`mock_record_from_bytes` 为占位符；仓库暂无 fuzz/ 目录）：
 ```
 
 引擎管理公钥分发、密钥轮换和 CRL 检查。您的插件不应重复这些基础设施。
@@ -371,6 +377,7 @@ fuzz_target!(|data: &[u8]| {
         let _ = format_record(&record, &mut output);
     }
 });
+(伪代码/示意 — cargo-fuzz 命令语法正确，但 v0.1.0 仓库尚无 fuzz/format_json 目标，需先按上方模板创建)：
 ```
 
 ### 模糊测试要求检查清单
@@ -443,27 +450,45 @@ cargo audit --ignore RUSTSEC-2024-XXXX
 
 ### Cargo Deny 配置
 
-项目根目录的 `deny.toml` 包含规范的 deny 配置：
+项目根目录的 `deny.toml` 包含规范的 deny 配置（以下摘录与仓库实际文件一致）：
 
 ```toml
 # deny.toml（摘录）
-[advisories]
-vulnerability = "deny"       # 拒绝任何有安全通告的 crate
-unmaintained = "warn"
-yanked = "warn"
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+private = { ignore = true }
+
+[licenses.allow]
+mit = "allow"
+apache-2.0 = "allow"
+bsd-2-clause = "allow"
+bsd-3-clause = "allow"
+isc = "allow"
+zlib = "allow"
+# ...（详见仓库根目录 deny.toml）...
+
+[licenses.deny]
+gpl-2.0-only = "deny"
+gpl-2.0-or-later = "deny"
+gpl-3.0-only = "deny"
+gpl-3.0-or-later = "deny"
+agpl-3.0-only = "deny"
+agpl-3.0-or-later = "deny"
+# ...（详见仓库根目录 deny.toml）...
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"           # 拒绝通配符依赖
 
-[licenses]
-unlicensed = "deny"
-copyleft = "deny"            # GPL、AGPL——不允许
-allow = [
-    "MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause",
-    "ISC", "Zlib", "MPL-2.0", "LGPL-3.0-or-later"
-]
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
 ```
+
+（注：该文件使用 cargo-deny `version = 2` 的映射格式，需 cargo-deny 1.x+；cargo-deny 0.x 会报 "expected an array" 解析错误。仓库当前未包含 `[advisories]` 节）
 
 ### Clippy 配置
 
@@ -479,6 +504,8 @@ cargo clippy -- -W clippy::unwrap_used \
                  -W clippy::cast_possible_wrap \
                  -W clippy::indexing_slicing
 ```
+（示例 CI 配置 — YAML 语法有效；仓库当前实际文件为 `.github/workflows/security.yml`）：
+
 
 ### CI 集成
 
@@ -639,4 +666,5 @@ https://github.com/Nekolio/DoLogger/security/advisories
 1. 您将通过 `manifest.toml` 中的联系邮箱收到通知。
 2. 您应在与严重性相应的时限内发布补丁。
 3. 如果漏洞严重且在 14 天后仍未修补，插件将从官方插件仓库中移除，并被引擎的安全通告检查列入黑名单。
+(伪代码 — 教学片段（`record_ptr` 未定义，非完整可编译代码），仅演示注释规范)：
 4. DoLogger 自身的 `cargo audit` / `cargo deny` 管道将在您的插件依赖于带有已知 CVE 的 crate 时标记其存在漏洞。请保持依赖项更新。

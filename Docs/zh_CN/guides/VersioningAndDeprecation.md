@@ -81,15 +81,17 @@ flowchart TD
 `DO_LOG_ABI_VERSION` 常量是确保插件和宿主基于兼容 ABI 编译的门禁。引擎**拒绝加载**其 `abi_version` 与运行中引擎版本不匹配的插件。
 
 ```c
-// 在 dologger_core.h 中定义——每次 MAJOR 发布时提升
-#define DO_LOG_ABI_VERSION 1
+// 注：v0.1.0 的 dologger_core.h 中没有全局 DO_LOG_ABI_VERSION 宏；
+// 每个插件在 PluginInfo.abi_version 字段声明其编译所基于的 ABI 版本
+//（packed uint32，如 0x000100 = 0.1.0），并在 plugin_query() 中校验核心传入的版本。
 
-// 每个插件报告其编译所基于的 ABI 版本
-const dologger_plugin_info_t *plugin_query(void) {
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
     static dologger_plugin_info_t info = {
-        .abi_version = DO_LOG_ABI_VERSION,
+        .abi_version = 0x000100,   // 本插件面向的 ABI 版本
         // ...
     };
+    // 生产插件应校验：if (core_abi_version > info.abi_version) return NULL;
+    (void)core_abi_version;
     return &info;
 }
 ```
@@ -140,6 +142,8 @@ flowchart TD
 ```
 
 ### 废弃宏
+
+（伪代码 — 示意废弃标注的写法；v0.1.0 头文件尚无 `DO_LOG_DEPRECATED` 宏，`dologger_record_set_field`/`dologger_tags_t` 也不存在。`__attribute__` 为 GCC/Clang 语法，MSVC 需 `__declspec(deprecated(msg))`）：
 
 ```c
 // 在 C 头文件中将函数标记为废弃
@@ -202,6 +206,8 @@ flowchart TD
 
 错误消息是明确的：
 
+（示意 — 规划中的错误消息格式，非实际输出）：
+
 ```
 [ERROR] 插件 'json-formatter'（v1.2.0）基于 ABI 版本 1 编译，
         但引擎要求 ABI 版本 2。
@@ -211,6 +217,8 @@ flowchart TD
 ### 插件版本 vs 引擎版本
 
 插件有**自己**的独立版本（在 `manifest.toml` 中声明）。引擎版本和插件版本是分开的：
+
+（示意 — 版本对照示例，非命令输出）：
 
 ```
 引擎：     2.1.0        （libdologger_core 的版本）
@@ -293,6 +301,8 @@ cargo test
 
 # 6. 先灰度部署，然后全量上线
 ```
+（示意 — 预发布标签示例，非命令输出）：
+
 
 ### 向后兼容性承诺
 
@@ -324,6 +334,8 @@ DoLogger 承诺以下向后兼容性窗口：
 ### 预发布标签
 
 预发布版本遵循语义化版本预发布约定：
+
+（示意 — 预发布标签示例，非命令输出）：
 
 ```
 2.0.0-alpha.1      ← v2.0 的第一个 alpha
@@ -394,6 +406,8 @@ flowchart TD
 ### 报告兼容性问题
 
 如果您遇到违反此策略的兼容性问题，请提交 Bug 报告并附：
+
+（伪代码 — v0.1.0 尚无 diag 子命令）：
 
 ```bash
 dologctl diag collect --output compatibility-issue.tar.gz

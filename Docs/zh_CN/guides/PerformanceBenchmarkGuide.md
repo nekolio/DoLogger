@@ -153,14 +153,14 @@ DoLogger 提供四个基准测试目标，每个测量性能的不同维度。
 ### 基本用法
 
 ```bash
-# 运行单个基准测试套件
-cargo bench --bench hot_path
+# 运行单个基准测试套件（v0.1.0 仓库实际提供 latency、throughput、latency_percentiles）
+cargo bench --bench latency
 
 # 运行所有基准测试套件
 cargo bench
 
 # 运行套件中的特定基准测试
-cargo bench --bench hot_path -- single_record_submit
+cargo bench --bench latency -- bench_single_record_latency
 
 # 以特定性能配置文件运行
 DO_LOG_PERF_PROFILE=prod-audit cargo bench --bench throughput
@@ -170,19 +170,19 @@ DO_LOG_PERF_PROFILE=prod-audit cargo bench --bench throughput
 
 ```bash
 # 覆盖样本大小（更快，统计效力较低）
-cargo bench --bench hot_path -- --sample-size 20
+cargo bench --bench latency -- --sample-size 20
 
 # 设置固定测量时间
 cargo bench --bench latency -- --measurement-time 30
 
 # 按名称筛选基准测试子集
-cargo bench --bench throughput -- "file_sink/"
+cargo bench --bench throughput -- "bench_ring_buffer_push"
 
 # 保存基线以供后续比较
-cargo bench --bench hot_path -- --save-baseline master
+cargo bench --bench latency -- --save-baseline master
 
 # 与保存的基线比较
-cargo bench --bench hot_path -- --baseline master
+cargo bench --bench latency -- --baseline master
 ```
 
 ### 带性能分析运行
@@ -190,22 +190,22 @@ cargo bench --bench hot_path -- --baseline master
 ```bash
 # Linux perf — 硬件计数器
 perf record --call-graph dwarf --freq=997 \
-    cargo bench --bench hot_path -- single_record_submit
+    cargo bench --bench latency -- bench_single_record_latency
 perf report
 perf stat -e cycles,instructions,cache-references,cache-misses,branches,branch-misses \
-    cargo bench --bench hot_path -- single_record_submit
+    cargo bench --bench latency -- bench_single_record_latency
 
 # 火焰图
 perf record --call-graph dwarf --freq=997 \
-    cargo bench --bench hot_path -- single_record_submit
-perf script | stackcollapse-perf.pl | flamegraph.pl > hot_path_flamegraph.svg
+    cargo bench --bench latency -- bench_single_record_latency
+perf script | stackcollapse-perf.pl | flamegraph.pl > latency_flamegraph.svg
 
 # macOS Instruments
-cargo instruments -t time --bench hot_path
+cargo instruments -t time --bench latency
 
 # Valgrind / Callgrind（慢，高精度）
 valgrind --tool=callgrind --dump-instr=yes \
-    cargo bench --bench hot_path -- single_record_submit
+    cargo bench --bench latency -- bench_single_record_latency
 kcachegrind callgrind.out.*
 ```
 
@@ -214,11 +214,11 @@ kcachegrind callgrind.out.*
 ```bash
 # 步骤 1：在当前 main 分支上建立基线
 git checkout main
-cargo bench --bench hot_path -- --save-baseline main
+cargo bench --bench latency -- --save-baseline main
 
 # 步骤 2：在功能分支上运行基准测试
 git checkout feature/my-change
-cargo bench --bench hot_path -- --baseline main
+cargo bench --bench latency -- --baseline main
 
 # 步骤 3：Criterion 自动报告回归/改进：
 #  "Performance has improved by 3.2%"
@@ -344,6 +344,8 @@ CI 管道在每个 Pull Request 上运行基准测试，并与 `main` 分支基�
 
 ### CI 配置（GitHub Actions）
 
+（示例 CI 配置 — YAML 语法有效，但该 workflow 与 `scripts/ci/check_benchmark_regression.py` 在 v0.1.0 仓库中尚不存在）：
+
 ```yaml
 # .github/workflows/benchmarks.yml
 name: Benchmarks
@@ -429,19 +431,23 @@ CI 基准测试需要专用的、隔离的硬件。自托管运行器必须：
 
 ### 文件结构
 
+（示意 — 规划中的布局；v0.1.0 仓库实际为 `core/benches/` 下的 `latency.rs`、`throughput.rs`、`latency_percentiles.rs` 三个文件，无 `hot_path.rs` 与 `common/` 共享模块）：
+
 ```
 benches/
-  hot_path.rs              ← 提交延迟
-  latency.rs               ← 管道阶段细分
-  throughput.rs            ← 端到端吞吐量
-  latency_percentiles.rs   ← 完整分布
+  hot_path.rs              ← 提交延迟（规划中）
+  latency.rs               ← 单条记录提交延迟（已提供）
+  throughput.rs            ← 端到端吞吐量（已提供）
+  latency_percentiles.rs   ← 完整分布（已提供）
   common/
-    setup.rs               ← 共享框架：引擎初始化、配置、预热
-    fixtures.rs            ← 预构建记录模板
-    reporting.rs           ← 结果格式化
+    setup.rs               ← 共享框架：引擎初始化、配置、预热（规划中）
+    fixtures.rs            ← 预构建记录模板（规划中）
+    reporting.rs           ← 结果格式化（规划中）
 ```
 
 ### 基准测试模板
+
+（伪代码 — 模板示例：`dologger_bench_common`、`Engine::log()` 等在 v0.1.0 不存在，仓库实际基准测试用 `ring_buffer.try_push` + `engine.pool.alloc` 模式，见 `core/benches/latency.rs`）：
 
 ```rust
 // benches/hot_path.rs — 示例结构
@@ -506,6 +512,8 @@ criterion_main!(benches);
 
 ### 示例：为新接收器添加吞吐量基准测试
 
+（伪代码 — 模板示例：`setup_config`/`setup_engine_with_config`/`Engine::log()` 为占位符，仅示意结构）：
+
 ```rust
 // benches/throughput.rs
 
@@ -544,6 +552,8 @@ fn bench_throughput_new_sink(c: &mut Criterion) {
 ### 基线存储
 
 每个发布的官方基线以 Criterion 数据形式存储在仓库中：
+
+（示意 — 规划中的基线存储布局，v0.1.0 仓库尚无 `benches/baselines/`）：
 
 ```
 target/criterion/         ← 仅本地（不提交）

@@ -50,16 +50,18 @@ DoLogger 是一个跨平台、高安全、插件化的日志引擎。宿主应�
 
 ```c
 #include "dologger_core.h"
+#include <stdio.h>
 
 int main() {
-    dologger_handle_t *logger = NULL;
-    int rc = dologger_init(NULL, &logger);
-    if (rc != DO_LOG_OK) {
-        fprintf(stderr, "Failed to initialize DoLogger: %d\n", rc);
+    dologger_error_t err = {0};
+    dologger_handle_t *logger = dologger_init(NULL, &err);
+    if (logger == NULL) {
+        fprintf(stderr, "Failed to initialize DoLogger (code=%d): %s\n",
+                err.code, err.message);
         return 1;
     }
     // ... use logger ...
-    dologger_shutdown(&logger);
+    dologger_shutdown(logger);
     return 0;
 }
 ```
@@ -82,7 +84,8 @@ dologger_log(logger, &params);
 在 Rust 宿主中直接使用 `dologger-core` crate：
 
 ```rust
-use dologger_core::{Engine, DologgerConfig, LogLevel, Record};
+use dologger_core::Engine;
+use dologger_core::config::DologgerConfig;
 
 fn main() {
     let config = DologgerConfig::default();
@@ -99,22 +102,22 @@ fn main() {
 ### `dologger_init()`
 
 ```c
-int dologger_init(const dologger_init_params_t *params, dologger_handle_t **handle);
+dologger_handle_t *dologger_init(const char *config_path, dologger_error_t *err);
 ```
 
 **参数**:
-- `params`: 初始化参数（可为 NULL 使用默认值）
-- `handle`: 输出 — 引擎句柄指针
+- `config_path`: 配置文件路径（可为 NULL 使用自动发现 + 默认值）
+- `err`: 错误输出（首次调用时不得为 NULL）
 
-**返回值**: `DO_LOG_OK` (0) 成功，负数错误码
+**返回值**: 成功返回不透明句柄；失败返回 `NULL`，此时 `err->code`/`err->message` 提供错误详情。
 
 ### `dologger_shutdown()`
 
 ```c
-int dologger_shutdown(dologger_handle_t **handle);
+void dologger_shutdown(dologger_handle_t *handle);
 ```
 
-优雅关闭引擎，等待所有 in-flight 日志完成。关闭后 `*handle` 设为 NULL。
+优雅关闭引擎，等待所有 in-flight 日志完成并释放资源。handle 为 NULL 时安全返回。
 
 ---
 
@@ -122,15 +125,26 @@ int dologger_shutdown(dologger_handle_t **handle);
 
 ### 参数结构
 
+（与 `core/include/dologger_core.h` 一致 — 已编译验证）：
+
 ```c
 typedef struct {
-    uint8_t    level;          // DO_LOG_TRACE(0) ~ DO_LOG_AUDIT(6)
-    const char *message;       // UTF-8 日志消息
-    const char *source_file;   // __FILE__ (可选)
-    const char *source_function; // __FUNCTION__ (可选)
-    uint32_t   source_line;    // __LINE__ (可选)
-    uint32_t   source_column;  // 0 (可选)
-    const char *request_id;    // 请求/追踪 ID (可选)
+    dologger_level_t level;     // DO_LOG_TRACE(0) ~ DO_LOG_AUDIT(6)
+    const char      *message;   // UTF-8 日志消息（必填）
+
+    /* 来源位置（可选，NULL/0 表示省略） */
+    const char      *source_file;
+    const char      *source_function;
+    uint32_t         source_line;
+    uint32_t         source_column;
+
+    /* 上下文（可选） */
+    const char      *domain;    // 日志域名称（NULL = 默认域）
+    const char      *user_id;
+    const char      *session_id;
+    const char      *request_id; // 请求/追踪 ID
+
+    uint8_t          _reserved[16]; // 保留，必须清零
 } dologger_record_params_t;
 ```
 
@@ -189,21 +203,28 @@ typedef struct {
 ### 获取详细错误
 
 ```c
-int dologger_get_last_error(dologger_handle_t *handle, dologger_error_info_t *err_info);
+int32_t dologger_get_last_error(const dologger_handle_t *handle, dologger_error_t *err);
 ```
 
-错误码采用十六进制 nibble 分类：
-- `0x01xx` — 一般错误
+错误码采用十六进制 nibble 分类（见 `dologger_error_code_t`）：
+- `0x01xx` — 一般 / 初始化错误
 - `0x02xx` — 配置错误
-- `0x03xx` — IO 错误
-- `0x04xx` — 签名/安全错误
-- `0x05xx` — 插件错误
+- `0x03xx` — 插件错误
+- `0x04xx` — 记录 / 字段错误
+- `0x05xx` — 环形缓冲区 / 管道错误
+- `0x06xx` — 签名 / 审计错误
+- `0x07xx` — Sink / IO 错误
+- `0x08xx` — 沙箱 / 安全错误
+- `0x09xx` — 资源 / 配额错误
+- `0x0Bxx` — 合规错误
 
 ---
 
 ## 回调 Sink 注册
 
 宿主可注册回调接收格式化后的日志数据：
+
+（伪代码 — v0.1.0 的 C ABI 尚无 `dologger_register_callback_sink()` 与 `dologger_sink_callback_t`，规划中）：
 
 ```c
 typedef void (*dologger_sink_callback_t)(
@@ -230,11 +251,14 @@ dologger_register_callback_sink(logger, my_callback, user_data);
 ### Rust
 
 ```rust
-// Cargo.toml: dologger-core = "0.1"
+// Cargo.toml（本仓库内）
+// dologger-core = { path = "core" }
 use dologger_core::Engine;
 ```
 
 ### Python (M4)
+
+（伪代码/示意 — M4 规划的托管适配器；当前仓库适配器见 `adapters/python/dologger.py`，类名为 `DoLogger` 且 v0.1.0 缺少 `c_char` 导入）：
 
 ```python
 import dologger
@@ -243,6 +267,8 @@ logger.info("Hello from Python")
 ```
 
 ### Go (M4)
+
+（伪代码/示意 — M4 规划的托管适配器；当前仓库适配器见 `adapters/go`（模块 `github.com/dologger/adapters/go`）：
 
 ```go
 import "github.com/Nekolio/DoLogger-go"

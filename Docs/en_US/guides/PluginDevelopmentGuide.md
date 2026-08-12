@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](PluginDevelopmentGuide.md) | [中文：插件开发指南](../../zh_CN/guides/PluginDevelopmentGuide.md)
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers
 >
 > **Purpose**: This document describes the end-to-end process of developing, testing, signing, and distributing a DoLogger plugin. It covers the plugin lifecycle, all 10 VTable types, the manifest format, sandbox constraints, and license compliance requirements.
 >
@@ -60,6 +60,8 @@ Plugins follow the **VTable + ABI gate** pattern:
 ### Minimal Filter Plugin (C)
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 plugin ABI, not compiled;
+// the shipped dologger_core.h differs — see the C ABI note below)
 #include "dologger_core.h"
 
 /* ── Plugin identity ─────────────────────────────────────────── */
@@ -86,7 +88,7 @@ static DropDebugState *g_state = NULL;
 /* ── Init / Shutdown ─────────────────────────────────────────── */
 dologger_error_t plugin_init(const dologger_plugin_config_t *config) {
     g_state = calloc(1, sizeof(DropDebugState));
-    if (!g_state) return DO_LOG_ERR_NOMEM;
+    if (!g_state) return DO_LOG_ERR_OUT_OF_MEMORY;
     g_state->min_level = DO_LOG_INFO;  // Default: drop TRACE and DEBUG
     return DO_LOG_OK;
 }
@@ -133,6 +135,8 @@ cl /LD /Fe:drop_debug.dll drop_debug.c /I C:\path\to\dologger\include
 ### Loading the Plugin
 
 ```toml
+# (illustrative — the v0.1.0 engine does not read a [plugins] section from
+# dologger.toml; plugins are discovered in ./plugins and /usr/lib/dologger/plugins)
 # dologger.toml
 [plugins.drop-debug]
 type = "filter"
@@ -162,7 +166,9 @@ DoLogger defines 10 plugin types, each with its own VTable. Plugins are dispatch
 
 ### Pipeline Phase Ordering
 
-```
+```text
+(illustrative pipeline ordering — the shipped v0.1.0 phases are defined in
+core/include/dologger_core.h as DO_LOG_PHASE_* bit flags)
 PreFilter → Filter → Field → Process → Format → Sink
    (2)       (1)     (3,4)    (5)      (6)      (7)
 ```
@@ -178,12 +184,15 @@ Every plugin **MUST** ship a `manifest.toml` file. The engine validates manifest
 ### Complete Manifest Example
 
 ```toml
+# (structure verified against plugins/official/*/PluginManifest.toml;
+# sections marked "planned" are not yet parsed by the v0.1.0 engine)
 [plugin]
 name = "json-formatter"
 version = "2.1.0"
 plugin_type = "formatter"
 mount_phase = ["format"]
 abi_version = 1
+min_core_abi = "0.1.0"     # Minimum core version required
 description = "Formats log records as newline-delimited JSON"
 
 [plugin.trust]
@@ -195,6 +204,8 @@ email = "nekoliowork+DoLogger@gmail.com"
 url = "https://github.com/dologger/json-formatter"
 
 [dependencies]
+# (planned — not yet parsed by the v0.1.0 engine; field-level validation
+# is prepared in core/src/plugin/dependency.rs)
 requires_fields = ["record.id", "record.timestamp", "host.name"]
 
 [capabilities]
@@ -205,11 +216,12 @@ process_create = false
 
 [licenses]
 spdx = "MIT"
-third_party = [
+third_party = [  # (planned)
     { name = "serde_json", spdx = "MIT", url = "https://github.com/serde-rs/json" }
 ]
 
 [compatibility]
+# (planned — v0.1.0 enforces `abi_version` equality instead)
 min_engine_version = "0.1.0"
 max_engine_version = "0.2.0"
 ```
@@ -255,11 +267,16 @@ Capabilities declared `true` are only granted if the trust color permits them. A
 
 ## C ABI Interface Specification
 
+> [!NOTE]
+> The C blocks in this section describe the **planned v1.0 plugin ABI** (marked pseudocode — not compiled). The shipped v0.1.0 header (`core/include/dologger_core.h`) defines a narrower ABI: `plugin_query(uint32_t core_abi_version)` returning a `dologger_plugin_info_t` with `{name, version, abi_version, phase, vtable}`, plus `plugin_init(const void *config)` / `plugin_shutdown()`, and VTable layouts with only the required callbacks (e.g. Filter = a single `filter` function). Always code against the shipped header; this guide tracks the intended direction.
+
 ### Required Exports
 
 Every plugin **MUST** export the following symbols:
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI; see the note above for
+// the shipped v0.1.0 signatures)
 // Query plugin identity and capabilities — called first.
 const dologger_plugin_info_t *plugin_query(void);
 
@@ -273,6 +290,7 @@ dologger_error_t plugin_shutdown(void);
 ### Optional Exports
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
 // Serialize runtime state for hot reload (optional).
 dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
 
@@ -287,6 +305,7 @@ If `plugin_state_serialize` or `plugin_state_deserialize` is not exported, the e
 Each plugin type has a corresponding VTable symbol. Export the VTable as:
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
 // For Filter plugins:
 const dologger_filter_vtable_t dologger_vtable;
 
@@ -315,6 +334,7 @@ The engine refuses to load a plugin whose `abi_version` does not match the runni
 ### Filter Plugin
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
 typedef struct {
     dologger_filter_fn_t       filter;        // Required: evaluate a single record
     dologger_filter_batch_fn_t filter_batch;  // Optional: evaluate a batch
@@ -345,6 +365,7 @@ If `filter_batch` is provided (non-NULL), the engine uses it for batch evaluatio
 ### Formatter Plugin
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
 typedef struct {
     dologger_format_fn_t       format;
     dologger_format_flush_fn_t flush;        // Optional
@@ -356,11 +377,12 @@ typedef dologger_error_t (*dologger_format_fn_t)(
 );
 ```
 
-The `output` buffer is allocated by the engine. The formatter writes serialized bytes into it. If the buffer is too small, return `DO_LOG_ERR_BUF_TOO_SMALL` and the engine reallocates.
+The `output` buffer is allocated by the engine. The formatter writes serialized bytes into it. If the buffer is too small, return `DO_LOG_ERR_BUFFER_TOO_SMALL` and the engine reallocates.
 
 ### IOSink Plugin
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
 typedef struct {
     dologger_sink_open_fn_t   open;
     dologger_sink_write_fn_t  write;
@@ -391,6 +413,7 @@ typedef dologger_sink_health_t (*dologger_sink_health_fn_t)(
 ### KeyProvider Plugin
 
 ```c
+// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
 typedef struct {
     dologger_key_sign_fn_t       sign;
     dologger_key_public_key_fn_t public_key;
@@ -495,7 +518,8 @@ Sandbox profiles are applied via `sandbox_init(3)` with seatbelt/SBPL rules. M4 
 
 The engine cross-references `[capabilities]` in the manifest against the trust color. If a plugin requests a capability its trust tier does not allow, the engine logs a warning and denies the capability. Example:
 
-```
+```text
+(illustrative example output)
 [WARN ] plugin 'my-plugin' (yellow) requested capability 'network' which is denied
         by the yellow trust tier. The declaration is ignored.
 ```
@@ -506,7 +530,7 @@ The engine cross-references `[capabilities]` in the manifest against the trust c
 
 ### SPDX Compatibility Matrix
 
-DoLogger enforces a license policy derived from the design document section 6.4.5. Plugins are classified by their SPDX identifier.
+DoLogger enforces a license policy: plugins are classified by their SPDX identifier.
 
 **Table 8: License Categories and Allowability**
 
@@ -574,8 +598,9 @@ type = "filter"
 path = "./target/debug/libmy_filter.so"
 EOF
 
-# Run the simple logger example with the test config
-cargo run --example simple_logger -- --config test_config.toml
+# Run the simple logger example (uses DologgerConfig::dev_profile() — it does
+# not read a config path argument in v0.1.0)
+cargo run --example simple_logger
 ```
 
 ### Diagnostic Log
@@ -588,7 +613,8 @@ tail -f dologger_internal.log | grep "\[PLUGIN\]"
 
 Relevant diagnostic entries include:
 
-```
+```text
+(illustrative example output)
 [PLUGIN] loaded 'drop-debug' (filter, yellow) from ./plugins/drop_debug.so
 [PLUGIN] vtable 'filter' registered — 1 function pointers (filter, filter_batch=NULL)
 [PLUGIN] unloaded 'drop-debug' — 0 leaked allocations
@@ -609,6 +635,7 @@ Relevant diagnostic entries include:
 ### Artifact Layout
 
 ```text
+(illustrative artifact layout)
 my-plugin-1.0.0/
 ├── manifest.toml
 ├── libmy_plugin.so           # Linux x86_64
@@ -628,6 +655,7 @@ my-plugin-1.0.0/
 ### Signing Blue Plugins
 
 ```bash
+# (planned — no `dologctl sign` command ships in v0.1.0)
 # Generate a detached Ed25519 signature
 dologctl sign plugin \
     --plugin ./my-plugin-1.0.0/libmy_plugin.so \
@@ -640,6 +668,8 @@ dologctl sign plugin \
 ### Official Plugin Repository (M4)
 
 ```bash
+# (planned — v0.1.0 ships only: plugin install <path>, plugin list, plugin
+# remove <name>, plugin verify [name], plugin scan)
 # Search the registry
 dologctl plugin search kafka
 
@@ -706,7 +736,8 @@ sequenceDiagram
 
 Plugins that export `plugin_state_serialize` and `plugin_state_deserialize` support hot reload without data loss:
 
-```
+```text
+(pseudocode — illustrative)
 hot_reload:
   old_plugin_state = plugin_state_serialize()
   dlclose(old_plugin)

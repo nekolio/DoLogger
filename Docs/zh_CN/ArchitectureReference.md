@@ -1,6 +1,6 @@
 # DoLogger 架构参考手册
 
-> **版本**：v0.2.0 | **最后更新**：2026-08-12 | **目标读者**：核心开发者、插件作者、系统工程师
+> **版本**：v0.1.0 | **最后更新**：2026-08-12 | **目标读者**：核心开发者、插件作者、系统工程师
 >
 > **用途**：DoLogger 引擎内部的权威参考——管道架构、无锁数据结构、加密审计链、安全模型、接收器扇出、背压机制与性能调优。阅读前请先熟悉[集成指南](IntegrationGuide.md)。
 >
@@ -136,6 +136,8 @@ flowchart TD
 
 ### 入队算法（生产者）
 
+（伪代码 — 仅示意，未编译。实际实现见 `core/src/buffer/ring.rs`）
+
 ```
 producer_push(record):
   loop:
@@ -149,6 +151,8 @@ producer_push(record):
 ```
 
 ### 出队算法（消费者）
+
+（伪代码 — 仅示意，未编译。实际实现见 `core/src/buffer/ring_buffer.rs`）
 
 ```
 consumer_drain(batch_size):
@@ -167,6 +171,8 @@ consumer_drain(batch_size):
 ### 对象池（Treiber 栈）
 
 Record 在 `RecordPool` 中预分配，避免热路径上的堆分配：
+
+（伪代码 — 仅示意，未编译。实际实现见 `core/src/buffer/object_pool.rs`）
 
 ```
 分配：
@@ -248,6 +254,8 @@ Record 在 `RecordPool` 中预分配，避免热路径上的堆分配：
 ### 外部锚定（M4）
 
 定期将 Merkle 根哈希发布到不可变外部存储（S3、区块链），以提供长期防篡改能力：
+
+（伪代码 — 仅示意 M4 规划中的外部锚定，未编译）：
 
 ```
 // 每隔 N 条记录，对签名链计算 Merkle 根
@@ -410,6 +418,8 @@ flowchart TD
 
 当占用率达到 90% 时，生产者线程在推入自身记录之前，先行协助排空环形缓冲区。这种方式以小幅增加提交延迟为代价，换取缓冲区溢出预防：
 
+（伪代码 — 仅示意，未编译）：
+
 ```
 if occupancy >= 90%:
   生产者先排空一小批（16 条记录）
@@ -536,6 +546,8 @@ flowchart TD
 
 所有 VTable 函数遵循以下契约：
 
+（伪代码 — 示意性契约模板；实际 VTable 函数签名为 `int` 返回值，逐一定义见 `core/include/dologger_core.h`）：
+
 ```c
 // 必须：提供函数指针，若不支持则传 NULL
 // 返回：成功返回 DO_LOG_OK，失败返回错误码
@@ -572,16 +584,16 @@ sequenceDiagram
 
 ### 必需的 C ABI 导出
 
-每个插件必须导出：
+每个插件必须导出（v0.1.0 实际签名，见 `core/include/dologger_core.h`）：
 
 ```c
-const dologger_plugin_info_t *plugin_query(void);
-dologger_error_t plugin_init(const dologger_plugin_config_t *config);
-dologger_error_t plugin_shutdown(void);
-const <type>_vtable_t dologger_vtable;   // 类型特定的 VTable
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
+int plugin_init(const void *config);
+int plugin_shutdown(void);
+// 类型特定的 VTable 通过 PluginInfo.vtable 指针暴露，无需单独导出符号
 ```
 
-每个插件可以导出：
+每个插件可以导出（伪代码 — 规划中的热重载状态序列化，v0.1.0 尚无 `dologger_state_buf_t`）：
 
 ```c
 dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
@@ -677,9 +689,9 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ```bash
 # 运行内置基准测试套件
-cargo bench --bench hot_path
+cargo bench
 
-# 延迟基准测试
+# 单条记录提交延迟
 cargo bench --bench latency
 
 # 吞吐量基准测试

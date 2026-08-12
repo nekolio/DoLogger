@@ -112,6 +112,8 @@ EOF
 
 sudo sysctl --system
 ```
+（公式示意 — 非命令）：
+
 
 ### 大页
 
@@ -213,6 +215,8 @@ cpu_pool_affinity = [2, 3, 4, 5]    # 管道处理线程
 io_pool_affinity = [6, 7]            # 接收器 I/O 线程
 audit_thread_affinity = [8]           # 专用审计管道线程
 ```
+（示意 — CPU 分配策略规划，非命令输出）：
+
 
 **CPU 分配策略：**
 
@@ -260,6 +264,8 @@ ps -eLo pid,tid,comm,psr | grep dologger
 # 12345 12348 dologger-io_pool-0   6
 # 12345 12349 dologger-audit-pipe  8
 ```
+（公式示意 — 非命令）：
+
 
 ---
 
@@ -275,6 +281,8 @@ ps -eLo pid,tid,comm,psr | grep dologger
 
 安全系数：1.5 到 2.0（考虑突发工作负载）
 ```
+（公式示意 — 非命令）：
+
 
 **计算示例：**
 
@@ -325,6 +333,8 @@ ring_buffer_size = 262144       # 256K 槽
 # 环境变量覆盖
 export DO_LOG_BUF_SIZE=524288
 ```
+（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+），以下为规划用法）：
+
 
 ### 监控缓冲区利用率
 
@@ -341,6 +351,8 @@ curl -s http://127.0.0.1:9090/status | jq .ring_buffer
 #   "emergency_spills": 0
 # }
 ```
+（公式示意 — 非命令）：
+
 
 **何时增加环形缓冲区：**
 
@@ -409,6 +421,8 @@ curl -s http://127.0.0.1:9090/status | jq .ring_buffer
   sink_console（1.2M）+ sink_shm（3M） -> 有效：1.2M rec/s
   sink_worm（12K）+ sink_file（950K）  -> 有效：12K rec/s
 ```
+（公式示意 — 非命令）：
+
 
 因为所有接收器共享管道输出阶段。最慢的接收器产生背压。
 
@@ -472,8 +486,8 @@ DoLogger 引擎实例使用的总内存为以下各项之和：
 # 检查进程 RSS
 ps -o pid,rss,comm -p $(pgrep -f dologger)
 
-# 或通过状态端点
-curl -s http://127.0.0.1:9090/status | jq .memory
+# 或通过状态端点（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动，M3+）
+# curl -s http://127.0.0.1:9090/status | jq .memory
 ```
 
 ---
@@ -632,6 +646,8 @@ compression = "zstd"
 # 512 MB / 2 MB 每大页 = 256 + 16 余量 = 272 页
 sudo sysctl -w vm.nr_hugepages=272
 ```
+（伪代码/示意 — 诊断工作流（控制面在 v0.1.0 尚未启用））：
+
 
 **预期性能：** 缓冲区在约 2 秒内吸收整个突发，约 30 秒内以约 130K rec/s 排空（文件接收器，无 fsync）。零记录丢弃。
 
@@ -682,8 +698,8 @@ sudo sysctl -w vm.nr_hugepages=272
 ### 快速诊断命令
 
 ```bash
-# 引擎状态
-curl -s http://127.0.0.1:9090/status | jq .
+# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+# curl -s http://127.0.0.1:9090/status | jq .
 
 # CPU 性能分析（60 秒采样）
 perf top -p $(pgrep -f dologger)

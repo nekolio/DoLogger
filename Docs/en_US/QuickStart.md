@@ -1,6 +1,6 @@
 # DoLogger Quick Start Guide
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: New Users
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: New Users
 >
 > **Purpose**: Get DoLogger running in 5 minutes. No prior knowledge assumed.
 >
@@ -71,44 +71,59 @@ enable_signature = false
 ### Step 3: Start Logging (10 seconds)
 
 ```bash
-./target/release/dologctl run
+./target/release/dologctl run --trace
 ```
 
-You should see the engine banner followed by log output:
+This initializes the engine and pushes 10 trace records through the pipeline (the long-running engine daemon lands in M3). You should see the engine initialize followed by log output:
 
 ```text
-   ___       __
-  / _ \___  / /  ___  ___ ____ ____ ____
- / // / _ \/ /__/ _ \/ _ `/ _ `/ -_) __/
-/____/\___/____/\___/\_, /\_, /\__/_/
-                    /___//___/
+DoLogger Engine - Trace Run
+Initializing engine...
+Engine ready.  Submitting 10 trace records...
 
-[2026-08-12T14:30:00.123Z] INFO  DoLogger engine started (profile: dev, level: DEBUG)
+[1786561656.221] [INFO] [1] Application started successfully
+[1786561656.222] [INFO] [1] Processing incoming request
+[1786561656.222] [INFO] [1] Database connection pool initialized (32 connections)
+
+Trace Summary
+  Records processed:  10
+  Submit (push -> ring buffer):    Avg: 50 ns
+  End-to-end (push -> sink write): Avg: 56.3 us
+Engine shutdown complete.
 ```
+
+The ASCII-art banner is shown by `dologctl version` (when output is a terminal).
 
 ### Step 4: Run the Example (Optional)
 
-To see DoLogger processing real application logs, use the built-in example:
+To see DoLogger processing real application logs, use the built-in example (it submits 10,000 records across all seven log levels to the console):
 
 ```bash
-cargo run --example simple_logger -- --config dologger.toml
+cargo run --example simple_logger
 ```
 
 Output:
 
 ```text
-[2026-08-12T14:30:01.000Z] INFO  Hello from DoLogger example application
-[2026-08-12T14:30:01.001Z] WARN  This is a warning message
-[2026-08-12T14:30:01.002Z] ERROR An error occurred: simulated failure
+=== DoLogger Simple Logger Example ===
+
+Config: level=DEBUG, profile=Dev, buffer=65536, batch=32
+
+[1786561640.034] [TRACE] [1] Log message #0: Hello from DoLogger!
+[1786561640.034] [DEBUG] [1] Log message #1: Hello from DoLogger!
+[1786561640.034] [INFO]  [1] Log message #2: Hello from DoLogger!
+...
+=== Complete: 10000 records in 305.6489ms ===
 ```
 
 ### Step 5: Verify the Log File
 
 ```bash
+# (illustrative — requires a file sink; the dev template uses console output)
 cat dologger_output.log
 ```
 
-The records are written by the File Sink to `dologger_output.log` (one JSON line per record).
+When a file sink is enabled, records are written to `dologger_output.log` by default (see the [File Sink configuration](#4-output-sinks) below). The steps above use console output.
 
 ---
 
@@ -204,10 +219,10 @@ dologctl plugin list
 # Check engine health (requires running engine)
 curl http://127.0.0.1:9090/status
 
-# Verify Ed25519 audit chains
-dologctl verify-log --path /var/lib/dologger/audit/
+# Verify Ed25519 audit chains (PATH is positional)
+dologctl verify-log /var/lib/dologger/audit/
 
-# Collect diagnostic report
+# Collect diagnostic report (illustrative — planned CLI feature, not yet available)
 dologctl diag collect --output diag-report.tar.gz
 ```
 
@@ -216,7 +231,7 @@ dologctl diag collect --output diag-report.tar.gz
 | Symptom | Solution |
 |:-:|:-:|
 | Build fails with "CMake not found" | Install CMake 3.20+: `apt install cmake` / `brew install cmake` |
-| `dologctl run` exits immediately | Check `dologger.toml` syntax with `dologctl config validate` |
+| `dologctl run` exits immediately | Engine startup lands in M3; use `dologctl run --trace` to exercise the pipeline, or `dologctl run --dry-run` to validate configuration |
 | No output appears | Verify at least one sink has `enabled = true` |
 | Plugin fails to load | Check `dologger_internal.log` for ABI mismatch details |
 

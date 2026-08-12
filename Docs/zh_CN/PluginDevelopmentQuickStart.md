@@ -104,49 +104,53 @@ plugins/examples/filter/c/my_filter/
 
 ### 步骤 2：编写插件
 
-**my_filter.c** — 实现 DoLogger Filter VTable：
+**my_filter.c** — 实现 DoLogger Filter VTable（本示例已在 Windows 上以 MSVC 编译验证，符号签名与 `core/include/dologger_core.h` 一致）：
 
 ```c
 #include "dologger_core.h"   // 来自 core/include/ 的 C ABI 头文件
+#include <stdlib.h>          // strtol
 
 // 插件状态
-static uint32_t g_min_level = DO_LOG_LEVEL_WARN;
+static int g_min_level = DO_LOG_WARN;   // 最低通过级别，默认 WARN(3)
 
 // VTable filter 函数
 // 返回 0 保留记录，非零丢弃记录。
-static int my_filter_fn(const void *record, void *config) {
-    uint32_t level = dologger_record_level(record);
+static int my_filter_fn(const dologger_record_handle_t *record, void *config) {
+    (void)record;             // 本示例不读取记录内容
+    int level = config ? *(const int *)config : DO_LOG_TRACE;
     return (level < g_min_level) ? 1 : 0;
 }
 
-// -- C ABI 导出 ------------------------------------------
+// -- C ABI 导出（引擎通过 plugin_query 的 vtable 指针发现全部插件函数）--
 
-// 加载时调用一次。返回插件身份 + VTable。
-DO_LOG_EXPORT const dologger_plugin_info_t *plugin_query(void) {
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
     static dologger_filter_vtable_t vtable = { .filter = my_filter_fn };
     static dologger_plugin_info_t info = {
         .name        = "my-filter",
-        .version     = 0x000100,
-        .abi_version = DO_LOG_CORE_ABI_VERSION,
+        .version     = 0x000100,    // 0.1.0（major.minor.patch 压缩编码）
+        .abi_version = 0x000100,    // 本插件面向的核心 ABI 版本
         .phase       = DO_LOG_PHASE_FILTER,
-        .trust_level = DO_LOG_TRUST_RED,   // 开发模式，无签名
         .vtable      = &vtable,
     };
+    (void)core_abi_version;   // 生产插件应在此校验兼容性，不兼容时返回 NULL
     return &info;
 }
 
 // 在 plugin_query 之后、首次 filter 调用之前调用。
-DO_LOG_EXPORT int plugin_init(const char *config_json) {
-    // config_json: {"min_level": 3}（3 = WARN）
-    if (config_json) {
-        // 解析 JSON 并设置 g_min_level
-    }
-    return DO_LOG_OK;
+int plugin_init(const void *config) {
+    // config 为以 NUL 结尾的字符串，内容为最小级别整数，例如 "3"（WARN）
+    if (config == NULL) return 0;
+    long val = strtol((const char *)config, NULL, 10);
+    if (val < DO_LOG_TRACE) val = DO_LOG_TRACE;
+    if (val > DO_LOG_AUDIT)  val = DO_LOG_AUDIT;
+    g_min_level = (int)val;
+    return 0;
 }
 
 // 库卸载之前调用。
-DO_LOG_EXPORT int plugin_shutdown(void) {
-    return DO_LOG_OK;
+int plugin_shutdown(void) {
+    g_min_level = DO_LOG_WARN;   // 重置状态，以备重新加载
+    return 0;
 }
 ```
 
@@ -200,23 +204,29 @@ bash scripts/build-plugins.sh --filter c
 
 extern "C" {
 
-static int regex_filter_fn(const void *record, void *config) {
-    const char *msg = dologger_record_message(record);
+static int regex_filter_fn(const dologger_record_handle_t *record, void *config) {
+    (void)record;
+    (void)config;
     // ... C++ std::regex 匹配 ...
-    return 0;
+    return 0;   // 0 = 保留记录
 }
 
-DO_LOG_EXPORT const dologger_plugin_info_t *plugin_query(void) {
-    static dologger_filter_vtable_t vtable = { .filter = regex_filter_fn };
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
+    static dologger_filter_vtable_t vtable = { regex_filter_fn };
+    // 按头文件中字段顺序聚合初始化（C++17 无指定初始化器）
     static dologger_plugin_info_t info = {
-        .name = "regex-filter", /* ... */
-        .vtable = &vtable,
+        "regex-filter",            // name
+        0x000100,                  // version
+        0x000100,                  // abi_version
+        DO_LOG_PHASE_FILTER,       // phase
+        &vtable,                   // vtable
     };
+    (void)core_abi_version;
     return &info;
 }
 
-DO_LOG_EXPORT int plugin_init(const char *config_json) { return DO_LOG_OK; }
-DO_LOG_EXPORT int plugin_shutdown(void) { return DO_LOG_OK; }
+int plugin_init(const void *config) { (void)config; return 0; }
+int plugin_shutdown(void) { return 0; }
 
 } // extern "C"
 ```
@@ -236,6 +246,7 @@ package main
 
 /*
 #include "dologger_core.h"
+#include <stdlib.h>
 
 typedef struct { int (*filter)(const void*, void*); } my_filter_vtable_t;
 extern int goFilter(const void*, void*);
@@ -246,18 +257,19 @@ import "C"
 import "unsafe"
 
 //export plugin_query
-func plugin_query() *C.dologger_plugin_info_t {
+func plugin_query(coreAbiVersion C.uint32_t) *C.dologger_plugin_info_t {
+    _ = coreAbiVersion   // 生产插件应在此校验兼容性
     info := (*C.dologger_plugin_info_t)(C.malloc(C.size_t(unsafe.Sizeof(C.dologger_plugin_info_t{}))))
     info.name = C.CString("go-filter")
     info.version = 0x000100
-    info.abi_version = C.DO_LOG_CORE_ABI_VERSION
+    info.abi_version = 0x000100
     info.phase = C.DO_LOG_PHASE_FILTER
     info.vtable = unsafe.Pointer(&C.vtable)
     return info
 }
 
 //export plugin_init
-func plugin_init(config *C.char) C.int {
+func plugin_init(config unsafe.Pointer) C.int {
     return C.int(0)
 }
 
@@ -268,8 +280,12 @@ func plugin_shutdown() C.int {
 
 //export goFilter
 func goFilter(rec unsafe.Pointer, cfg unsafe.Pointer) C.int {
-    level := C.dologger_record_level(rec)
-    if level < C.DO_LOG_LEVEL_WARN {
+    // 本示例通过 config 指针接收最小级别（int），不读取记录内容
+    level := C.int(0)
+    if cfg != nil {
+        level = *(*C.int)(cfg)
+    }
+    if level < C.DO_LOG_WARN {
         return 1 // 丢弃
     }
     return 0 // 通过
@@ -281,7 +297,7 @@ func main() {}
 ### 步骤 2：构建
 
 ```bash
-cd plugins/examples/filter/go/my_filter
+cd plugins/examples/filter/go/example_filter
 CGO_ENABLED=1 go build -buildmode=c-shared -o dologger-plugin-my_filter.so .
 ```
 
@@ -362,21 +378,22 @@ core/include/dologger_core.h
 | **类型** | `dologger_plugin_info_t`、`dologger_filter_vtable_t`、`dologger_formatter_vtable_t`、... |
 | **错误码** | `DO_LOG_OK`、`DO_LOG_ERR_INVALID_ARG`、`DO_LOG_ERR_NOT_SUPPORTED`、... |
 | **阶段常量** | `DO_LOG_PHASE_FILTER`、`DO_LOG_PHASE_FORMATTING`、`DO_LOG_PHASE_SINK`、... |
-| **信任级别** | `DO_LOG_TRUST_BLUE`、`DO_LOG_TRUST_YELLOW`、`DO_LOG_TRUST_RED` |
-| **日志级别** | `DO_LOG_LEVEL_TRACE` 到 `DO_LOG_LEVEL_AUDIT` |
-| **记录访问器** | `dologger_record_level()`、`dologger_record_message()`、... |
-| **ABI 版本** | `DO_LOG_CORE_ABI_VERSION`（packed uint32） |
+| **日志级别** | `DO_LOG_TRACE` 到 `DO_LOG_AUDIT`（`dologger_level_t` 枚举） |
+| **ABI 版本** | 由每个插件在 `plugin_info.abi_version` 字段声明（如 `0x000100` = 0.1.0）；头文件中无全局 `DO_LOG_ABI_VERSION`/`DO_LOG_CORE_ABI_VERSION` 宏 |
+| **插件导出** | `plugin_query(uint32_t core_abi_version)`、`plugin_init(const void *config)`、`plugin_shutdown(void)` |
+
+（注：v0.1.0 头文件不含 `DO_LOG_TRUST_*` 信任常量或 `dologger_record_level()` 等记录访问器函数）
 
 ### 插件 ABI 契约
 
-每个插件必须恰好导出这三个符号：
+每个插件必须恰好导出这三个符号（v0.1.0 实际签名）：
 
 ```c
 // 1. 身份 + VTable —— 加载时调用一次
-const dologger_plugin_info_t *plugin_query(void);
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
 
 // 2. 配置 —— 在 plugin_query 之后、首次使用之前调用
-int plugin_init(const char *config_json);
+int plugin_init(const void *config);
 
 // 3. 清理 —— 库卸载之前调用
 int plugin_shutdown(void);

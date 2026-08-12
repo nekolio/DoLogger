@@ -9,6 +9,8 @@ for domain-specific requirements.
 
 ## Plugin Types and Pipeline Position
 
+(illustrative pipeline sketch):
+
 ```
 PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4) → Formatting(5) → Sink(6)
 ```
@@ -169,6 +171,8 @@ These plugins address advanced or specialized use cases.
 Community-driven with official reference implementations.
 
 ### Plugin Crate Template
+
+(illustrative directory layout):
 
 ```text
 plugins/official/fmt_json/

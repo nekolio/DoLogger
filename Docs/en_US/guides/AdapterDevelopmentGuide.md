@@ -52,13 +52,12 @@ The public C ABI consists of these function families:
 | Function Family | Purpose | Signature Count |
 |:-:|:-:|:-:|
 | `dologger_init` / `dologger_shutdown` | Engine lifecycle | 2 |
-| `dologger_log` / `dologger_logv` | Log submission | 2 |
-| `dologger_get_abi_version` | ABI version check | 1 |
+| `dologger_log` | Log submission | 1 |
+| `dologger_version` | Version string query | 1 |
 | `dologger_get_last_error` | Error retrieval | 1 |
-| `dologger_register_callback_sink` | Callback registration | 1 |
-| `dologger_config_*` | Configuration management | 4 |
-| `dologger_record_*` | Record field manipulation | 3 |
-| `dologger_would_log` | Conditional logging guard | 1 |
+| `dologger_field_set` / `dologger_field_get` | Record field manipulation | 2 |
+| `dologger_config_load_from_string` | Runtime configuration | 1 |
+| `dologger_alloc` / `dologger_free` | Memory allocation | 2 |
 
 For the complete reference, see the [Host Integration Guide](HostIntegrationGuide.md#c-abi-initialization-and-shutdown).
 
@@ -67,7 +66,7 @@ For the complete reference, see the [Host Integration Guide](HostIntegrationGuid
 The C ABI is the stability anchor for the DoLogger project. See the [Versioning & Deprecation Policy](VersioningAndDeprecation.md) for the full compatibility guarantee. In summary:
 
 - Same MAJOR version: Host binary and plugins interoperate regardless of MINOR.PATCH differences
-- Cross-MAJOR: Not supported. Adapters validate `dologger_get_abi_version()` at load time.
+- Cross-MAJOR: Not supported. Adapters validate `dologger_version()` at load time.
 
 ---
 
@@ -92,7 +91,8 @@ The thin wrapper pattern is the recommended approach for all language adapters:
 
 ### Common Adapter Structure
 
-```
+```text
+(illustrative directory layout)
 my-dologger-adapter/
   src/
     ffi.py / ffi.go / ffi.rs     -- Raw C ABI declarations (dlsym/cgo/bindgen)
@@ -127,6 +127,8 @@ Every adapter must ensure proper cleanup. The pattern varies by language:
 
 ```python
 # dologger/ffi.py -- Raw C ABI bindings via ctypes
+# (signatures verified against the shipped dologger_core.h and the
+# reference smoke test tests/release-smoke/cabi_smoke.py)
 
 import ctypes
 import platform
@@ -173,33 +175,57 @@ _lib = _load_library()
 # Error codes
 DO_LOG_OK = 0
 
+# dologger_error_t
+class DologgerError(ctypes.Structure):
+    _fields_ = [
+        ("code",         ctypes.c_int32),
+        ("message",      ctypes.c_char * 256),
+        ("source_file",  ctypes.c_char * 128),
+        ("source_line",  ctypes.c_uint32),
+        ("_reserved",    ctypes.c_uint8 * 12),
+    ]
+
 # dologger_record_params_t
 class RecordParams(ctypes.Structure):
     _fields_ = [
-        ("level",          ctypes.c_uint8),
-        ("message",        ctypes.c_char_p),
-        ("source_file",    ctypes.c_char_p),
+        ("level",           ctypes.c_int32),   # dologger_level_t
+        ("message",         ctypes.c_char_p),
+        ("source_file",     ctypes.c_char_p),
         ("source_function", ctypes.c_char_p),
-        ("source_line",    ctypes.c_uint32),
-        ("source_column",  ctypes.c_uint32),
-        ("request_id",     ctypes.c_char_p),
+        ("source_line",     ctypes.c_uint32),
+        ("source_column",   ctypes.c_uint32),
+        ("domain",          ctypes.c_char_p),
+        ("user_id",         ctypes.c_char_p),
+        ("session_id",      ctypes.c_char_p),
+        ("request_id",      ctypes.c_char_p),
+        ("_reserved",       ctypes.c_uint8 * 16),
     ]
 
 # ── Function signatures ───────────────────────────────────────────────
 
-_lib.dologger_init.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
-_lib.dologger_init.restype = ctypes.c_int
+_lib.dologger_version.restype = ctypes.c_char_p
 
-_lib.dologger_shutdown.argtypes = [ctypes.POINTER(ctypes.c_void_p)]
-_lib.dologger_shutdown.restype = ctypes.c_int
+_lib.dologger_init.argtypes = [ctypes.c_char_p, ctypes.POINTER(DologgerError)]
+_lib.dologger_init.restype = ctypes.c_void_p          # NULL on failure
+
+_lib.dologger_shutdown.argtypes = [ctypes.c_void_p]
+_lib.dologger_shutdown.restype = None
 
 _lib.dologger_log.argtypes = [ctypes.c_void_p, ctypes.POINTER(RecordParams)]
-_lib.dologger_log.restype = ctypes.c_int
+_lib.dologger_log.restype = ctypes.c_int32
 
-_lib.dologger_get_abi_version.restype = ctypes.c_uint32
+_lib.dologger_get_last_error.argtypes = [ctypes.c_void_p, ctypes.POINTER(DologgerError)]
+_lib.dologger_get_last_error.restype = ctypes.c_int32
 
-_lib.dologger_get_last_error.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-_lib.dologger_get_last_error.restype = ctypes.c_int
+_lib.dologger_config_load_from_string.argtypes = [
+    ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(DologgerError)]
+_lib.dologger_config_load_from_string.restype = ctypes.c_int32
+
+_lib.dologger_alloc.argtypes = [ctypes.c_size_t]
+_lib.dologger_alloc.restype = ctypes.c_void_p
+
+_lib.dologger_free.argtypes = [ctypes.c_void_p]
+_lib.dologger_free.restype = None
 ```
 
 ### Idiomatic Python Wrapper
@@ -212,9 +238,9 @@ from typing import Optional, Dict, Any
 import atexit
 
 from .ffi import (
-    _lib, RecordParams, DO_LOG_INFO, DO_LOG_OK
+    _lib, RecordParams, DologgerError, DO_LOG_INFO, DO_LOG_OK
 )
-from .errors import DoLoggerError, check_error
+from .errors import DoLoggerError, DoLoggerInitError, check_error
 
 
 class Engine:
@@ -227,18 +253,23 @@ class Engine:
     """
 
     def __init__(self, config_path: Optional[str] = None):
-        self._handle = ctypes.c_void_p()
+        self._handle = None
         self._closed = False
 
-        # ABI version check
-        abi = _lib.dologger_get_abi_version()
-        if abi < 1:
-            raise DoLoggerError(f"Unsupported ABI version: {abi}")
+        # Version check (compile-time stability anchor)
+        version = _lib.dologger_version()
+        if not version:
+            raise DoLoggerError(-1, "dologger_version() returned NULL")
 
         # Initialize with optional config path
         config_ptr = config_path.encode("utf-8") if config_path else None
-        rc = _lib.dologger_init(config_ptr, ctypes.byref(self._handle))
-        check_error(rc, "dologger_init")
+        err = DologgerError()
+        handle = _lib.dologger_init(config_ptr, ctypes.byref(err))
+        if not handle:
+            raise DoLoggerInitError(
+                f"dologger_init failed: {err.message.decode(errors='replace')}"
+                f" (code {err.code})")
+        self._handle = handle
 
         # Register atexit fallback for shutdown
         atexit.register(self._atexit_shutdown)
@@ -256,8 +287,7 @@ class Engine:
         if self._closed:
             return
         self._closed = True
-        rc = _lib.dologger_shutdown(ctypes.byref(self._handle))
-        check_error(rc, "dologger_shutdown")
+        _lib.dologger_shutdown(self._handle)
 
     def log(self, level: int, message: str, *,
             source_file: str = "",
@@ -266,7 +296,7 @@ class Engine:
             request_id: str = "") -> None:
         """Submit a log record."""
         if self._closed:
-            raise DoLoggerError("Engine is closed")
+            raise DoLoggerError(-1, "Engine is closed")
 
         params = RecordParams(
             level=level,
@@ -304,6 +334,7 @@ class Engine:
 
 ```python
 # dologger/errors.py
+# (codes match dologger_error_code_t in dologger_core.h — negative hex nibbles)
 
 class DoLoggerError(Exception):
     """Base exception for all DoLogger errors."""
@@ -325,12 +356,17 @@ class DoLoggerIOError(DoLoggerError):
     """I/O error during log submission."""
 
 
-# Error code -> exception mapping
+class DoLoggerInvalidArgError(DoLoggerError):
+    """Invalid argument passed to the C ABI."""
+
+
+# Error code -> exception mapping (real header values)
 _ERROR_MAP = {
-    -1: DoLoggerInitError,
-    -2: DoLoggerConfigError,
-    -3: DoLoggerIOError,
-    # ... additional codes ...
+    -0x0102: DoLoggerInvalidArgError,   # DO_LOG_ERR_INVALID_ARG
+    -0x0101: DoLoggerInitError,         # DO_LOG_ERR_INTERNAL
+    -0x0203: DoLoggerConfigError,       # DO_LOG_ERR_CONFIG_PARSE
+    -0x0701: DoLoggerIOError,           # DO_LOG_ERR_SINK_WRITE_FAILED
+    # ... add mappings for the codes your adapter surface exposes ...
 }
 
 
@@ -386,17 +422,38 @@ class DoLoggerHandler(logging.Handler):
 
 ```python
 # dologger/ffi_cffi.py -- Alternative using cffi (requires cffi package)
+# (signatures verified against the shipped dologger_core.h)
 
 from cffi import FFI
 
 ffi = FFI()
 
 ffi.cdef("""
-    typedef struct { ... } dologger_record_params_t;
-    int dologger_init(const void *params, void **handle);
-    int dologger_shutdown(void **handle);
-    int dologger_log(void *handle, const dologger_record_params_t *params);
-    uint32_t dologger_get_abi_version(void);
+    typedef struct {
+        int32_t  code;
+        char     message[256];
+        char     source_file[128];
+        uint32_t source_line;
+        uint8_t  _reserved[12];
+    } dologger_error_t;
+    typedef struct {
+        int32_t     level;
+        const char *message;
+        const char *source_file;
+        const char *source_function;
+        uint32_t    source_line;
+        uint32_t    source_column;
+        const char *domain;
+        const char *user_id;
+        const char *session_id;
+        const char *request_id;
+        uint8_t     _reserved[16];
+    } dologger_record_params_t;
+    const char *dologger_version(void);
+    void *dologger_init(const char *config_path, dologger_error_t *err);
+    void  dologger_shutdown(void *handle);
+    int32_t dologger_log(void *handle, const dologger_record_params_t *params);
+    int32_t dologger_get_last_error(const void *handle, dologger_error_t *err);
 """)
 
 _lib = ffi.dlopen("libdologger_core.so")
@@ -412,6 +469,9 @@ The tradeoff is an added dependency. Use `ctypes` for zero-dependency adapters; 
 ---
 
 ## Go Adapter
+
+> [!NOTE]
+> The Go adapter is planned for M4 (see [Host Integration Guide](HostIntegrationGuide.md#go-m4-milestone)). The code below is illustrative — signatures have been corrected to the shipped C ABI, but the blocks are not compiled in the repository.
 
 ### cgo Approach (Recommended)
 
@@ -493,17 +553,16 @@ type Config struct {
 func New(cfg Config) (*Engine, error) {
     e := &Engine{}
 
-    // ABI version check
-    abi := C.dologger_get_abi_version()
-    if abi < 1 {
-        return nil, &Error{Code: -1, Message: "unsupported ABI version"}
+    // Version check
+    if C.dologger_version() == nil {
+        return nil, &Error{Code: -1, Message: "dologger_version() returned NULL"}
     }
 
-    // Initialize
-    var handle unsafe.Pointer
-    rc := C.dologger_init(nil, &handle)
-    if rc != 0 {
-        return nil, engineError(int(rc))
+    // Initialize — returns NULL on failure with details in err
+    var err C.dologger_error_t
+    handle := C.dologger_init(nil, &err)
+    if handle == nil {
+        return nil, &Error{Code: int(err.code), Message: C.GoString(&err.message[0])}
     }
     e.handle = handle
 
@@ -526,10 +585,7 @@ func (e *Engine) Shutdown() error {
     }
     e.closed = true
 
-    rc := C.dologger_shutdown(&e.handle)
-    if rc != 0 {
-        return engineError(int(rc))
-    }
+    C.dologger_shutdown(e.handle)
     return nil
 }
 
@@ -546,7 +602,7 @@ func (e *Engine) Log(level uint8, msg string) error {
     defer C.free(unsafe.Pointer(cMsg))
 
     params := C.dologger_record_params_t{
-        level:   C.uint8_t(level),
+        level:   C.int32_t(level),
         message: cMsg,
     }
     rc := C.dologger_log(e.handle, &params)
@@ -591,31 +647,34 @@ func (e *Engine) Audit(msg string) error { return e.Log(LevelAudit, msg) }
 C and C++ applications have the simplest integration: include the header and link against the library.
 
 ```c
-// minimal_c_host.c -- Direct C integration
+// minimal_c_host.c -- Direct C integration (compiles against dologger_core.h)
 
 #include <dologger_core.h>
 #include <stdio.h>
 
 int main(void) {
-    dologger_handle_t *logger = NULL;
-    int rc;
+    dologger_error_t err;
 
-    // Initialize with defaults
-    rc = dologger_init(NULL, &logger);
-    if (rc != DO_LOG_OK) {
-        fprintf(stderr, "init failed: %d\n", rc);
+    // Initialize with defaults (NULL config path)
+    dologger_handle_t *logger = dologger_init(NULL, &err);
+    if (logger == NULL) {
+        fprintf(stderr, "init failed: %s\n", err.message);
         return 1;
     }
 
     // Submit a log
-    DO_LOG_INFO(logger, "Hello from C host application");
-
-    // Graceful shutdown
-    rc = dologger_shutdown(&logger);
+    dologger_record_params_t params = {
+        .level   = DO_LOG_INFO,
+        .message = "Hello from C host application",
+    };
+    int32_t rc = dologger_log(logger, &params);
     if (rc != DO_LOG_OK) {
-        fprintf(stderr, "shutdown failed: %d\n", rc);
+        fprintf(stderr, "log failed: %d\n", (int)rc);
         return 1;
     }
+
+    // Graceful shutdown
+    dologger_shutdown(logger);
     return 0;
 }
 ```
@@ -647,15 +706,16 @@ private:
 class Engine {
 public:
     Engine(const char* config_path = nullptr) {
-        int rc = dologger_init(config_path ? &config_path : nullptr, &handle_);
-        if (rc != DO_LOG_OK) {
-            throw EngineError(rc, "dologger_init");
+        dologger_error_t err;
+        handle_ = dologger_init(config_path, &err);
+        if (handle_ == nullptr) {
+            throw EngineError(err.code, "dologger_init");
         }
     }
 
     ~Engine() {
         if (handle_) {
-            dologger_shutdown(&handle_);
+            dologger_shutdown(handle_);
         }
     }
 
@@ -666,7 +726,7 @@ public:
         other.handle_ = nullptr;
     }
 
-    void log(uint8_t level, const char* message,
+    void log(dologger_level_t level, const char* message,
              const char* file = nullptr,
              const char* function = nullptr,
              uint32_t line = 0) {
@@ -677,30 +737,32 @@ public:
         params.source_function = function;
         params.source_line = line;
 
-        int rc = dologger_log(handle_, &params);
+        int32_t rc = dologger_log(handle_, &params);
         if (rc != DO_LOG_OK) {
             throw EngineError(rc, "dologger_log");
         }
     }
 
     // Convenience methods
+    // (portable note: MSVC does not allow __FUNCTION__/__func__ as a default
+    // argument — pass the empty default here; GCC/Clang may use __func__)
     void trace(const char* msg, const char* file = __FILE__,
-               const char* func = __FUNCTION__, uint32_t line = __LINE__) {
+               const char* func = "", uint32_t line = __LINE__) {
         log(DO_LOG_TRACE, msg, file, func, line);
     }
     void debug(const char* msg, const char* file = __FILE__,
-               const char* func = __FUNCTION__, uint32_t line = __LINE__) {
+               const char* func = "", uint32_t line = __LINE__) {
         log(DO_LOG_DEBUG, msg, file, func, line);
     }
     void info(const char* msg, const char* file = __FILE__,
-              const char* func = __FUNCTION__, uint32_t line = __LINE__) {
+              const char* func = "", uint32_t line = __LINE__) {
         log(DO_LOG_INFO, msg, file, func, line);
     }
 
     // ... warn, error, fatal, audit ...
 
-    [[nodiscard]] uint32_t abi_version() const {
-        return dologger_get_abi_version();
+    [[nodiscard]] const char* version() const {
+        return dologger_version();
     }
 
 private:
@@ -741,12 +803,12 @@ target_link_libraries(myapp PRIVATE ${DOLOGGER_CORE_LIB})
 | C Return Value | Python | Go | Rust | C++ |
 |:-:|:-:|:-:|:-:|:-:|
 | `DO_LOG_OK` (0) | Return `None` | Return `nil` error | Return `Ok(())` | Return normally |
-| `DO_LOG_ERR_INIT` (-1) | `DoLoggerInitError` | `&Error{Code: -1}` | `Err(DoLogError::Init)` | `EngineError(-1, ...)` |
-| `DO_LOG_ERR_CFG` (-2) | `DoLoggerConfigError` | `&Error{Code: -2}` | `Err(DoLogError::Config)` | `EngineError(-2, ...)` |
-| `DO_LOG_ERR_INVALID_ARG` | `ValueError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::InvalidArg)` | `std::invalid_argument` |
-| `DO_LOG_ERR_NOMEM` | `MemoryError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::NoMem)` | `std::bad_alloc` |
-| I/O errors (0x03xx) | `DoLoggerIOError` | `&Error{Code: ...}` | `Err(DoLogError::IO)` | `EngineError(..., ...)` |
-| Plugin errors (0x05xx) | `DoLoggerPluginError` | `&Error{Code: ...}` | `Err(DoLogError::Plugin)` | `EngineError(..., ...)` |
+| `DO_LOG_ERR_INTERNAL` (-0x0101) | `DoLoggerInitError` | `&Error{Code: ...}` | `Err(DoLogError::Internal)` | `EngineError(...)` |
+| `DO_LOG_ERR_CONFIG_PARSE` (-0x0203) | `DoLoggerConfigError` | `&Error{Code: ...}` | `Err(DoLogError::Config)` | `EngineError(...)` |
+| `DO_LOG_ERR_INVALID_ARG` (-0x0102) | `DoLoggerInvalidArgError` | `&Error{Code: ...}` | `Err(DoLogError::InvalidArg)` | `std::invalid_argument` |
+| `DO_LOG_ERR_OUT_OF_MEMORY` (-0x0106) | `MemoryError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::NoMem)` | `std::bad_alloc` |
+| Sink errors (0x07xx) | `DoLoggerIOError` | `&Error{Code: ...}` | `Err(DoLogError::IO)` | `EngineError(...)` |
+| Plugin errors (0x03xx) | `DoLoggerPluginError` | `&Error{Code: ...}` | `Err(DoLogError::Plugin)` | `EngineError(...)` |
 
 ### Error Retrieval Pattern
 
@@ -785,7 +847,7 @@ The C ABI is thread-safe for concurrent `dologger_log()` calls. Adapters must do
 | `dologger_init()` | No | Call once from one thread |
 | `dologger_log()` | **Yes** | Lock-free CAS push. Safe from any thread, including signal handlers. |
 | `dologger_shutdown()` | No | Call once. Blocks until in-flight records drain. Do not call `log()` concurrently with `shutdown()`. |
-| `dologger_get_abi_version()` | Yes | Returns a compile-time constant. |
+| `dologger_version()` | Yes | Returns a static version string. |
 | `dologger_get_last_error()` | Thread-local | Each thread sees its own last error. No locking needed. |
 
 ### Adapter-Specific Thread Safety Notes
@@ -804,7 +866,7 @@ The C ABI is thread-safe for concurrent `dologger_log()` calls. Adapters must do
 ### Shutdown Synchronization
 
 ```go
-// Go example: safe concurrent shutdown
+// Go example: safe concurrent shutdown (illustrative — Go adapter is planned M4)
 func (e *Engine) Shutdown() error {
     e.mu.Lock()
     defer e.mu.Unlock()
@@ -814,8 +876,8 @@ func (e *Engine) Shutdown() error {
     e.closed = true  // Prevent new Log() calls
     // At this point, in-flight Log() calls may still be in progress.
     // dologger_shutdown() blocks until the ring buffer is drained.
-    rc := C.dologger_shutdown(&e.handle)
-    return engineError(int(rc))
+    C.dologger_shutdown(e.handle)
+    return nil
 }
 ```
 
@@ -842,7 +904,7 @@ Adapters must be validated on every supported platform before release.
 For each language adapter, verify:
 
 - [ ] **Library load**: Can find and load `libdologger_core` on each platform
-- [ ] **ABI version check**: `dologger_get_abi_version()` returns expected value
+- [ ] **Version check**: `dologger_version()` returns the expected version string
 - [ ] **Init/Shutdown**: Engine starts and shuts down cleanly (no leaks under Valgrind)
 - [ ] **Log submission**: `dologger_log()` with each log level (TRACE through AUDIT)
 - [ ] **Error handling**: Invalid arguments produce expected language-native errors
@@ -915,6 +977,8 @@ class TestEngine:
 ### Cross-Platform CI Configuration
 
 ```yaml
+# (illustrative template — no adapters/python or adapters/go directory exists
+# in the repository yet; adapt the paths when those adapters land)
 # .github/workflows/adapter-tests.yml
 name: Adapter Tests
 
@@ -954,6 +1018,8 @@ jobs:
 ### Python (PyPI)
 
 ```toml
+# (illustrative template — the Python adapter is planned; no adapters/python
+# package ships in v0.1.0)
 # pyproject.toml
 [project]
 name = "dologger"
@@ -973,6 +1039,7 @@ The Python adapter should be a pure-Python package (no native compilation). User
 ### Go (Module)
 
 ```go
+// (illustrative template — the Go adapter is planned for M4)
 // go.mod
 module github.com/Nekolio/DoLogger-go
 
@@ -984,7 +1051,7 @@ Users install via `go get github.com/Nekolio/DoLogger-go`. The `libdologger_core
 ### Rust (Crate)
 
 ```toml
-# Cargo.toml
+# Cargo.toml — matches core/Cargo.toml (lib name dologger_core, libloading 0.8)
 [package]
 name = "dologger-core"
 version = "0.1.0"

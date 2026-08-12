@@ -1,6 +1,6 @@
 # DoLogger 运维与安全指南
 
-> **版本**: v0.2.0 | **最后更新**: 2026-08-12 | **目标受众**: SRE、运维工程师、安全工程师、合规官
+> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: SRE、运维工程师、安全工程师、合规官
 >
 > **用途**: DoLogger 的生产部署、监控、密钥管理、审计验证、事件响应和合规配置。本文档是在生产环境中运行 DoLogger 的运维手册。
 >
@@ -38,6 +38,8 @@
 
 **Linux：**
 
+（目录结构示意 — 非命令输出）：
+
 ```
 /etc/dologger/
   default.toml                       # 系统级配置
@@ -68,6 +70,8 @@
 ```
 
 **Windows：**
+
+（目录结构示意 — 非命令输出）：
 
 ```
 %PROGRAMDATA%\dologger\
@@ -111,10 +115,8 @@ DO_LOG_CONFIG_FILE=./dologger.toml ./myapp
 ### Sidecar 部署
 
 ```bash
-# 启动 sidecar 进程
-dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
-
-# 配置宿主应用程序使用 sink_shm
+# 伪代码 — v0.1.0 的 dologctl run 无 --mode 选项（长驻 sidecar 模式为 M3+）
+# dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
 ```
 
 Sidecar 配置：
@@ -136,6 +138,8 @@ full_policy = "drop_oldest" # SHM 满时的行为
 安装为系统服务：
 
 **Linux（systemd）：**
+
+（伪代码/示意 — daemon 模式与长驻 `dologctl run` 为 M3+；v0.1.0 的 `dologctl run` 仅支持 `--dry-run`/`--trace` 后即退出）：
 
 ```ini
 # /etc/systemd/system/dologger.service
@@ -171,6 +175,8 @@ sudo systemctl status dologger
 ### Sysmon 事件流
 
 系统监控器发出结构化的 JSON 事件到 `stderr`（或可配置输出）：
+
+（伪代码/示意 — v0.1.0 实际 sysmon 事件格式为 `{"sysmon_version":"1.0","error_code":...,"category":...,"description":...,"timestamp_ms":...,"severity":...}`，以下为规划的字段）：
 
 ```json
 {"ts":"2026-08-12T14:30:00.123Z","level":"WARN","event":"PIPELINE_BACKLOG","pct":72,"buf_name":"main"}
@@ -208,15 +214,19 @@ sudo systemctl status dologger
 ### 健康检查
 
 ```bash
-curl -s http://127.0.0.1:9090/health
-# HTTP 200 OK
+# 伪代码/示意 — v0.1.0 控制面尚未随引擎启动；当前控制面实现（core/src/sys/control_plane.rs）
+# 只有 GET /status、POST /level、POST /reload，没有 /health 端点
+# curl -s http://127.0.0.1:9090/health
 ```
 
 ### 状态端点
 
 ```bash
-curl -s http://127.0.0.1:9090/status | jq .
+# 伪代码/示意 — 控制面（GET /status）在 v0.1.0 尚未随引擎启动（M3+）
+# curl -s http://127.0.0.1:9090/status | jq .
 ```
+
+（伪代码/示意 — 规划的 /status 响应；v0.1.0 的实际响应为 `{"status":"ok","level":"...","profile":"prod-performance","plugins":0,"signature_enabled":false}`）：
 
 ```json
 {
@@ -262,17 +272,12 @@ curl -s http://127.0.0.1:9090/status | jq .
 ### 动态日志级别调整
 
 ```bash
-# 临时增加调试详细程度
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "DEBUG"}'
+# 伪代码/示意 — POST /level 在 v0.1.0 尚未随引擎启动（M3+）
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "DEBUG"}'
 
-# 恢复生产级别
-curl -X POST http://127.0.0.1:9090/level \
-  -H "Content-Type: application/json" \
-  -d '{"level": "INFO"}'
-
-# 锁定级别（禁用运行时更改）
+# 锁定级别（禁用运行时更改）——环境变量真实有效
 export DO_LOG_CONFIG_LOCK=1
 ```
 
@@ -282,13 +287,8 @@ export DO_LOG_CONFIG_LOCK=1
 # 编辑配置文件
 vim /etc/dologger/default.toml
 
-# 触发立即重载
-curl -X POST http://127.0.0.1:9090/reload
-
-# 先进行试运行（验证但不应用）
-curl -X POST http://127.0.0.1:9090/reload \
-  -H "Content-Type: application/json" \
-  -d '{"dry_run": true}'
+# 伪代码/示意 — POST /reload 在 v0.1.0 尚未随引擎启动（M3+）
+# curl -X POST http://127.0.0.1:9090/reload
 ```
 
 ### 控制面安全
@@ -349,35 +349,28 @@ flowchart TD
 ### 证书吊销列表（CRL）
 
 ```rust
-// CRL 条目
-struct CrlEntry {
-    fingerprint: [u8; 32],     // 公钥的 SHA-256
-    reason: CrlReason,         // compromised、superseded 等
-    revoked_at: u64,           // Unix 时间戳
+// 与 core/src/security/key_rotation.rs 一致（v0.1.0 实际定义）
+pub struct CrlEntry {
+    pub fingerprint: KeyFingerprint,   // 被吊销密钥的 SHA-256（[u8; 32]）
+    pub revoked_at: u64,               // 吊销时间（Unix 秒）
+    pub reason: CrlReason,
 }
 
-enum CrlReason {
-    KeyCompromise,
-    Superseded,
-    CessationOfOperation,
-    EmergencyRevocation,
+pub enum CrlReason {
+    Compromised,   // 密钥已泄露（紧急 — sysmon CRITICAL）
+    Superseded,    // 轮换后被新密钥替代
+    Deactivated,   // 管理员停用（未泄露）
 }
 ```
 
 ### 密钥轮换命令
 
 ```bash
-# 启动密钥轮换（当 KeyProvider 支持时）
-dologctl key rotate --grace-period-days 7
-
-# 检查轮换状态
-dologctl key status
-
-# 紧急吊销
-dologctl key revoke --fingerprint "a3f8b2c1..." --reason compromised
-
-# 列出所有活动密钥
-dologctl key list
+# 伪代码 — v0.1.0 的 dologctl 尚无 key 子命令（规划中）
+# dologctl key rotate --grace-period-days 7
+# dologctl key status
+# dologctl key revoke --fingerprint "a3f8b2c1..." --reason compromised
+# dologctl key list
 ```
 
 ---
@@ -389,10 +382,11 @@ dologctl key list
 验证 WORM 审计日志的完整性：
 
 ```bash
-dologctl verify-log --path /var/lib/dologger/audit/ --verbose
+# verify-log 接受单个 SIF/WORM 文件路径（无 --path/--verbose 选项）
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 ```
 
-输出：
+输出（伪代码/示意 — v0.1.0 实际输出为 "Verification Results" 摘要格式，见下文 [dologctl 命令参考](guides/DologctlCommandReference.md)）：
 
 ```
 [OK]     LSN 000001 — signature valid, prev_hash=genesis
@@ -418,9 +412,8 @@ Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 验证外部锚定哈希（M4）：
 
 ```bash
-dologctl verify-anchor \
-    --anchor-file s3://audit-anchors/2026-08.json \
-    --worm-path /var/lib/dologger/audit/
+# verify-anchor 接受锚定 JSON 文件路径 + --pubkey；v0.1.0 无 --anchor-file/--worm-path 选项
+dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 
 # 将本地计算的 Merkle 根与外部发布的锚定哈希进行比较
 ```
@@ -432,21 +425,23 @@ dologctl verify-anchor \
 ```bash
 # /etc/cron.daily/dologger-audit-verify
 #!/bin/bash
-REPORT=$(dologctl verify-log --path /var/lib/dologger/audit/ --output json)
-if echo "$REPORT" | jq -e '.integrity_ok == false' > /dev/null; then
+REPORT=$(dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --output json)
+if echo "$REPORT" | jq -e '.status == "failed"' > /dev/null; then
     echo "AUDIT INTEGRITY FAILURE: $REPORT" | \
         mail -s "CRITICAL: DoLogger audit chain broken" security@example.com
 fi
 ```
+
+（注：`verify-log` 的 JSON 输出包含 `status: "passed"/"failed"`、`total_records`、`broken_chain_links`、`lsn_gaps`、`signatures` 字段）
 
 ### WORM 文件处理
 
 | 操作 | 命令 |
 |:-:|:-:|
 | 列出 WORM 段 | `ls -la /var/lib/dologger/audit/` |
-| 验证链 | `dologctl verify-log --path /var/lib/dologger/audit/` |
-| 导出审计记录 | `dologctl audit export --from 2026-08-01 --to 2026-08-12 --format json` |
-| 检查最新 LSN | `dologctl verify-log --path /var/lib/dologger/audit/ --latest-lsn-only` |
+| 验证链 | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm` |
+| 导出审计记录 | （伪代码 — `dologctl audit export` 为规划中功能） |
+| 检查最新 LSN | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm -o json` |
 
 ### 篡改检测
 
@@ -473,7 +468,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **识别受影响的记录：**
    ```bash
-   dologctl verify-log --path /var/lib/dologger/audit/ --verbose 2>&1 | grep FAIL
+   dologctl verify-log /var/lib/dologger/audit/audit-000001.worm 2>&1 | grep -E "TAMPERED|CHAIN BROKEN|LSN GAP"
    ```
 
 2. **评估范围：**
@@ -507,6 +502,9 @@ LSN + prev_hash 链提供自验证的篡改证据：
 **响应流程**：
 
 1. **识别违规插件：**
+
+   （伪代码/示意 — 沙箱违规事件的规划格式）：
+
    ```json
    {"event":"SANDBOX_VIOLATION","plugin":"untrusted-plugin","syscall":"fork","action":"KILL","tid":12345}
    ```
@@ -538,20 +536,21 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **分类：**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .ring_buffer
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .ring_buffer
    # 检查 pct_used、drops_total、emergency_spills
    ```
 
 2. **识别瓶颈：**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .sinks
-   # 是否有接收器处于 circuit_open 状态？
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **缓解：**
    ```bash
-   # 禁用失败的非关键接收器
-   curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
+   # 伪代码/示意 — /sink/disable 端点规划中；v0.1.0 控制面仅有 /status、/level、/reload
+   # curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
 
 4. **增加容量：**
@@ -563,7 +562,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 5. **恢复：**
    - 紧急缓冲区文件在恢复时自动重放
-   - 恢复后验证完整性：`dologctl verify-log --path /var/lib/dologger/audit/`
+   - 恢复后验证完整性：`dologctl verify-log /var/lib/dologger/audit/audit-000001.worm`
 
 ### 事件：性能下降
 
@@ -578,17 +577,20 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **检查当前配置文件：**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .profile
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **检查接收器健康状态：**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .sinks
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **检查签名是否意外启用：**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .signature_enabled
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .signature_enabled
    # Ed25519 签名每条记录增加约 17 us
    ```
 
@@ -600,8 +602,8 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 5. **缓解：**
    ```bash
-   # 临时降低详细程度
-   curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
    ```
 
 ### 事件后诊断收集
@@ -609,7 +611,8 @@ LSN + prev_hash 链提供自验证的篡改证据：
 任何事件后，捕获诊断快照：
 
 ```bash
-dologctl diag collect --output post-incident-$(date +%Y%m%d-%H%M%S).tar.gz
+# 伪代码 — v0.1.0 尚无 diag 子命令
+# dologctl diag collect --output post-incident-$(date +%Y%m%d-%H%M%S).tar.gz
 ```
 
 此存档包含：
@@ -647,20 +650,21 @@ dologctl diag collect --output post-incident-$(date +%Y%m%d-%H%M%S).tar.gz
 ### 应用合规模板
 
 ```bash
-# 将合规模板与您的基础配置合并
-dologctl config merge \
-    --base /etc/dologger/default.toml \
-    --overlay compliance/gdpr.toml \
-    --output /etc/dologger/gdpr-production.toml
+# 伪代码 — config merge 子命令与 --compliance 选项为规划中功能（v0.1.0 未提供）
+# dologctl config merge \
+#     --base /etc/dologger/default.toml \
+#     --overlay compliance/gdpr.toml \
+#     --output /etc/dologger/gdpr-production.toml
 
-# 验证合并后的结果
+# 验证合并后的结果（现有命令）
 dologctl config validate \
     --config /etc/dologger/gdpr-production.toml \
-    --compliance gdpr \
     --strict
 ```
 
 ### GDPR 配置摘要
+
+（伪代码/示意 — 合规模板激活的安全项摘要，非可直接运行的配置文件）：
 
 ```
 performance_profile = "prod-audit"
@@ -725,6 +729,8 @@ shutdown_timeout_ms = 10000
 
 ### Linux 沙箱（seccomp-bpf）
 
+（伪代码/示意 — 规划的系统调用白名单，非可执行代码）：
+
 ```
 Yellow 插件系统调用白名单：
   内存：      mmap、munmap、mprotect、brk、madvise
@@ -774,8 +780,8 @@ allow_red_plugins = true
 实时监控沙箱违规：
 
 ```bash
-# 监控 sysmon 事件中的沙箱违规
-tail -f dologger_internal.log | jq 'select(.event == "SANDBOX_VIOLATION")'
+# 伪代码/示意 — v0.1.0 诊断日志行不含 .event 字段，此 jq 过滤依赖规划中的事件格式
+# tail -f dologger_internal.log | jq 'select(.event == "SANDBOX_VIOLATION")'
 ```
 
 ---
@@ -787,10 +793,10 @@ tail -f dologger_internal.log | jq 'select(.event == "SANDBOX_VIOLATION")'
 在您的生产硬件上建立基线：
 
 ```bash
-# 运行所有基准测试并保存结果
-cargo bench --bench hot_path -- --save-baseline prod-baseline
+# 运行所有基准测试并保存结果（v0.1.0 仓库实际提供 latency、throughput、latency_percentiles）
 cargo bench --bench latency -- --save-baseline prod-baseline
 cargo bench --bench throughput -- --save-baseline prod-baseline
+cargo bench --bench latency_percentiles -- --save-baseline prod-baseline
 ```
 
 ### 回归检测
@@ -798,7 +804,7 @@ cargo bench --bench throughput -- --save-baseline prod-baseline
 配置更改或引擎更新后，与基线比较：
 
 ```bash
-cargo bench --bench hot_path -- --baseline prod-baseline
+cargo bench --bench latency -- --baseline prod-baseline
 ```
 
 以下情况标记为回归：
@@ -809,13 +815,8 @@ cargo bench --bench hot_path -- --baseline prod-baseline
 ### 运行时性能监控
 
 ```bash
-# 通过控制面持续监控
-watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
-
-# 需关注的关键指标：
-#   avg_latency_us：在 prod-performance 中应 <200 us
-#   records_dropped：应为 0
-#   ring_buffer.pct_used：稳定状态下应 <50%
+# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+# watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 ```
 
 ### 性能回归响应
@@ -824,17 +825,20 @@ watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 
 1. **比较配置文件**：`performance_profile` 是否已更改？
    ```bash
-   curl http://127.0.0.1:9090/status | jq .profile
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **检查签名开销**：Ed25519 签名是否意外启用？
    ```bash
-   curl http://127.0.0.1:9090/status | jq .signature_enabled
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .signature_enabled
    ```
 
 3. **检查接收器健康状态**：慢速下游导致背压。
    ```bash
-   curl http://127.0.0.1:9090/status | jq .sinks
+   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）
+   # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 4. **检查磁盘 I/O**：文件/WORM 接收器受 I/O 限制。

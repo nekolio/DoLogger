@@ -1,6 +1,6 @@
 # DoLogger Operations & Security Guide
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE, Operations Engineers, Security Engineers, Compliance Officers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE, Operations Engineers, Security Engineers, Compliance Officers
 >
 > **Purpose**: Production deployment, monitoring, key management, audit verification, incident response, and compliance configuration for DoLogger. This is the operations manual for running DoLogger in production environments.
 >
@@ -38,6 +38,8 @@
 
 **Linux:**
 
+(illustrative layout):
+
 ```
 /etc/dologger/
   default.toml                       # System-wide configuration
@@ -68,6 +70,8 @@
 ```
 
 **Windows:**
+
+(illustrative layout):
 
 ```
 %PROGRAMDATA%\dologger\
@@ -111,13 +115,14 @@ DO_LOG_CONFIG_FILE=./dologger.toml ./myapp
 ### Sidecar Deployment
 
 ```bash
-# Start the sidecar process
+# Start the sidecar process (illustrative — the long-running sidecar mode lands
+# in M3; today dologctl run supports --dry-run and --trace only)
 dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
 
 # Configure host applications to use sink_shm
 ```
 
-Sidecar configuration:
+Sidecar configuration (field names follow `ShmSinkConfig` in `core/src/sink/shm.rs`):
 
 ```toml
 [dologger]
@@ -126,8 +131,10 @@ performance_profile = "prod-performance"
 [sinks.shm]
 type = "sink_shm"
 enabled = true
-shm_name = "dologger_app"
-max_size = 104857600       # 100 MB
+path = "dologger_app"
+input_format = "sif"
+buffer_size_mb = 100        # 100 MB
+slot_size_kb = 256
 full_policy = "drop_oldest" # What to do when SHM is full
 ```
 
@@ -136,6 +143,8 @@ full_policy = "drop_oldest" # What to do when SHM is full
 Install as a system service:
 
 **Linux (systemd):**
+
+(illustrative unit file — engine daemon mode lands in M3; `dologctl run` currently supports `--dry-run` and `--trace` only):
 
 ```ini
 # /etc/systemd/system/dologger.service
@@ -173,7 +182,7 @@ sudo systemctl status dologger
 The System Monitor emits structured JSON events to `stderr` (or configurable output):
 
 ```json
-{"ts":"2026-08-12T14:30:00.123Z","level":"WARN","event":"PIPELINE_BACKLOG","pct":72,"buf_name":"main"}
+{"sysmon_version":"1.0","error_code":0,"category":"engine","description":"Engine initialized: ring_size=65536, coop_helping=false","timestamp_ms":1786561656221,"severity":1}
 ```
 
 ### Sysmon Event Types
@@ -201,13 +210,14 @@ The control plane provides a lightweight HTTP API for runtime management:
 | Method | Path | Auth | Description |
 |:-:|:-:|:-:|:-:|
 | GET | `/status` | None | Engine status and metrics |
-| GET | `/health` | None | Liveness check (200 = alive) |
+| GET | `/health` | None | Liveness check (200 = alive) *(planned)* |
 | POST | `/level` | None | Set log level dynamically |
 | POST | `/reload` | None | Trigger configuration reload |
 
 ### Health Check
 
 ```bash
+# (illustrative — /health endpoint is planned; /status exists today)
 curl -s http://127.0.0.1:9090/health
 # HTTP 200 OK
 ```
@@ -219,33 +229,10 @@ curl -s http://127.0.0.1:9090/status | jq .
 ```
 
 ```json
-{
-  "status": "ok",
-  "uptime_seconds": 86412,
-  "level": "INFO",
-  "profile": "prod-performance",
-  "plugins_loaded": 3,
-  "plugins_failed": 0,
-  "signature_enabled": false,
-  "worm_enabled": false,
-  "ring_buffer": {
-    "capacity": 262144,
-    "used": 8192,
-    "pct_used": 3.1,
-    "drops_total": 0,
-    "emergency_spills": 0
-  },
-  "sinks": {
-    "file": {"status": "healthy", "bytes_written": 1073741824},
-    "kafka": {"status": "healthy", "messages_sent": 5000000}
-  },
-  "pipeline": {
-    "records_processed": 10000000,
-    "records_dropped": 0,
-    "avg_latency_us": 82
-  }
-}
+{"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false}
 ```
+
+The response is deliberately minimal today; richer metrics (uptime, ring buffer statistics, per-sink health, pipeline counters) are planned for M4.
 
 ### Alerting Thresholds
 
@@ -285,7 +272,7 @@ vim /etc/dologger/default.toml
 # Trigger immediate reload
 curl -X POST http://127.0.0.1:9090/reload
 
-# Dry-run first (validate without applying)
+# Dry-run first (planned — the reload endpoint ignores the request body today)
 curl -X POST http://127.0.0.1:9090/reload \
   -H "Content-Type: application/json" \
   -d '{"dry_run": true}'
@@ -339,6 +326,8 @@ require_owner = true
 
 ### Key Rotation Lifecycle
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     P1["Phase 1: Initiate Rotation<br/>New key pair generated<br/>Old key enters grace period"] --> P2["Phase 2: Grace Period (default 7 days)<br/>Both keys active simultaneously<br/>Old key signs in-flight records<br/>New key signs newly submitted records<br/>Verifier accepts records signed by EITHER key"]
@@ -349,24 +338,24 @@ flowchart TD
 ### Certificate Revocation List (CRL)
 
 ```rust
-// CRL entry
+// CRL entry (core/src/security/key_rotation.rs)
 struct CrlEntry {
     fingerprint: [u8; 32],     // SHA-256 of public key
-    reason: CrlReason,         // compromised, superseded, etc.
-    revoked_at: u64,           // Unix timestamp
+    revoked_at: u64,           // Unix timestamp (seconds)
+    reason: CrlReason,         // compromised, superseded, deactivated
 }
 
 enum CrlReason {
-    KeyCompromise,
+    Compromised,
     Superseded,
-    CessationOfOperation,
-    EmergencyRevocation,
+    Deactivated,
 }
 ```
 
 ### Key Rotation Commands
 
 ```bash
+# (illustrative — the dologctl key subcommand is planned, not yet available)
 # Initiate key rotation (when KeyProvider supports it)
 dologctl key rotate --grace-period-days 7
 
@@ -386,23 +375,26 @@ dologctl key list
 
 ### `dologctl verify-log`
 
-Verify the integrity of a WORM audit log:
+Verify the integrity of a WORM audit log (PATH is positional):
 
 ```bash
-dologctl verify-log --path /var/lib/dologger/audit/ --verbose
+dologctl verify-log /var/lib/dologger/audit/
 ```
 
 Output:
 
 ```
-[OK]     LSN 000001 — signature valid, prev_hash=genesis
-[OK]     LSN 000002 — signature valid, prev_hash matches
-[GAP]    LSN 000003 — missing (expected, found LSN 000004)
-[OK]     LSN 000004 — signature valid, prev_hash matches
-[FAIL]   LSN 000005 — signature INVALID (record may be tampered)
-
-Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
+Log File Verification
+  File: /var/lib/dologger/audit/
+  Records parsed: 4
+Verification Results
+  Total records:     4
+  Chain links:       3 valid, 0 broken (100.0% ok)
+  LSN continuity:    PASS - no gaps detected
+VERIFICATION PASSED - all checks OK
 ```
+
+When a problem is found, per-record details are printed on stderr, e.g. `CHAIN BROKEN LSN 3 -> 4: ...`, `LSN GAP Expected 3, found 5 (missing 2)`, or `TAMPERED LSN 5 - signature invalid`, and the command exits non-zero with `VERIFICATION FAILED`.
 
 ### What It Verifies
 
@@ -418,9 +410,8 @@ Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 Verify external anchoring hashes (M4):
 
 ```bash
-dologctl verify-anchor \
-    --anchor-file s3://audit-anchors/2026-08.json \
-    --worm-path /var/lib/dologger/audit/
+# PATH is positional; download the anchor JSON file locally first
+dologctl verify-anchor s3://audit-anchors/2026-08.json
 
 # Compares locally computed Merkle roots with
 # externally published anchor hashes
@@ -433,8 +424,9 @@ Set up a daily cron job:
 ```bash
 # /etc/cron.daily/dologger-audit-verify
 #!/bin/bash
-REPORT=$(dologctl verify-log --path /var/lib/dologger/audit/ --output json)
-if echo "$REPORT" | jq -e '.integrity_ok == false' > /dev/null; then
+# `-o json` is the global output-format flag; PATH is positional
+REPORT=$(dologctl verify-log /var/lib/dologger/audit/ -o json)
+if echo "$REPORT" | jq -e '.status == "failed"' > /dev/null; then
     echo "AUDIT INTEGRITY FAILURE: $REPORT" | \
         mail -s "CRITICAL: DoLogger audit chain broken" security@example.com
 fi
@@ -445,9 +437,9 @@ fi
 | Operation | Command |
 |:-:|:-:|
 | List WORM segments | `ls -la /var/lib/dologger/audit/` |
-| Verify chain | `dologctl verify-log --path /var/lib/dologger/audit/` |
-| Export audit records | `dologctl audit export --from 2026-08-01 --to 2026-08-12 --format json` |
-| Check latest LSN | `dologctl verify-log --path /var/lib/dologger/audit/ --latest-lsn-only` |
+| Verify chain | `dologctl verify-log /var/lib/dologger/audit/` |
+| Export audit records | `dologctl audit export --from 2026-08-01 --to 2026-08-12 --format json` *(planned)* |
+| Check latest LSN | `dologctl verify-log /var/lib/dologger/audit/ --latest-lsn-only` *(planned)* |
 
 ### Tamper Detection
 
@@ -474,7 +466,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Identify affected records:**
    ```bash
-   dologctl verify-log --path /var/lib/dologger/audit/ --verbose 2>&1 | grep FAIL
+   dologctl verify-log /var/lib/dologger/audit/ 2>&1 | grep FAIL
    ```
 
 2. **Assess scope:**
@@ -490,7 +482,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 4. **Contain (if tampering suspected):**
    - Isolate the host from the network
    - Preserve forensic image of the affected files
-   - Rotate signing keys immediately: `dologctl key rotate --emergency`
+   - Rotate signing keys immediately: `dologctl key rotate --emergency` *(planned — key subcommand not yet available)*
 
 5. **Report:**
    - File a security incident report
@@ -508,6 +500,9 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 **Response Procedure**:
 
 1. **Identify the violating plugin:**
+
+   (illustrative example — sandbox enforcement lands in M4; real sysmon events use the `sysmon_version`/`error_code`/`category`/`description`/`timestamp_ms`/`severity` shape shown in the Monitoring section):
+
    ```json
    {"event":"SANDBOX_VIOLATION","plugin":"untrusted-plugin","syscall":"fork","action":"KILL","tid":12345}
    ```
@@ -522,7 +517,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
    - Unknown plugin: quarantine binary for analysis
 
 4. **Prevent recurrence:**
-   - Audit all installed plugins: `dologctl plugin list --verbose`
+   - Audit all installed plugins: `dologctl plugin list`
    - Review plugin vetting process
    - Consider disabling Red plugins entirely (`allow_red_plugins = false`)
 
@@ -539,19 +534,19 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Triage:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .ring_buffer
-   # Check pct_used, drops_total, emergency_spills
+   curl http://127.0.0.1:9090/status | jq .
+   # Today /status reports status, level, profile, plugins, signature_enabled
    ```
 
 2. **Identify bottleneck:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .sinks
-   # Is a sink in circuit_open state?
+   curl http://127.0.0.1:9090/status | jq .
+   # Per-sink health metrics are planned (M4)
    ```
 
 3. **Mitigate:**
    ```bash
-   # Disable a failing non-critical sink
+   # Disable a failing non-critical sink (illustrative — endpoint planned)
    curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
 
@@ -564,7 +559,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 5. **Recover:**
    - Emergency buffer files auto-replay on recovery
-   - Verify integrity post-recovery: `dologctl verify-log --path /var/lib/dologger/audit/`
+   - Verify integrity post-recovery: `dologctl verify-log /var/lib/dologger/audit/`
 
 ### Incident: Performance Degradation
 
@@ -584,7 +579,8 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 2. **Check sink health:**
    ```bash
-   curl http://127.0.0.1:9090/status | jq .sinks
+   curl http://127.0.0.1:9090/status | jq .
+   # Per-sink health metrics are planned (M4)
    ```
 
 3. **Check if signing is unexpectedly enabled:**
@@ -610,6 +606,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 After any incident, capture a diagnostic snapshot:
 
 ```bash
+# (illustrative — the diag command is a planned CLI feature, not yet available)
 dologctl diag collect --output post-incident-$(date +%Y%m%d-%H%M%S).tar.gz
 ```
 
@@ -648,20 +645,23 @@ Every compliance template activates all six non-downgradable security items:
 ### Applying a Compliance Template
 
 ```bash
-# Merge compliance template with your base config
+# Validate the compliance template itself
+dologctl config validate --config compliance/gdpr.toml --strict
+
+# Validate your production config (merged with the template by hand, or use
+# the template as a starting point)
+dologctl config validate --config /etc/dologger/gdpr-production.toml --strict
+
+# (illustrative — a dedicated merge command is planned, not yet available)
 dologctl config merge \
     --base /etc/dologger/default.toml \
     --overlay compliance/gdpr.toml \
     --output /etc/dologger/gdpr-production.toml
-
-# Validate the merged result
-dologctl config validate \
-    --config /etc/dologger/gdpr-production.toml \
-    --compliance gdpr \
-    --strict
 ```
 
 ### GDPR Configuration Summary
+
+(illustrative summary of the values in `compliance/gdpr.toml`):
 
 ```
 performance_profile = "prod-audit"
@@ -707,7 +707,7 @@ shutdown_timeout_ms = 10000
 **These compliance templates are technical starting points only.** They do NOT guarantee regulatory compliance. You MUST consult your legal counsel and perform a full assessment before deploying to production. The templates:
 - Set all security-relevant configuration to their most restrictive values
 - Cannot be loosened by lower-priority configuration layers (non-downgradable)
-- Must be validated with: `dologctl config validate --compliance <framework> --strict`
+- Must be validated with: `dologctl config validate --config compliance/<framework>.toml --strict`
 
 ---
 
@@ -725,6 +725,8 @@ shutdown_timeout_ms = 10000
 | Field writes | Ring 2 (`verified.*`) | Ring 2 (`verified.*`) | Ring 3 (`ext.*`) |
 
 ### Linux Sandbox (seccomp-bpf)
+
+(illustrative allowlist sketch — sandbox enforcement lands in M4):
 
 ```
 Yellow plugin syscall allowlist:
@@ -761,7 +763,7 @@ Sandbox profiles applied via `sandbox_init(3)` with seatbelt/SBPL rules per trus
 
 ### Enabling Red Plugins
 
-Red plugins are disabled by default. Enable with:
+Red plugins are disabled by default. Enable with (illustrative — red-plugin sandbox enforcement lands in M4):
 
 ```toml
 [dologger]
@@ -775,8 +777,9 @@ This should only be done in development environments. Production should never en
 Monitor sandbox violations in real time:
 
 ```bash
-# Watch sysmon events for sandbox violations
-tail -f dologger_internal.log | jq 'select(.event == "SANDBOX_VIOLATION")'
+# Watch sysmon events for sandbox violations (illustrative — sandbox
+# enforcement lands in M4; real events use the "category" field)
+tail -f dologger_internal.log | jq 'select(.category == "SANDBOX_VIOLATION")'
 ```
 
 ---
@@ -785,13 +788,11 @@ tail -f dologger_internal.log | jq 'select(.event == "SANDBOX_VIOLATION")'
 
 ### Baseline Benchmarks
 
-Establish a baseline on your production hardware:
+Establish a baseline on your production hardware (the workspace ships no `cargo bench` targets; use `dologctl perf`):
 
 ```bash
-# Run all benchmarks and save results
-cargo bench --bench hot_path -- --save-baseline prod-baseline
-cargo bench --bench latency -- --save-baseline prod-baseline
-cargo bench --bench throughput -- --save-baseline prod-baseline
+# Run the built-in benchmark and save the results
+dologctl perf --count 100000 -o json > prod-baseline.json
 ```
 
 ### Regression Detection
@@ -799,7 +800,8 @@ cargo bench --bench throughput -- --save-baseline prod-baseline
 After a configuration change or engine update, compare against the baseline:
 
 ```bash
-cargo bench --bench hot_path -- --baseline prod-baseline
+dologctl perf --count 100000 -o json > prod-current.json
+# Compare prod-current.json against prod-baseline.json
 ```
 
 A regression is flagged when:
@@ -811,12 +813,10 @@ A regression is flagged when:
 
 ```bash
 # Continuous monitoring via control plane
-watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
+watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .'
 
-# Key metrics to watch:
-#   avg_latency_us: should be <200 us in prod-performance
-#   records_dropped: should be 0
-#   ring_buffer.pct_used: should be <50% in steady state
+# Key metrics today: status, level, profile, plugins, signature_enabled.
+# Richer metrics (pipeline counters, ring buffer usage) are planned (M4).
 ```
 
 ### Performance Regression Response
@@ -835,7 +835,8 @@ If performance degrades after a change:
 
 3. **Check sink health**: A slow downstream causes backpressure.
    ```bash
-   curl http://127.0.0.1:9090/status | jq .sinks
+   curl http://127.0.0.1:9090/status | jq .
+   # Per-sink health metrics are planned (M4)
    ```
 
 4. **Check disk I/O**: File/WORM sinks are I/O bound.

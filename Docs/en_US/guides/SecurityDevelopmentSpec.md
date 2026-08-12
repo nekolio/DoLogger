@@ -38,7 +38,7 @@
 | **R2: Bounds checking** | Every array access, string operation, and buffer write must be bounds-checked. C plugins: use `snprintf` over `sprintf`, `strncpy` over `strcpy`, size-tracked buffers over raw pointers. | Static analysis (see [Static Analysis Tooling](#static-analysis-tooling)) |
 | **R3: No use-after-free** | Do not retain pointers to freed memory. Set pointers to `NULL` after free. In Rust, this is enforced by the borrow checker -- only `unsafe` code can violate it. | Valgrind / AddressSanitizer |
 | **R4: No double-free** | Free each allocation exactly once. Use allocation tracking in debug builds to detect double-frees. | Debug allocator + `dologger_internal.log` |
-| **R5: No buffer overflow** | All VTable function output buffers are caller-allocated by the engine. The plugin **MUST NOT** write beyond the provided `length` parameter. Return `DO_LOG_ERR_BUF_TOO_SMALL` if the buffer is insufficient. | Fuzzing (see [Fuzzing Requirements](#fuzzing-requirements)) |
+| **R5: No buffer overflow** | All VTable function output buffers are caller-allocated by the engine. The plugin **MUST NOT** write beyond the provided `length` parameter. Return `DO_LOG_ERR_BUFFER_TOO_SMALL` if the buffer is insufficient. | Fuzzing (see [Fuzzing Requirements](#fuzzing-requirements)) |
 | **R6: Stack protection** | C plugins: compile with `-fstack-protector-strong`. Rust plugins: this is automatic via LLVM. | Compiler flags |
 | **R7: Integer overflow** | Use checked arithmetic for all size calculations (especially buffer size computations). Rust: use `checked_add`, `saturating_add`, or enable `overflow-checks = true` in release. C: use `__builtin_add_overflow`. | Static analysis + fuzzing |
 
@@ -47,6 +47,8 @@
 Rust plugins must treat every `unsafe` block as a security liability:
 
 ```rust
+// (illustrative example — not compiled; record_ptr is a placeholder for a
+// VTable record handle)
 // REQUIRED: Every unsafe block must be accompanied by a SAFETY comment
 // explaining WHY it is safe, not just WHAT it does.
 
@@ -89,6 +91,9 @@ All data received from outside the plugin's own code must be treated as **untrus
 ### Validation Pattern (C)
 
 ```c
+// (pseudocode — illustrative, not compiled; the real Filter VTable callback is
+// `int (*filter)(const dologger_record_handle_t *rec, void *config)` and the
+// symbol names below are placeholders for the validation pattern)
 dologger_error_t my_filter(dologger_record_t *record,
                            dologger_filter_result_t *result) {
     // Rule 1: Null-check all pointer parameters
@@ -123,6 +128,8 @@ dologger_error_t my_filter(dologger_record_t *record,
 ### Validation Pattern (Rust)
 
 ```rust
+// (illustrative example — not compiled; the Rust adapter API is `Logger` with
+// `trace/debug/info/warn/error/fatal/audit` — see adapters/rust/src/lib.rs)
 fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
     // Rule 1: Validate level
     if record.level > LogLevel::Audit as u8 {
@@ -162,7 +169,7 @@ The sandbox restricts which operating system operations a plugin can perform. It
 **Table 3: Sandbox Capabilities by Trust Color**
 
 | Capability | Blue | Yellow | Red |
-|:-:|:-:|:-::-:|:-:|
+|:-:|:-:|:-:|:-:|
 | Memory allocation (`mmap`, `munmap`, `brk`) | Yes | Yes | Yes |
 | Thread operations (`clone`, `futex`) | Yes | Yes | Yes |
 | Time functions (`clock_gettime`) | Yes | Yes | Yes |
@@ -192,6 +199,7 @@ The sandbox restricts which operating system operations a plugin can perform. It
 ### Developing Within Sandbox Constraints
 
 ```c
+// (illustrative pseudocode — not compiled)
 // YELLOW PLUGIN: Do NOT do this -- network is denied
 dologger_error_t my_plugin_init(const dologger_plugin_config_t *config) {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -246,6 +254,9 @@ sudo strace -f -e trace=file,network,process \
 ### Using the SecretDetector API
 
 ```c
+// (illustrative pseudocode — not compiled; the engine's SecretDetector lives
+// in core/src/security/secret_detector.rs and is exposed through the Rust
+// pipeline, not through this C symbol)
 // Before logging text that may contain secrets, scan it
 dologger_secret_scan_result_t scan_result;
 dologger_error_t rc = dologger_secret_scan(
@@ -318,6 +329,8 @@ Custom patterns can be added via the `SecretDetector` Processor plugin configura
 If your plugin processes or verifies Ed25519 signatures:
 
 ```c
+// (illustrative pseudocode — not compiled; no dologger_verify_record_signature
+// symbol exists yet — use dologctl verify-log for offline verification)
 // DO: Use the engine's verification API
 dologger_error_t rc = dologger_verify_record_signature(
     engine_handle,
@@ -357,6 +370,9 @@ The engine manages public key distribution, key rotation, and CRL checking. Your
 For each plugin that requires fuzzing, provide at least one fuzz target:
 
 ```rust
+// (template — not compiled; `my_formatter` is a placeholder. The engine's real
+// fuzz targets live in core/fuzz/fuzz_targets/: fuzz_ring_buffer,
+// fuzz_sif_record, fuzz_toml_config)
 // fuzz/fuzz_targets/format_json.rs
 #![no_main]
 
@@ -385,6 +401,8 @@ fuzz_target!(|data: &[u8]| {
 ### Running Fuzz Tests Locally
 
 ```bash
+# (illustrative template — `format_json` is a placeholder; substitute your own
+# target name, e.g. the engine's core/fuzz/fuzz_targets targets)
 # Install cargo-fuzz
 cargo install cargo-fuzz
 
@@ -443,10 +461,11 @@ cargo audit --ignore RUSTSEC-2024-XXXX
 
 ### Cargo Deny Configuration
 
-The project `deny.toml` (repository root) contains the canonical deny configuration:
+The project `deny.toml` (repository root) contains the canonical deny configuration. The excerpt below shows the intent; the shipped file's exact allow/deny lists may differ, so always check the real `deny.toml` in the repository root:
 
 ```toml
-# deny.toml (excerpt)
+# deny.toml (illustrative excerpt — see the real deny.toml in the repo root
+# for the exact lists)
 [advisories]
 vulnerability = "deny"       # Deny any crate with a security advisory
 unmaintained = "warn"
@@ -483,6 +502,8 @@ cargo clippy -- -W clippy::unwrap_used \
 ### CI Integration
 
 ```yaml
+# (illustrative template — not the literal workflow; the repository's actual
+# pipeline is .github/workflows/security.yml)
 # .github/workflows/security-checks.yml
 name: Security Checks
 
@@ -527,6 +548,7 @@ C plugin developers should add:
 | **Coverity / CodeQL** | CI integration | Comprehensive inter-procedural analysis |
 
 ```bash
+# (example — Linux; replace my_plugin.c/my_plugin.so with your own file names)
 # C plugin security build flags
 cc -shared -fPIC \
    -fstack-protector-strong \

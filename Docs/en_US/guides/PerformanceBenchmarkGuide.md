@@ -99,29 +99,28 @@ sudo apt install linux-tools-common linux-tools-generic
 
 ## The Benchmark Suite
 
-DoLogger provides four benchmark targets, each measuring a different dimension of performance.
+DoLogger provides three benchmark targets in `core/benches/`, each measuring a different dimension of performance.
 
 **Table 2: Benchmark Target Overview**
 
-| Benchmark | Crate / File | Measures | Primary Metric | Run Time (approx.) |
-|:-:|:-:|:-:|:-:|:-:|
-| `hot_path` | `benches/hot_path.rs` | End-to-end record submission latency | P50/P99/P99.9 ns | ~5 minutes |
-| `latency` | `benches/latency.rs` | Per-pipeline-stage latency breakdown | P50 us per stage | ~8 minutes |
-| `throughput` | `benches/throughput.rs` | Maximum sustained records/second | records/s | ~12 minutes |
-| `latency_percentiles` | `benches/latency_percentiles.rs` | Full latency distribution (histogram) | P50/P90/P99/P99.9/P99.99 | ~15 minutes |
+| Benchmark | Crate / File | Measures | Primary Metric |
+|:-:|:-:|:-:|:-:|
+| `latency` | `benches/latency.rs` | Single-record submission latency (`single_record_submit`, `single_record_submit_with_sign`) | P50/P99 ns |
+| `throughput` | `benches/throughput.rs` | Ring buffer push throughput (`ring_buffer_push_1k`, `ring_buffer_push_batch_256`) | records/s |
+| `latency_percentiles` | `benches/latency_percentiles.rs` | Full latency distribution across message sizes (80B/256B/1KB), signing on/off, and 1/2/4/8/16 threads (200K samples each) | P50/P99/P99.9/P99.99 |
 
-### `hot_path` — Submission Latency
+### `latency` — Submission Latency (the "hot path")
 
-Measures the time from `dologger_log()` call to return. This is the **most critical metric** for host applications — it represents the cost added to every log statement.
+Measures the time from `dologger_log()` call to return — the **most critical metric** for host applications, since it represents the cost added to every log statement. Implemented as `single_record_submit` (INFO) and `single_record_submit_with_sign` (AUDIT, Ed25519).
 
-- **What it measures**: CAS push into the ring buffer + any cooperative helping
+- **What it measures**: pool alloc → field fill → CAS push into the ring buffer (the bench drains the buffer between batches)
 - **What it excludes**: Pipeline processing, formatting, sink I/O (these are asynchronous)
 - **Units**: Nanoseconds
-- **Statistical treatment**: Criterion.rs with 100 samples per iteration, 50 iterations
+- **Statistical treatment**: Criterion.rs
 
-### `latency` — Pipeline Stage Breakdown
+### Planned: Per-Stage Latency Breakdown
 
-Measures the processing time of each pipeline stage independently:
+A per-pipeline-stage breakdown is planned but not implemented in v0.1.0 (the shipped `latency` bench measures whole-submission latency):
 
 | Stage | What is Timed |
 |:-:|:-:|
@@ -135,16 +134,16 @@ Measures the processing time of each pipeline stage independently:
 
 ### `throughput` — Maximum Sustainable Rate
 
-Measures how many records per second the engine can process end-to-end under sustained load:
+Measures how many records per second the engine can push through the ring buffer under sustained load (batch sizes 256 and 1000).
 
 - **Configurations tested**: All four performance profiles (`dev`, `balanced`, `prod-performance`, `prod-audit`)
-- **Sink variants**: Console, File (no fsync), File (fsync), WORM (sign + fsync)
+- **Sink variants**: Console, File (no fsync), File (fsync), WORM (sign + fsync) — planned extension
 - **Record sizes**: 64 B, 256 B, 1 KB, 4 KB messages
 - **Producer thread counts**: 1, 2, 4, 8, 16
 
 ### `latency_percentiles` — Full Distribution
 
-Generates a complete latency histogram with percentile breakdowns. Used to detect tail latency regressions and multi-modal distributions that indicate lock contention or GC pauses.
+Generates a complete latency histogram with percentile breakdowns across message sizes, signing state, and thread counts. Used to detect tail latency regressions and multi-modal distributions that indicate lock contention or GC pauses.
 
 ---
 
@@ -154,13 +153,13 @@ Generates a complete latency histogram with percentile breakdowns. Used to detec
 
 ```bash
 # Run a single benchmark suite
-cargo bench --bench hot_path
+cargo bench --bench latency
 
 # Run all benchmark suites
 cargo bench
 
 # Run a specific benchmark within a suite
-cargo bench --bench hot_path -- single_record_submit
+cargo bench --bench latency -- single_record_submit
 
 # Run with a specific performance profile
 DO_LOG_PERF_PROFILE=prod-audit cargo bench --bench throughput
@@ -170,7 +169,7 @@ DO_LOG_PERF_PROFILE=prod-audit cargo bench --bench throughput
 
 ```bash
 # Override the sample size (faster, less statistical power)
-cargo bench --bench hot_path -- --sample-size 20
+cargo bench --bench latency -- --sample-size 20
 
 # Set a fixed measurement time
 cargo bench --bench latency -- --measurement-time 30
@@ -179,10 +178,10 @@ cargo bench --bench latency -- --measurement-time 30
 cargo bench --bench throughput -- "file_sink/"
 
 # Save baseline for later comparison
-cargo bench --bench hot_path -- --save-baseline master
+cargo bench --bench latency -- --save-baseline master
 
 # Compare against a saved baseline
-cargo bench --bench hot_path -- --baseline master
+cargo bench --bench latency -- --baseline master
 ```
 
 ### Running with Profiling
@@ -190,22 +189,22 @@ cargo bench --bench hot_path -- --baseline master
 ```bash
 # Linux perf — hardware counters
 perf record --call-graph dwarf --freq=997 \
-    cargo bench --bench hot_path -- single_record_submit
+    cargo bench --bench latency -- single_record_submit
 perf report
 perf stat -e cycles,instructions,cache-references,cache-misses,branches,branch-misses \
-    cargo bench --bench hot_path -- single_record_submit
+    cargo bench --bench latency -- single_record_submit
 
 # Flamegraph
 perf record --call-graph dwarf --freq=997 \
-    cargo bench --bench hot_path -- single_record_submit
-perf script | stackcollapse-perf.pl | flamegraph.pl > hot_path_flamegraph.svg
+    cargo bench --bench latency -- single_record_submit
+perf script | stackcollapse-perf.pl | flamegraph.pl > latency_flamegraph.svg
 
 # macOS Instruments
-cargo instruments -t time --bench hot_path
+cargo instruments -t time --bench latency
 
 # Valgrind / Callgrind (slow, highly accurate)
 valgrind --tool=callgrind --dump-instr=yes \
-    cargo bench --bench hot_path -- single_record_submit
+    cargo bench --bench latency -- single_record_submit
 kcachegrind callgrind.out.*
 ```
 
@@ -214,11 +213,11 @@ kcachegrind callgrind.out.*
 ```bash
 # Step 1: Establish a baseline on the current main branch
 git checkout main
-cargo bench --bench hot_path -- --save-baseline main
+cargo bench --bench latency -- --save-baseline main
 
 # Step 2: Run benchmarks on your feature branch
 git checkout feature/my-change
-cargo bench --bench hot_path -- --baseline main
+cargo bench --bench latency -- --baseline main
 
 # Step 3: Criterion reports regression/improvement automatically:
 #  "Performance has improved by 3.2%"
@@ -345,6 +344,10 @@ The CI pipeline runs benchmarks on every pull request and compares against the `
 ### CI Configuration (GitHub Actions)
 
 ```yaml
+# (illustrative template — the repository's actual pipeline is
+# .github/workflows/bench.yml, which runs the three real benches and compares
+# with the bencher output format; scripts/ci/check_benchmark_regression.py
+# does not exist yet)
 # .github/workflows/benchmarks.yml
 name: Benchmarks
 
@@ -364,16 +367,16 @@ jobs:
         run: |
           sudo cpupower frequency-set -g performance
           echo 1 | sudo tee /sys/devices/system/cpu/intel_pstate/no_turbo
-      - name: Run hot_path benchmarks
+      - name: Run latency benchmarks
         run: |
-          cargo bench --bench hot_path -- --save-baseline pr
+          cargo bench --bench latency -- --save-baseline pr
       - name: Compare against main baseline
         run: |
           git fetch origin main
           git checkout origin/main
-          cargo bench --bench hot_path -- --save-baseline main
+          cargo bench --bench latency -- --save-baseline main
           git checkout -
-          cargo bench --bench hot_path -- --baseline main --criterion-reports
+          cargo bench --bench latency -- --baseline main --criterion-reports
       - name: Check for regressions
         run: |
           # Fail if any benchmark regressed by more than 5%
@@ -429,28 +432,30 @@ CI benchmarks require dedicated, isolated hardware. The self-hosted runner must:
 
 ### File Structure
 
-```
+```text
+(actual v0.1.0 layout — the benchmarks live in core/benches/)
 benches/
-  hot_path.rs              ← Submission latency
-  latency.rs               ← Pipeline stage breakdown
-  throughput.rs            ← End-to-end throughput
-  latency_percentiles.rs   ← Full distribution
-  common/
-    setup.rs               ← Shared harness: engine init, config, warm-up
-    fixtures.rs            ← Pre-built record templates
-    reporting.rs           ← Results formatting
+  latency.rs               ← Single-record submission latency (P50/P99)
+  throughput.rs            ← Ring buffer push throughput
+  latency_percentiles.rs   ← Full distribution (P50/P99/P99.9/P99.99)
+  # (planned) common/
+  #   setup.rs             ← Shared harness: engine init, config, warm-up
+  #   fixtures.rs          ← Pre-built record templates
+  #   reporting.rs         ← Results formatting
 ```
 
 ### Benchmark Template
 
 ```rust
-// benches/hot_path.rs — example structure
+// (illustrative template — not compiled; `engine.log` / `dologger_bench_common`
+// are placeholders. See core/benches/latency.rs for the real, compiling pattern)
+// benches/latency.rs — example structure
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use dologger_bench_common::{setup_engine, create_sample_record};
 
 fn bench_single_record_submit(c: &mut Criterion) {
-    let mut group = c.benchmark_group("hot_path");
+    let mut group = c.benchmark_group("latency");
     group.measurement_time(std::time::Duration::from_secs(10));
     group.sample_size(100);
 
@@ -507,6 +512,7 @@ Not every benchmark needs every combination. Choose the dimensions relevant to t
 ### Example: Adding a Throughput Benchmark for a New Sink
 
 ```rust
+// (illustrative template — not compiled; adapt to core/benches/throughput.rs)
 // benches/throughput.rs
 
 fn bench_throughput_new_sink(c: &mut Criterion) {
@@ -545,11 +551,12 @@ fn bench_throughput_new_sink(c: &mut Criterion) {
 
 Official baselines for each release are stored as Criterion data in the repository:
 
-```
+```text
+(illustrative — `benches/baselines/` is planned; today only local
+ target/criterion/ data exists and is not committed)
 target/criterion/         ← Local only (not committed)
 benches/baselines/         ← Committed baselines for CI comparison
   v1.0.0/
-    hot_path.json
     latency.json
     throughput.json
     latency_percentiles.json
@@ -560,7 +567,7 @@ benches/baselines/         ← Committed baselines for CI comparison
 **Table 10: Performance Deviation Thresholds**
 
 | Change Type | Hot Path P50 | Hot Path P99 | Throughput | Action |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | Within noise | < 2% | < 3% | < 2% | Accept — no action |
 | Minor improvement | 2-10% | 3-10% | 2-10% | Accept — note in changelog |
 | Minor regression | 2-5% | 3-5% | 2-5% | Review — document if intentional |

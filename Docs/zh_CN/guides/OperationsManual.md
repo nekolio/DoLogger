@@ -30,6 +30,8 @@
 
 ### 文件布局
 
+（目录结构示意 — 非命令输出）：
+
 ```
 Linux:
   /etc/dologger/default.toml        # 系统默认配置
@@ -85,15 +87,16 @@ shutdown_timeout_ms = 5000
 修改配置文件后，引擎自动检测（轮询间隔 1s，防抖 500ms）：
 
 ```bash
-# 修改日志级别
-sed -i 's/level = "INFO"/level = "DEBUG"/' dologger.toml
-# 核心自动重新加载（不需要重启）
+# 伪代码/示意 — ConfigWatcher（core/src/config/watcher.rs）在 v0.1.0 尚未接入 Engine::init，
+# 引擎不会自动重载配置；需重启或（M3+）通过控制面触发
+# sed -i 's/level = "INFO"/level = "DEBUG"/' dologger.toml
 ```
 
 也可通过控制面 API 触发：
 
 ```bash
-curl -X POST http://127.0.0.1:9090/reload
+# 伪代码/示意 — 控制面（POST /reload）在 v0.1.0 尚未随引擎启动（M3+）
+# curl -X POST http://127.0.0.1:9090/reload
 ```
 
 ---
@@ -114,7 +117,9 @@ curl -X POST http://127.0.0.1:9090/reload
 ### 控制面状态查询
 
 ```bash
-curl http://127.0.0.1:9090/status
+# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）；
+# 下方响应格式与 core/src/sys/control_plane.rs 的 /status 处理器一致
+# curl http://127.0.0.1:9090/status
 # {"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false}
 ```
 
@@ -143,14 +148,10 @@ curl http://127.0.0.1:9090/status
 ### 示例
 
 ```bash
-# 临时降低日志级别进行调试
-curl -X POST http://127.0.0.1:9090/level -d '{"level":"DEBUG"}'
-
-# 恢复生产级别
-curl -X POST http://127.0.0.1:9090/level -d '{"level":"INFO"}'
-
-# 触发配置重载
-curl -X POST http://127.0.0.1:9090/reload
+# 伪代码/示意 — 控制面（POST /level、POST /reload）在 v0.1.0 尚未随引擎启动（M3+）
+# curl -X POST http://127.0.0.1:9090/level -d '{"level":"DEBUG"}'
+# curl -X POST http://127.0.0.1:9090/level -d '{"level":"INFO"}'
+# curl -X POST http://127.0.0.1:9090/reload
 ```
 
 ### 安全注意事项
@@ -196,16 +197,18 @@ retention_total_size = "10GB"
 ### WORM 审计日志备份
 
 ```bash
-# 验证审计链完整性
-dologctl verify-log --path /var/lib/dologger/audit/
+# 验证审计链完整性（verify-log 接受单个 SIF/WORM 文件路径）
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
-# 外部锚定（M4）
-dologctl verify-anchor --s3-bucket my-audit-logs
+# 外部锚定（M4；verify-anchor 接受锚定 JSON 文件路径 + --pubkey）
+dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 ```
 
 ### 紧急缓冲恢复
 
 当环形缓冲区溢出时，记录自动溢出到紧急文件。恢复正常后自动恢复：
+
+（伪代码/示意 — 恢复流程，非命令）：
 
 ```
 dologger_emergency_<pid>.buf  →  引擎自动读取 → 注入主管线
@@ -259,6 +262,8 @@ dologger_emergency_<pid>.buf  →  引擎自动读取 → 注入主管线
 5. 检查磁盘 I/O 延迟（WORM Sink fsync）
 
 ### 沙箱违规
+
+（伪代码/示意 — 沙箱违规事件格式示例）：
 
 ```
 [SANDBOX_VIOLATION] plugin='untrusted-plugin' syscall='fork' action='KILL'

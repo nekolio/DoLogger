@@ -8,6 +8,9 @@
 >
 > **Reading Path**: Plugin developers who have completed the [Plugin Development Guide](PluginDevelopmentGuide.md) should start with [Choosing the Right Plugin Type](#choosing-the-right-plugin-type). Developers implementing security-critical plugins should read [SyscallBroker Implementation](#syscallbroker-implementation) and [Multi-Phase Plugins](#multi-phase-plugins). Plugin ecosystem maintainers should review [Plugin Dependency Management](#plugin-dependency-management).
 
+> [!NOTE]
+> All C, TOML, and text blocks in this guide are **illustrative pseudocode for the planned v1.0 plugin ABI** (not compiled / not run against v0.1.0). The shipped v0.1.0 ABI lives in `core/include/dologger_core.h` (e.g. `dologger_config_provider_vtable_t`, `dologger_key_provider_vtable_t`, and a single-callback Filter VTable); see the note in the [Plugin Development Guide](PluginDevelopmentGuide.md#c-abi-interface-specification).
+
 ## Table of Contents
 
 1. [Choosing the Right Plugin Type](#choosing-the-right-plugin-type)
@@ -48,7 +51,7 @@ flowchart TD
 **Table 1: Plugin Type Capability Matrix**
 
 | Plugin Type | Can Drop Records? | Can Modify Records? | Ring Access (Write) | Pipeline Stage |
-|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|
 | `Filter` | **Yes** | No | None (read-only) | 1 |
 | `PolicyProvider` | **Yes** (rate limit) | No | None (read-only) | 0 |
 | `FieldProvider` | No | **Yes** | Ring 2 (Blue/Yellow) or Ring 3 (Red) | 2 |
@@ -172,6 +175,8 @@ typedef dologger_error_t (*dologger_key_rotate_fn_t)(
 Some backends serve both purposes. For example, HashiCorp Vault can store both configuration and signing keys:
 
 ```toml
+# (illustrative — the v0.1.0 engine does not read a [plugins] section from
+# dologger.toml)
 [plugins.vault-config]
 type = "config_provider"
 path = "/usr/lib/dologger/plugins/libvault_config.so"
@@ -468,6 +473,7 @@ dologger_error_t quota_evaluate(
 Plugins that depend on other plugins declare this in `manifest.toml`:
 
 ```toml
+# (illustrative — planned schema; v0.1.0 parses [plugin]/[plugin.trust]/[capabilities]/[licenses] only)
 [dependencies]
 requires_fields = ["verified.user_id", "host.name"]
 requires_plugins = [
@@ -478,7 +484,7 @@ requires_plugins = [
 
 ### Dependency Resolution
 
-The engine resolves dependencies as a Directed Acyclic Graph (DAG) at startup:
+The engine resolves dependencies as a Directed Acyclic Graph (DAG) at startup (pseudocode — illustrative):
 
 ```
 1. Parse all [dependencies] sections from loaded plugins
@@ -523,6 +529,7 @@ Circular dependencies are treated as a security concern -- they could be used to
 Optional dependencies allow a plugin to function with or without another plugin:
 
 ```toml
+# (illustrative — planned schema)
 [dependencies]
 requires_plugins = [
     { name = "json-formatter", version = ">=2.0, <3.0", optional = true }
@@ -536,7 +543,7 @@ When an optional dependency is not present:
 
 ### Dependency Version Conflicts
 
-When two plugins require conflicting versions of a third:
+When two plugins require conflicting versions of a third (illustrative example):
 
 ```
 Plugin A requires json-formatter >= 1.0, < 2.0
@@ -545,7 +552,7 @@ Plugin B requires json-formatter >= 2.0, < 3.0
 Result: CONFLICT
 ```
 
-The engine **rejects the configuration** with a clear error message:
+The engine **rejects the configuration** with a clear error message (illustrative example output):
 
 ```
 [ERROR] Dependency conflict:
@@ -580,7 +587,7 @@ dologger_error_t plugin_state_serialize(dologger_state_buf_t *out) {
     // Serialize your state into out->data
     // out->capacity is the max buffer size
     // Set out->length to the actual bytes written
-    // Return DO_LOG_ERR_BUF_TOO_SMALL if capacity is insufficient
+    // Return DO_LOG_ERR_BUFFER_TOO_SMALL if capacity is insufficient
 }
 
 dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
@@ -615,7 +622,7 @@ typedef struct {
 dologger_error_t plugin_state_serialize(dologger_state_buf_t *out) {
     size_t needed = sizeof(RateLimiterState);
     if (out->capacity < needed) {
-        return DO_LOG_ERR_BUF_TOO_SMALL;
+        return DO_LOG_ERR_BUFFER_TOO_SMALL;
     }
     memcpy(out->data, &g_state, needed);
     out->length = needed;
@@ -662,7 +669,8 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
 
 ### Hot Reload Lifecycle
 
-```
+```text
+(pseudocode — illustrative lifecycle)
 1. Engine detects new plugin binary (config change or SIGHUP)
 2. Calls plugin_state_serialize() on the OLD plugin
 3. Calls plugin_shutdown() on the OLD plugin
@@ -686,6 +694,8 @@ A single plugin binary can register in multiple pipeline phases by exporting mul
 ### Declaring Multi-Phase in manifest.toml
 
 ```toml
+# (illustrative — the manifest keys are real, but multi-phase mounting is not
+# yet supported by the v0.1.0 engine)
 [plugin]
 name = "pii-guardian"
 version = "1.0.0"
@@ -790,6 +800,7 @@ if (user_id) {
 Cooperative plugins should declare their inter-dependency:
 
 ```toml
+# (illustrative — planned schema)
 # plugin-b/manifest.toml
 [dependencies]
 requires_fields = ["verified.user_id"]    # Plugin A provides this

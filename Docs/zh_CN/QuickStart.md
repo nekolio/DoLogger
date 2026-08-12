@@ -1,6 +1,6 @@
 # DoLogger 快速开始指南
 
-> **版本**: v0.2.0 | **最后更新**: 2026-08-12 | **目标受众**: 新用户
+> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 新用户
 >
 > **用途**: 5 分钟上手 DoLogger。无需任何先验知识。
 >
@@ -45,7 +45,7 @@
 
 ```bash
 git clone https://github.com/Nekolio/DoLogger.git
-cd dologger
+cd DoLogger
 cargo build --release
 ```
 
@@ -71,44 +71,71 @@ enable_signature = false
 ### 步骤 3：开始记录日志（10 秒）
 
 ```bash
-./target/release/dologctl run
+./target/release/dologctl run --trace
 ```
 
-您应看到引擎横幅和随后的日志输出：
+`--trace` 模式启动引擎并提交 10 条跟踪记录，逐条报告管道阶段计时（v0.1.0 的长驻前台模式为 M3+）。典型输出：
 
 ```text
-   ___       __
-  / _ \___  / /  ___  ___ ____ ____ ____
- / // / _ \/ /__/ _ \/ _ `/ _ `/ -_) __/
-/____/\___/____/\___/\_, /\_, /\__/_/
-                    /___//___/
+Configuration file: dologger.toml (auto-detected)
+DoLogger Engine — Trace Run
+──────────────────────────────
 
-[2026-08-12T14:30:00.123Z] INFO  DoLogger engine started (profile: dev, level: DEBUG)
+Initializing engine...
+Engine ready.  Submitting 10 trace records...
+
+[1786561486.685] [INFO] [1] Application started successfully
+[1786561486.685] [INFO] [1] Processing incoming request
+[1786561486.685] [INFO] [1] Database connection pool initialized (32 connections)
+[1786561486.686] [INFO] [1] Cache miss for key 'user:session:abc123'
+[1786561486.686] [INFO] [1] Request completed in 45ms — status 200 OK
+  [ 1] push=300 ns  e2e=529.2 µs  Application started successfully
+  [ 2] push=200 ns  e2e=19.7 µs  Processing incoming request
+  ...
+
+Trace Summary
+─────────────
+  Records processed:  10
 ```
+
+提示：不带任何参数运行 `./target/release/dologctl`（或 `dologctl version`）可看到引擎横幅。
 
 ### 步骤 4：运行示例（可选）
 
 要查看 DoLogger 处理真实应用程序日志，使用内置示例：
 
 ```bash
-cargo run --example simple_logger -- --config dologger.toml
+cargo run --example simple_logger
 ```
 
-输出：
+示例向控制台 Sink 提交 10,000 条记录。输出：
 
 ```text
-[2026-08-12T14:30:01.000Z] INFO  Hello from DoLogger example application
-[2026-08-12T14:30:01.001Z] WARN  This is a warning message
-[2026-08-12T14:30:01.002Z] ERROR An error occurred: simulated failure
+=== DoLogger Simple Logger Example ===
+
+Config: level=DEBUG, profile=Dev, buffer=65536, batch=32
+
+[1786561526.072] [TRACE] [1] Log message #0: Hello from DoLogger!
+[1786561526.072] [DEBUG] [1] Log message #1: Hello from DoLogger!
+[1786561526.072] [INFO]  [1] Log message #2: Hello from DoLogger!
+[1786561526.072] [WARN]  [1] Log message #3: Hello from DoLogger!
+[1786561526.072] [ERROR] [1] Log message #4: Hello from DoLogger!
+...
+Submitted 10000 records in 6.1ms (1635136 records/sec)
+
+=== Complete: 10000 records in 306ms ===
 ```
 
 ### 步骤 5：验证日志文件
 
+要验证文件输出，运行写入 `dologger_output.log` 的 file_logger 示例：
+
 ```bash
+cargo run --example file_logger
 cat dologger_output.log
 ```
 
-记录由 File Sink 写入到 `dologger_output.log`（每条记录一行 JSON）。
+记录由 FileSink 写入到 `dologger_output.log`（每条记录一行：`[时间戳] [级别] [进程] 消息`）。
 
 ---
 
@@ -201,14 +228,14 @@ dologctl config validate --config dologger.toml --strict
 # 列出已加载的插件
 dologctl plugin list
 
-# 检查引擎健康状态（需要运行中的引擎）
-curl http://127.0.0.1:9090/status
+# 检查引擎健康状态（需要运行中的引擎；v0.1.0 控制面尚未启用 — 示意）
+# curl http://127.0.0.1:9090/status
 
-# 验证 Ed25519 审计链
-dologctl verify-log --path /var/lib/dologger/audit/
+# 验证审计链（对单个 SIF/WORM 文件）
+dologctl verify-log audit-000001.worm
 
-# 收集诊断报告
-dologctl diag collect --output diag-report.tar.gz
+# 收集诊断报告（伪代码 — 该子命令在 v0.1.0 尚不存在）
+# dologctl diag collect --output diag-report.tar.gz
 ```
 
 ### 故障排查

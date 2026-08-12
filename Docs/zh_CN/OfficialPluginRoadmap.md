@@ -6,6 +6,8 @@ DoLogger 引擎附带一组精选的官方插件——类似于语言的标准�
 
 ## 插件类型与管道位置
 
+（示意图 — 非命令/代码）：
+
 ```
 PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4) → Formatting(5) → Sink(6)
 ```
@@ -166,6 +168,8 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 社区驱动，配官方参考实现。
 
 ### 插件 Crate 模板
+
+（目录结构示意 — 规划中的官方插件布局）：
 
 ```text
 plugins/official/fmt_json/

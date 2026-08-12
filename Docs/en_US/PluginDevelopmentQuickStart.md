@@ -28,6 +28,8 @@
 
 Understanding the full compilation chain is essential for debugging build issues:
 
+(illustrative diagram):
+
 ```mermaid
 flowchart LR
     W["DEVELOPER WORKFLOW<br/>1. bash scripts/setup-conan.sh (install C libraries)<br/>2. bash scripts/build-all.sh (build everything)<br/>Under the hood, build-all.sh runs:"] --> A
@@ -67,8 +69,8 @@ One-command setup:
 # Linux / macOS
 bash scripts/dologger-setup-dev
 
-# Windows (PowerShell)
-pwsh scripts/dologger-env-check.ps1
+# Windows (the env check is a bash script — run it from Git Bash)
+bash scripts/dologger-env-check
 ```
 
 ---
@@ -96,6 +98,8 @@ We will create a Filter plugin that drops messages below a minimum severity leve
 
 ### Step 1: Directory Structure
 
+(illustrative layout):
+
 ```text
 plugins/examples/filter/c/my_filter/
 ├── CMakeLists.txt
@@ -105,48 +109,75 @@ plugins/examples/filter/c/my_filter/
 
 ### Step 2: Write the Plugin
 
-**my_filter.c** — implements the DoLogger Filter VTable:
+**my_filter.c** — implements the DoLogger Filter VTable (this is the pattern used by the verified example at `plugins/examples/filter/c/example_filter/`):
 
 ```c
-#include "dologger_core.h"   // C ABI header from core/include/
+#include "dologger_core.h"   /* C ABI header from core/include/ */
 
-// Plugin state
-static uint32_t g_min_level = DO_LOG_LEVEL_WARN;
+#include <stdlib.h>          /* strtol */
+#include <string.h>          /* strlen */
 
-// VTable filter function
-// Returns 0 to keep the record, non-zero to drop it.
-static int my_filter_fn(const void *record, void *config) {
-    uint32_t level = dologger_record_level(record);
-    return (level < g_min_level) ? 1 : 0;
-}
+/* Plugin state */
+static int g_min_level = DO_LOG_WARN;
 
-// ── C ABI exports ──────────────────────────────────────────
+/* VTable filter function
+ * Returns 0 to keep the record, non-zero to drop it. */
+static int my_filter_fn(const dologger_record_handle_t *rec, void *config)
+{
+    (void)rec;   /* level is passed via config in this example */
 
-// Called once at load time. Returns plugin identity + VTable.
-DO_LOG_EXPORT const dologger_plugin_info_t *plugin_query(void) {
-    static dologger_filter_vtable_t vtable = { .filter = my_filter_fn };
-    static dologger_plugin_info_t info = {
-        .name        = "my-filter",
-        .version     = 0x000100,
-        .abi_version = DO_LOG_CORE_ABI_VERSION,
-        .phase       = DO_LOG_PHASE_FILTER,
-        .trust_level = DO_LOG_TRUST_RED,   // dev mode, no signature
-        .vtable      = &vtable,
-    };
-    return &info;
-}
-
-// Called after plugin_query, before first filter call.
-DO_LOG_EXPORT int plugin_init(const char *config_json) {
-    // config_json: {"min_level": 3}  (3 = WARN)
-    if (config_json) {
-        // Parse JSON and set g_min_level
+    if (config == NULL) {
+        return 0;   /* no level info -- drop */
     }
+
+    int record_level = *(const int *)config;
+    return (record_level < g_min_level) ? 1 : 0;
+}
+
+/* ── C ABI exports ────────────────────────────────────────── */
+
+static dologger_filter_vtable_t g_vtable = { .filter = my_filter_fn };
+
+static dologger_plugin_info_t g_plugin_info = {
+    .name        = "my-filter",
+    .version     = 0x000100,               /* 0.1.0 packed (major.minor.patch) */
+    .abi_version = 0x000100,               /* core ABI this plugin targets */
+    .phase       = DO_LOG_PHASE_FILTER,    /* 0x0002 */
+    .vtable      = &g_vtable,
+};
+
+/* Called once at load time. Returns plugin identity + VTable. */
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version)
+{
+    (void)core_abi_version;   /* production plugins check compatibility here */
+    return &g_plugin_info;
+}
+
+/* Called after plugin_query, before the first filter call.
+ * config: decimal string of the minimum level, e.g. "3" for WARN. */
+int plugin_init(const void *config)
+{
+    if (config == NULL) {
+        return DO_LOG_OK;   /* keep default */
+    }
+
+    const char *str = (const char *)config;
+    char *endptr = NULL;
+    long val = strtol(str, &endptr, 10);
+
+    if (endptr == str) {
+        return -1;   /* parse error */
+    }
+    if (val < DO_LOG_TRACE) val = DO_LOG_TRACE;
+    if (val > DO_LOG_AUDIT) val = DO_LOG_AUDIT;
+
+    g_min_level = (int)val;
     return DO_LOG_OK;
 }
 
-// Called before library unload.
-DO_LOG_EXPORT int plugin_shutdown(void) {
+/* Called before library unload. */
+int plugin_shutdown(void)
+{
     return DO_LOG_OK;
 }
 ```
@@ -194,6 +225,8 @@ Output: `build/plugins/my_filter/my_filter.so` (or `.dll` on Windows)
 
 Identical structure to C but with `extern "C"` for exported symbols:
 
+(pseudocode — abbreviated sketch, not compiled; see the C walkthrough above and `plugins/examples/formatter/cpp/` for a complete buildable example):
+
 ```cpp
 #include "dologger_core.h"
 #include <string>
@@ -236,44 +269,99 @@ Go plugins use `cgo` (`import "C"`) to export C ABI symbols. No CMake required.
 package main
 
 /*
-#include "dologger_core.h"
+#include <stdint.h>
+#include <stdlib.h>
 
-typedef struct { int (*filter)(const void*, void*); } my_filter_vtable_t;
-extern int goFilter(const void*, void*);
+// These structs must match dologger_core.h byte-for-byte:
+// field order: name, version, abi_version, phase, vtable.
+typedef struct dologger_plugin_info {
+	const char *name;
+	uint32_t    version;
+	uint32_t    abi_version;
+	uint32_t    phase;
+	void       *vtable;
+} dologger_plugin_info_t;
 
-static my_filter_vtable_t vtable = { .filter = goFilter };
+// filter(rec, config): 0 = keep the record, non-zero = drop it.
+typedef struct dologger_filter_vtable {
+	int (*filter)(const void *rec, void *config);
+} dologger_filter_vtable_t;
+
+extern int go_filter_impl(const void *rec, void *config);
+
+static dologger_filter_vtable_t go_filter_vtable = {
+	.filter = go_filter_impl
+};
 */
 import "C"
-import "unsafe"
+
+import (
+	"sync/atomic"
+	"unsafe"
+)
+
+// Constants — must match dologger_core.h
+const (
+	levelTrace uint32 = 0
+	levelWarn  uint32 = 3
+	levelAudit uint32 = 6
+
+	phaseFilter    uint32 = 0x0002 // DO_LOG_PHASE_FILTER
+	pluginVersion  uint32 = 0x000100
+	coreAbiVersion uint32 = 0x000100
+)
+
+// minLevel: records with level >= minLevel are kept. Default: WARN.
+var minLevel atomic.Uint32
+
+func init() {
+	minLevel.Store(levelWarn)
+}
+
+var pluginNameC = C.CString("go-my-filter")
+
+func makePluginInfo() *C.dologger_plugin_info_t {
+	info := (*C.dologger_plugin_info_t)(C.malloc(C.size_t(unsafe.Sizeof(C.dologger_plugin_info_t{}))))
+	info.name = pluginNameC
+	info.version = C.uint32_t(pluginVersion)
+	info.abi_version = C.uint32_t(coreAbiVersion)
+	info.phase = C.uint32_t(phaseFilter)
+	info.vtable = unsafe.Pointer(&C.go_filter_vtable)
+	return info
+}
 
 //export plugin_query
-func plugin_query() *C.dologger_plugin_info_t {
-    info := (*C.dologger_plugin_info_t)(C.malloc(C.size_t(unsafe.Sizeof(C.dologger_plugin_info_t{}))))
-    info.name = C.CString("go-filter")
-    info.version = 0x000100
-    info.abi_version = C.DO_LOG_CORE_ABI_VERSION
-    info.phase = C.DO_LOG_PHASE_FILTER
-    info.vtable = unsafe.Pointer(&C.vtable)
-    return info
+func plugin_query(coreAbiVersion C.uint32_t) *C.dologger_plugin_info_t {
+	_ = coreAbiVersion // production plugins check compatibility here
+	return makePluginInfo()
 }
 
 //export plugin_init
-func plugin_init(config *C.char) C.int {
-    return C.int(0)
+func plugin_init(config unsafe.Pointer) C.int {
+	// config: decimal string of the minimum level, e.g. "3" for WARN
+	if config != nil {
+		// parse the string and minLevel.Store(parsed)
+	}
+	return C.int(0)
 }
 
 //export plugin_shutdown
 func plugin_shutdown() C.int {
-    return C.int(0)
+	minLevel.Store(levelWarn)
+	return C.int(0)
 }
 
-//export goFilter
-func goFilter(rec unsafe.Pointer, cfg unsafe.Pointer) C.int {
-    level := C.dologger_record_level(rec)
-    if level < C.DO_LOG_LEVEL_WARN {
-        return 1 // drop
-    }
-    return 0 // pass
+//export go_filter_impl
+func go_filter_impl(rec unsafe.Pointer, config unsafe.Pointer) C.int {
+	// config is passed as a pointer to the record's level (uint32)
+	if config == nil {
+		return 0 // allow all if no level info
+	}
+	recordLevel := *(*uint32)(config)
+	if recordLevel < minLevel.Load() {
+		return 1 // drop
+	}
+	return 0 // pass
 }
 
 func main() {}
@@ -297,6 +385,8 @@ bash scripts/build-plugins.sh --filter go
 ## Cross-Platform Compilation
 
 ### The Problem
+
+(illustrative scenario):
 
 ```
 Developer A (macOS ARM):  clang + libc++
@@ -352,7 +442,7 @@ cp .conan/profiles/linux-gcc-x86_64 .conan/profiles/linux-gcc-arm64
 
 ## Linking Against the Rust Core
 
-All plugins link against **one header file**:
+All plugins link against **one header file** (illustrative path):
 
 ```
 core/include/dologger_core.h
@@ -365,10 +455,10 @@ This header declares:
 | **Types** | `dologger_plugin_info_t`, `dologger_filter_vtable_t`, `dologger_formatter_vtable_t`, ... |
 | **Error codes** | `DO_LOG_OK`, `DO_LOG_ERR_INVALID_ARG`, `DO_LOG_ERR_NOT_SUPPORTED`, ... |
 | **Phase constants** | `DO_LOG_PHASE_FILTER`, `DO_LOG_PHASE_FORMATTING`, `DO_LOG_PHASE_SINK`, ... |
-| **Trust levels** | `DO_LOG_TRUST_BLUE`, `DO_LOG_TRUST_YELLOW`, `DO_LOG_TRUST_RED` |
-| **Log levels** | `DO_LOG_LEVEL_TRACE` through `DO_LOG_LEVEL_AUDIT` |
-| **Record accessors** | `dologger_record_level()`, `dologger_record_message()`, ... |
-| **ABI version** | `DO_LOG_CORE_ABI_VERSION` (packed uint32) |
+| **Trust levels** | *(planned — sandbox trust levels land in M4)* |
+| **Log levels** | `DO_LOG_TRACE` through `DO_LOG_AUDIT` |
+| **Record accessors** | `dologger_field_get()`, `dologger_field_set()`, ... |
+| **ABI version** | `abi_version` field of `dologger_plugin_info_t` (e.g. `0x000100` for v0.1.0) |
 
 ### Plugin ABI Contract
 
@@ -376,10 +466,10 @@ Every plugin MUST export exactly these three symbols:
 
 ```c
 // 1. Identity + VTable — called once at load
-const dologger_plugin_info_t *plugin_query(void);
+dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
 
 // 2. Configuration — called after plugin_query, before first use
-int plugin_init(const char *config_json);
+int plugin_init(const void *config);
 
 // 3. Cleanup — called before library unload
 int plugin_shutdown(void);
@@ -388,6 +478,8 @@ int plugin_shutdown(void);
 The engine discovers all plugin functions through the VTable pointer returned by `plugin_query()`. There is no dynamic symbol lookup at runtime — only the three entry points are `dlsym`'d / `GetProcAddress`'d.
 
 ### Memory Model
+
+(illustrative diagram):
 
 ```mermaid
 flowchart TD
@@ -435,6 +527,8 @@ PKG_CONFIG_PATH=$PKG_CONFIG_PATH
 
 ### How Profiles Are Selected
 
+(illustrative diagram):
+
 ```mermaid
 flowchart TD
     A["bash scripts/setup-conan.sh"] --> B{"--profile <name> provided?"}
@@ -454,9 +548,9 @@ flowchart TD
 |:-:|:-:|:-:|
 | `cmake: include could not find load file: conan_toolchain.cmake` | Conan hasn't been run | `bash scripts/setup-conan.sh` |
 | `fatal error: dologger_core.h: No such file` | Include path wrong | Check `target_include_directories` in CMakeLists.txt |
-| `undefined reference to dologger_record_level` | Trying to link (don't!) | Plugins never link against core — use VTable only |
+| `undefined reference to dologger_field_get` | Trying to link (don't!) | Plugins never link against core — use VTable only |
 | `go build: import "C" requires cgo` | CGO_ENABLED not set | `export CGO_ENABLED=1` or `$env:CGO_ENABLED=1` |
-| `plugin_query symbol not found` (runtime) | Missing `DO_LOG_EXPORT` or `//export` | Ensure symbol visibility (GCC: `-fvisibility=default`, Go: `//export`) |
+| `plugin_query symbol not found` (runtime) | Missing export declaration (`//export` in Go) or hidden symbols | Ensure symbol visibility (GCC: `-fvisibility=default`, Go: `//export`) |
 | `conan: command not found` | Conan not installed | `pipx install conan` (isolated) or `pip install conan` |
 | `librdkafka/2.8.0: not found in remote` | Conan center not configured | `conan remote add conancenter https://center.conan.io` |
 

@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](OperationsManual.md) | [中文：运维手册](../../zh_CN/guides/OperationsManual.md)
 
-> **Version**: v0.2.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE / Operations Engineers
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE / Operations Engineers
 >
 > **Purpose**: This document covers the day-to-day operation of DoLogger in production environments — deployment, configuration management, performance tuning, monitoring, log lifecycle management, backup and disaster recovery, security operations, and incident response procedures.
 >
@@ -44,7 +44,8 @@
 
 **Linux:**
 
-```
+```text
+(illustrative layout)
 /etc/dologger/
   default.toml                  # System-wide default configuration
   conf.d/                       # Drop-in configuration fragments
@@ -75,7 +76,8 @@
 
 **Windows:**
 
-```
+```text
+(illustrative layout)
 %PROGRAMDATA%\dologger\
   default.toml
   conf.d\
@@ -91,18 +93,24 @@
 
 ### Installation
 
+> [!NOTE]
+> OS packages are not published yet — the commands below are illustrative (planned packaging). Today, build from source (`cargo build --release`) and copy the artifacts manually.
+
 **Linux (APT):**
 ```bash
+# (illustrative — packages not yet published)
 sudo apt install dologger-core dologger-cli
 ```
 
 **Linux (RPM):**
 ```bash
+# (illustrative — packages not yet published)
 sudo dnf install dologger-core dologger-cli
 ```
 
 **Linux (manual tarball):**
 ```bash
+# (illustrative — build from source today: cargo build --release)
 tar xzf dologger-0.1.0-linux-x86_64.tar.gz
 cd dologger-0.1.0-linux-x86_64
 sudo cp libdologger_core.so /usr/lib/dologger/
@@ -113,6 +121,7 @@ sudo cp default.toml /etc/dologger/
 
 **macOS (Homebrew):**
 ```bash
+# (illustrative — formula not yet published)
 brew install dologger/tap/dologger
 ```
 
@@ -125,6 +134,7 @@ brew install dologger/tap/dologger
 ```toml
 # /etc/dologger/default.toml — Production baseline
 # Validate: dologctl config validate --config /etc/dologger/default.toml --strict
+# (this file passes lenient validation; --strict fails until signatures are on)
 
 [dologger]
 level = "INFO"
@@ -132,6 +142,8 @@ performance_profile = "prod-performance"
 ring_buffer_size = 262144       # MUST be a power of two
 batch_size = 256
 enable_signature = false        # Set true for audit deployments
+# The six domain-level non-downgradable items below are enforced by
+# DomainManager, not read from [dologger] in v0.1.0 — listed for completeness:
 escape_html = true              # Prevent CRLF / log injection
 worm_enabled = false            # Set true for compliance (GDPR, HIPAA, PCI DSS)
 fsync_on_write = false          # Set true for crash-safe durability
@@ -141,6 +153,8 @@ shutdown_policy = "graceful"
 shutdown_timeout_ms = 5000
 
 # ── Sink definitions ──────────────────────────────────────────────
+# (illustrative — v0.1.0 config parsing covers [dologger] keys only; sink
+# sections are wired per-pipeline in code, see core/src/sink/)
 
 [sinks.console]
 type = "sink_console"
@@ -202,23 +216,23 @@ path = "/usr/lib/dologger/plugins/libdrop_debug.so"
 | `DO_LOG_PERF_PROFILE`  | `performance_profile` | `DO_LOG_PERF_PROFILE=prod-audit` |
 | `DO_LOG_CONFIG_FILE`   | Config file path   | `DO_LOG_CONFIG_FILE=/opt/myapp/dologger.toml` |
 | `DO_LOG_PLUGIN_DIR`    | Plugin directory   | `DO_LOG_PLUGIN_DIR=/opt/myapp/plugins` |
-| `DO_LOG_CONFIG_LOCK`   | Lock config        | `DO_LOG_CONFIG_LOCK=1` |
-| `DO_LOG_SIGN_KEY`      | Signing key path   | `DO_LOG_SIGN_KEY=/secure/signing.key` |
-| `DO_LOG_VERIFY_KEY`    | Verification key   | `DO_LOG_VERIFY_KEY=/secure/verify.pub` |
+| `DO_LOG_CONFIG_LOCK`   | Prevent fallback config search (requires `DO_LOG_CONFIG_FILE`) | `DO_LOG_CONFIG_LOCK=1` |
 
 ### Configuration Validation
 
 Use `dologctl` to validate configuration before applying it:
 
 ```bash
-# Strict validation (rejects unknown keys, enforces types)
+# Strict validation (enforces non-downgradable security invariants)
 dologctl config validate --config /etc/dologger/default.toml --strict
 
+# (planned — the --compliance flag is not shipped in v0.1.0)
 # Validate with compliance profile
 dologctl config validate \
     --config /etc/dologger/default.toml \
     --compliance gdpr
 
+# (planned — no `config show` / `config diff` subcommands ship in v0.1.0)
 # Dry-run showing effective configuration after merge
 dologctl config show --effective
 
@@ -256,7 +270,7 @@ DoLogger ships pre-built configuration templates for regulated environments:
 | HIPAA              | `compliance/hipaa.toml`       | All non-downgradable security items |
 | PCI DSS            | `compliance/pci-dss.toml`     | All non-downgradable security items |
 
-Apply a compliance template:
+Apply a compliance template (illustrative — `config merge` is planned; today merge the TOML `[dologger]` sections yourself and then run `dologctl config validate --strict`):
 
 ```bash
 dologctl config merge \
@@ -279,6 +293,9 @@ dologctl config merge \
 | WORM enforcement      | Off           | Optional      | Optional           | **Required**  |
 | Batch size            | 32            | 128           | 256                | 128           |
 | Ring buffer size      | 65536         | 131072        | 262144             | 262144        |
+
+> [!NOTE]
+> Block timeout and drop strategy values are enforced by `core/src/pipeline/backpressure.rs`. Dev / prod-performance / prod-audit batch and ring sizes match the shipped config templates; the `balanced` values are illustrative (no shipped `balanced` template in v0.1.0).
 | Escape HTML           | Optional      | On            | On                 | **On**        |
 | fsync on write        | Off           | Off           | Optional           | **On**        |
 | Require TLS           | Off           | Warn-only     | On                 | **On**        |
@@ -324,6 +341,8 @@ Overrides are merged on top of the profile defaults. Non-downgradable items cann
 The System Monitor (`sysmon`) emits structured events to `stderr` by default. Each event is a single JSON line:
 
 ```json
+(illustrative — the real sysmon line format is:
+ {"sysmon_version":"1.0","error_code":0,"category":"engine","description":"...","timestamp_ms":...,"severity":1})
 {"ts":"2026-08-12T14:30:00.123Z","level":"WARN","event":"PIPELINE_BACKLOG","pct":72,"buf_name":"main"}
 ```
 
@@ -352,6 +371,9 @@ curl -s http://127.0.0.1:9090/status | jq .
 ```
 
 ```json
+(illustrative — the v0.1.0 /status response is smaller:
+ {"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false};
+ the rich metrics body below is planned)
 {
   "status": "ok",
   "uptime_seconds": 86412,
@@ -398,7 +420,7 @@ curl -s http://127.0.0.1:9090/status | jq .
 ### Prometheus Integration (M4)
 
 ```yaml
-# prometheus.yml scrape config (planned M4)
+# prometheus.yml scrape config (illustrative — planned M4)
 scrape_configs:
   - job_name: 'dologger'
     static_configs:
@@ -410,7 +432,8 @@ scrape_configs:
 
 Ship sysmon events to your centralized logging platform (Elasticsearch, Loki, Splunk) and configure alerts:
 
-```
+```text
+(illustrative alert rule sketch, not literal query syntax)
 # Elasticsearch alert query example
 event: "SIGNATURE_FAILURE" OR event: "SANDBOX_VIOLATION"
   → PagerDuty: critical
@@ -434,7 +457,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 | Method | Path       | Auth | Description |
 |:-:|:-:|:-:|:-:|
 | GET    | `/status`  | None | Engine status and metrics (see above) |
-| GET    | `/health`  | None | Liveness check: returns 200 if the engine is running |
+| GET    | `/health`  | None | Liveness check (planned — not implemented in v0.1.0) |
 | POST   | `/level`   | None | Dynamically set the log level |
 | POST   | `/reload`  | None | Trigger configuration reload |
 
@@ -462,6 +485,7 @@ curl -s http://127.0.0.1:9090/status | jq .level
 curl -X POST http://127.0.0.1:9090/reload
 
 # Dry-run: validate the pending changes without applying
+# (planned — v0.1.0 ignores the /reload request body)
 curl -X POST http://127.0.0.1:9090/reload \
   -H "Content-Type: application/json" \
   -d '{"dry_run": true}'
@@ -477,7 +501,7 @@ curl -X POST http://127.0.0.1:9090/reload \
   sudo iptables -A INPUT -p tcp --dport 9090 -s 127.0.0.1 -j ACCEPT
   sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
   ```
-- The `DO_LOG_CONFIG_LOCK=1` environment variable disables the control plane `/reload` and `/level` endpoints entirely.
+- The `DO_LOG_CONFIG_LOCK=1` environment variable prevents fallback config search (the configured `DO_LOG_CONFIG_FILE` must exist).
 
 ---
 
@@ -488,6 +512,9 @@ curl -X POST http://127.0.0.1:9090/reload \
 File Sink supports both size-based and time-based rotation:
 
 ```toml
+# (illustrative — v0.1.0 FileSinkConfig has: path, max_size (bytes),
+# fsync_on_write, durability_level, buffer_size; time-based rotation,
+# compression, and file-count retention are planned)
 [sinks.file]
 type = "sink_file"
 path = "/var/log/dologger/app.log"
@@ -502,6 +529,7 @@ Rotation does not block log submission. A new file is opened while the old file 
 ### Retention Policies
 
 ```toml
+# (illustrative — retention policy keys are planned, not parsed in v0.1.0)
 [sinks.file]
 retention_days = 90             # Delete files older than 90 days
 retention_total_size = "10GB"   # Delete oldest files when total exceeds 10 GB
@@ -522,6 +550,7 @@ Retention is checked once per rotation. If both `retention_days` and `retention_
 **Automated tiering (planned M4):**
 
 ```toml
+# (planned — illustrative schema)
 [sinks.file.tiering]
 enabled = true
 warm_storage = "/data/dologger/warm/"
@@ -540,9 +569,13 @@ ls -la /var/lib/dologger/audit/
 # -r-------- 1 root root 104857600 Aug 12 00:00 audit-000001.worm
 # -r-------- 1 root root  52428800 Aug 12 12:00 audit-000002.worm
 
-# Verify audit chain integrity
-dologctl verify-log --path /var/lib/dologger/audit/
+# Verify a single WORM file's chain (verify-log takes a file path)
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
+# Or report LSN continuity across all *.worm files in a directory
+dologctl recovery-report /var/lib/dologger/audit/
+
+# (planned — no `dologctl audit export` ships in v0.1.0)
 # Export audit records to JSON for analysis
 dologctl audit export \
     --path /var/lib/dologger/audit/ \
@@ -560,15 +593,16 @@ dologctl audit export \
 
 ```bash
 # Verify integrity before backup
-dologctl verify-log --path /var/lib/dologger/audit/
+dologctl recovery-report /var/lib/dologger/audit/
 
 # If verification passes, rsync to backup location
 rsync -avz \
     /var/lib/dologger/audit/ \
     backup-server:/backups/dologger/$(hostname)/audit/
 
+# (planned — the --latest-lsn-only flag and anchor publish do not ship in v0.1.0)
 # Record the last verified LSN for external anchoring
-dologctl verify-log --path /var/lib/dologger/audit/ --latest-lsn-only
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
 # {"latest_lsn": 100042,"root_hash": "a3f8b2c1..."}
 
 # Publish root hash to an external witness (S3 object metadata, blockchain anchor, etc.)
@@ -577,10 +611,10 @@ dologctl verify-log --path /var/lib/dologger/audit/ --latest-lsn-only
 
 ### Emergency Buffer Recovery
 
-When the ring buffer overflows, records are spilled to an emergency file on disk:
+When the ring buffer overflows, records are spilled to an emergency file on disk (in the system temp directory — see `core/src/buffer/emergency_buffer.rs`):
 
-```
-dologger_emergency_<pid>_<timestamp>.buf
+```text
+dologger_emergency_<pid>.buf
 ```
 
 On recovery (when the ring buffer has free space):
@@ -593,11 +627,12 @@ On recovery (when the ring buffer has free space):
 **Manual recovery:**
 
 ```bash
-# Check for abandoned emergency files
-ls -la /var/log/dologger/dologger_emergency_*.buf
+# Check for abandoned emergency files (system temp directory, e.g. /tmp or %TEMP%)
+ls -la /tmp/dologger_emergency_*.buf
 
-# If the engine is running and the file persists, check ring buffer status
-curl http://127.0.0.1:9090/status | jq .ring_buffer
+# If the engine is running and the file persists, check engine status
+# (the v0.1.0 /status response has no ring_buffer object yet)
+curl http://127.0.0.1:9090/status
 
 # If the engine crashed, the emergency file will be replayed on next startup
 ```
@@ -608,6 +643,7 @@ curl http://127.0.0.1:9090/status | jq .ring_buffer
 # Backup the active configuration
 cp /etc/dologger/default.toml /backups/dologger/config-$(date +%Y%m%d).toml
 
+# (planned — no `config show` subcommand ships in v0.1.0)
 # Backup with dologctl (includes merged effective config)
 dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).toml
 ```
@@ -653,6 +689,7 @@ Ed25519 key pairs for log signing are managed by the `KeyProvider` plugin:
 - **Production**: Deploy an external `KeyProvider` backed by HSM (Hardware Security Module), AWS KMS, or HashiCorp Vault. This ensures key persistence across restarts and hardware-backed key protection.
 
 ```toml
+# (illustrative — plugin config sections are not parsed in v0.1.0)
 [plugins.hsm-key-provider]
 type = "key_provider"
 path = "/usr/lib/dologger/plugins/libhsm_keyprovider.so"
@@ -665,7 +702,7 @@ key_label = "dologger-signing-key"
 
 ### Audit Trail Tamper Detection
 
-The LSN (Log Sequence Number) chain provides cryptographic tamper evidence:
+The LSN (Log Sequence Number) chain provides cryptographic tamper evidence (pseudocode — illustrative):
 
 ```
 Record(N):
@@ -684,9 +721,10 @@ If any record is modified, inserted, or deleted, the `prev_hash` chain breaks an
 **Verification command:**
 
 ```bash
-dologctl verify-log --path /var/lib/dologger/audit/ --verbose
+# (--verbose is planned; v0.1.0 verify-log takes the file path positionally)
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
-# Output:
+# (illustrative example output)
 # [OK]     LSN 000001 — signature valid
 # [OK]     LSN 000002 — signature valid
 # [GAP]    LSN 000003 — missing (expected, found LSN 000004)
@@ -725,6 +763,7 @@ dologctl verify-log --path /var/lib/dologger/audit/ --verbose
 3. **Identify bottleneck**: Sink health status — is a sink in `circuit_open` state?
 4. **Mitigation**:
    ```bash
+   # (planned — no /sink/disable endpoint ships in v0.1.0)
    # If a sink is circuit-open and non-critical, disable it
    curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
@@ -745,7 +784,8 @@ dologctl verify-log --path /var/lib/dologger/audit/ --verbose
 
 1. **Isolate**: Identify the affected LSN range.
    ```bash
-   dologctl verify-log --path /var/lib/dologger/audit/ --verbose 2>&1 | grep FAIL
+   # (--verbose is planned)
+   dologctl verify-log /var/lib/dologger/audit/audit-000001.worm 2>&1 | grep FAIL
    ```
 2. **Assess**: Determine if this is a single-record corruption (disk error) or systematic tampering.
 3. **Investigate**:
@@ -764,7 +804,7 @@ dologctl verify-log --path /var/lib/dologger/audit/ --verbose
 
 **Response:**
 
-1. **Identify**: The sysmon event contains the plugin name and syscall attempted.
+1. **Identify**: The sysmon event contains the plugin name and syscall attempted (illustrative example).
    ```json
    {"event":"SANDBOX_VIOLATION","plugin":"untrusted-plugin","syscall":"fork","action":"KILL"}
    ```
@@ -806,7 +846,9 @@ dologctl verify-log --path /var/lib/dologger/audit/ --verbose
 After any incident, collect a diagnostic report:
 
 ```bash
-dologctl diag collect --output post-incident-$(date +%Y%m%d-%H%M%S).tar.gz
+# (`dologctl diag collect` is planned; gather the pieces manually today)
+dologctl about --output json > post-incident-$(date +%Y%m%d-%H%M%S).json
+dologctl config validate --strict
 ```
 
 Review the collected data alongside the sysmon event timeline to identify root cause and preventive measures.

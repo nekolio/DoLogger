@@ -25,6 +25,9 @@ flowchart TD
 dologctl [GLOBAL OPTIONS] <COMMAND> [OPTIONS] [ARGUMENTS]
 ```
 
+> [!NOTE]
+> Usage synopses in `text` blocks throughout this document are **templates** (bracketed parts are placeholders), not literal commands. The `bash` blocks are literal examples verified against `dologctl <cmd> --help`.
+
 Global options may appear **anywhere** on the command line (before or after the subcommand):
 
 | Option | Values | Default | Description |
@@ -41,9 +44,9 @@ Global options may appear **anywhere** on the command line (before or after the 
 | Code | Name | Meaning |
 |:-:|:-:|:-:|
 | `0` | `EXIT_SUCCESS` | Command completed successfully |
-| `1` | `EXIT_ERR` | Generic error (I/O failure, invalid argument, plugin operation failed) |
+| `1` | `EXIT_ERR` | Generic error (I/O failure, invalid argument, plugin operation failed, missing or invalid config file passed to `config validate`) |
 | `2` | `EXIT_VERIFY_FAILED` | Verification failed — the data did **not** pass integrity validation |
-| `3` | `EXIT_CONFIG_ERR` | Configuration error — missing file, invalid TOML, or an invariant broken in `--strict` mode |
+| `3` | `EXIT_CONFIG_ERR` | Configuration error — strict-mode invariant violation, or a missing/invalid config file reached through `run --dry-run` |
 
 > [!NOTE]
 > Scripts should treat exit code `2` as "the log is untrustworthy" rather than "the command crashed". It is a verification result, not an operational error.
@@ -122,13 +125,16 @@ dologctl run --dry-run                      # same as config validate
 dologctl run --trace                        # per-record pipeline timings
 ```
 
+> [!NOTE]
+> In v0.1.0 the long-running engine startup path is not yet wired up: plain `dologctl run` exits `1` with `Engine startup not yet implemented (M3+)`. Use `--dry-run` for validation or `--trace` for a timed pipeline run.
+
 ---
 
 ## Plugins
 
 ### dologctl plugin install
 
-Install a plugin from a path or URL.
+Install a plugin from a local file path (`.dll`/`.so`/`.dylib`).
 
 ```text
 dologctl plugin install <source>
@@ -136,7 +142,6 @@ dologctl plugin install <source>
 
 ```bash
 dologctl plugin install ./target/release/fmt_json.dll
-dologctl plugin install https://plugins.example.com/fmt_json-v1.2.0.zip
 ```
 
 Installed plugins are verified (ABI version, trust colour, symbol resolution) before they can be loaded. See [Plugin Development Guide](PluginDevelopmentGuide.md) for the trust model.
