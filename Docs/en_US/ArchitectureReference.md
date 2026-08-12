@@ -232,6 +232,12 @@ Record(3):
   signature = Ed25519_Sign(secret_key, Ring0+Ring1 fields)
 ```
 
+| Record | LSN | prev_hash | signature |
+|:-:|:-:|:-:|:-:|
+| Record(1) | 1 | SHA-256(0x00...00) — Genesis block | Ed25519_Sign(secret_key, Ring0+Ring1) |
+| Record(2) | 2 | SHA-256(Record(1).signature \|\| Record(1).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
+| Record(3) | 3 | SHA-256(Record(2).signature \|\| Record(2).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
+
 ### Verification Algorithm
 
 (pseudocode — illustrative, not compiled; the shipped verifier is `dologctl verify-log`, see the [Operations & Security Guide](OperationsAndSecurity.md#audit-verification)):

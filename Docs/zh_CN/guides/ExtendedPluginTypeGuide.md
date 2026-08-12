@@ -695,7 +695,7 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
 
 （伪代码/示意 — 热重载生命周期步骤，规划中）：
 
-```
+```text
 1. 引擎检测到新插件二进制（配置变更或 SIGHUP）
 2. 在旧插件上调用 plugin_state_serialize()
 3. 在旧插件上调用 plugin_shutdown()

@@ -1,5 +1,7 @@
 # DoLogger Official Plugin Roadmap
 
+> **Version**: v0.1.0
+
 > 🌐 **语言 / Language**: [English](OfficialPluginRoadmap.md) | [中文：官方插件路线图](../zh_CN/OfficialPluginRoadmap.md)
 
 The DoLogger engine ships with a curated set of official plugins — analogous to

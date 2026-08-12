@@ -1,5 +1,7 @@
 # DoLogger 官方插件路线图
 
+> **版本**: v0.1.0
+
 > 🌐 **语言 / Language**: [中文](OfficialPluginRoadmap.md) | [English: DoLogger Official Plugin Roadmap](../en_US/OfficialPluginRoadmap.md)
 
 DoLogger 引擎附带一组精选的官方插件——类似于语言的标准库——覆盖最常见的日志记录、格式化、安全和可观测性需求。第三方插件在此基础上扩展以支持特定领域需求。

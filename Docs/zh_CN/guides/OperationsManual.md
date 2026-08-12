@@ -22,118 +22,428 @@
 
 ### 部署模式
 
+**表 1：部署模式对比**
+
 | 模式 | 说明 | 适用场景 |
 |:-:|:-:|:-:|
-| **嵌入式** | 动态库直接链接到宿主进程 | 低延迟，单进程服务 |
-| **边车 (Sidecar)** | 独立进程通过 sink_shm 接收日志 | 多语言微服务，运维隔离 |
-| **守护进程** | 系统级日志收集服务 | 传统 syslog 替代 |
+| **嵌入式** | 动态库直接链接到宿主进程。单一地址空间，延迟最低。 | 低延迟、单进程服务（如 Rust 微服务）。 |
+| **边车 (Sidecar)** | 独立进程，通过 `sink_shm` 共享内存接收一个或多个宿主进程的日志。 | 需要在应用与日志组件之间做运维隔离的多语言微服务。 |
+| **守护进程** | 系统级日志收集服务，通过本地套接字或共享内存接收日志。 | 传统 syslog 替代方案，适用于遗留应用。 |
+
+### 如何选择部署模式
+
+- **嵌入式**：当你能控制宿主进程二进制、且无法容忍 IPC 开销时使用。适用于 Rust 与 C 应用。
+- **边车 (Sidecar)**：当宿主应用使用的语言没有原生 DoLogger 适配器，或需要在应用与日志基础设施之间做进程级故障隔离时使用。
+- **守护进程**：用于跨多个应用的全系统日志收集，尤其在容器主机或裸金属服务器上。
 
 ### 文件布局
 
-（目录结构示意 — 非命令输出）：
+**Linux：**
 
+```text
+（布局示意）
+/etc/dologger/
+  default.toml                  # 系统全局默认配置
+  conf.d/                       # 追加配置片段
+    10-sinks.toml
+    20-plugins.toml
+
+/usr/lib/dologger/
+  plugins/                      # 系统插件目录
+  libdologger_core.so           # 核心引擎共享库
+
+/var/log/dologger/              # 日志输出目录
+  app.log                       # 当前日志文件
+  app.2026-08-12.log.zst        # 已滚动并压缩
+
+/var/lib/dologger/
+  audit/                        # WORM 审计日志存储
+    audit-000001.worm
+    audit-000002.worm
+  state/                        # 引擎状态（LSN 游标等）
+
+/dev/shm/
+  dologger_<name>.shm           # 共享内存段（sink_shm 模式）
+
+/run/dologger/
+  dologger.pid                  # PID 文件（守护进程模式）
+  control.sock                  # Unix 域套接字（守护进程模式）
 ```
-Linux:
-  /etc/dologger/default.toml        # 系统默认配置
-  /usr/lib/dologger/plugins/        # 系统插件目录
-  /var/log/dologger/                # 日志输出目录
-  /var/lib/dologger/audit/          # WORM 审计日志
-  /dev/shm/dologger_*.shm           # 共享内存 (sink_shm)
 
-Windows:
-  %PROGRAMDATA%\dologger\default.toml
-  %PROGRAMFILES%\dologger\plugins\
-  %LOCALAPPDATA%\dologger\logs\
+**Windows：**
+
+```text
+（布局示意）
+%PROGRAMDATA%\dologger\
+  default.toml
+  conf.d\
+
+%PROGRAMFILES%\dologger\
+  plugins\
+  dologger_core.dll
+
+%LOCALAPPDATA%\dologger\
+  logs\
+  audit\
+```
+
+### 安装
+
+> [!NOTE]
+> 操作系统软件包尚未发布 — 以下命令为示意（打包规划中）。当前请从源码构建（`cargo build --release`）并手动复制产物。
+
+**Linux（APT）：**
+```bash
+# （示意 — 软件包尚未发布）
+sudo apt install dologger-core dologger-cli
+```
+
+**Linux（RPM）：**
+```bash
+# （示意 — 软件包尚未发布）
+sudo dnf install dologger-core dologger-cli
+```
+
+**Linux（手动 tar 包）：**
+```bash
+# （示意 — 当前请从源码构建：cargo build --release）
+tar xzf dologger-0.1.0-linux-x86_64.tar.gz
+cd dologger-0.1.0-linux-x86_64
+sudo cp libdologger_core.so /usr/lib/dologger/
+sudo cp dologctl /usr/local/bin/
+sudo mkdir -p /etc/dologger /var/log/dologger /var/lib/dologger/audit
+sudo cp default.toml /etc/dologger/
+```
+
+**macOS（Homebrew）：**
+```bash
+# （示意 — formula 尚未发布）
+brew install dologger/tap/dologger
 ```
 
 ---
 
 ## 配置管理
 
-### 核心配置项
+### 核心配置文件
 
 ```toml
+# /etc/dologger/default.toml — 生产基线
+# 校验：dologctl config validate --config /etc/dologger/default.toml --strict
+# （该文件可通过宽松校验；在签名启用前 --strict 会失败）
+
 [dologger]
 level = "INFO"
-performance_profile = "prod-performance"    # dev/prod-performance/prod-audit/balanced
-ring_buffer_size = 262144                   # 必须是 2 的幂
+performance_profile = "prod-performance"
+ring_buffer_size = 262144       # 必须是 2 的幂
 batch_size = 256
-enable_signature = false                    # 生产审计环境设为 true
+enable_signature = false        # 审计部署时设为 true
+# 以下六项域级不可降级项由 DomainManager 强制执行，
+# 在 v0.1.0 中不读取自 [dologger] 段 — 此处仅为完整性列出：
+escape_html = true              # 防止 CRLF / 日志注入
+worm_enabled = false            # 合规场景设为 true（GDPR、HIPAA、PCI DSS）
+fsync_on_write = false          # 崩溃安全持久化设为 true
+require_tls = true              # 强制所有网络 Sink 使用 TLS
+sign_ring2 = false              # 设为 true 以签名受验证的扩展字段
 shutdown_policy = "graceful"
 shutdown_timeout_ms = 5000
+
+# --- Sink 定义 ---
+# （示意 — v0.1.0 的配置解析仅覆盖 [dologger] 键；Sink 段在代码中按管线接线，
+# 参见 core/src/sink/）
+
+[sinks.console]
+type = "sink_console"
+enabled = false                 # 生产环境禁用
+
+[sinks.file]
+type = "sink_file"
+enabled = true
+path = "/var/log/dologger/app.log"
+max_size = "100MB"
+rotation_interval = "24h"
+compression = "zstd"            # gzip | zstd | none
+retention_days = 90
+retention_total_size = "10GB"
+
+[sinks.syslog]
+type = "sink_syslog"
+enabled = false
+server = "syslog.internal:6514"
+protocol = "tcp"
+tls = true
+cert_file = "/etc/dologger/certs/syslog-client.pem"
+
+[sinks.kafka]
+type = "sink_kafka"
+enabled = false
+brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
+topic = "app-logs"
+tls = true
+sasl_mechanism = "SCRAM-SHA-256"
+
+# --- 插件定义 ---
+
+[plugins.json-formatter]
+type = "formatter"
+path = "/usr/lib/dologger/plugins/libjson_formatter.so"
+
+[plugins.drop-debug]
+type = "filter"
+path = "/usr/lib/dologger/plugins/libdrop_debug.so"
 ```
 
-### 性能 Profile 速查
+### 配置优先级（从低到高）
 
-| Profile | 适用场景 | AUDIT 签名 | 背压策略 |
-|:-:|:-:|:-:|:-:|
-| `dev` | 开发调试 | 关闭 | 100ms 超时 → drop_newest |
-| `prod-performance` | 高吞吐生产 | 可选 | 3s 超时 → below_warn |
-| `prod-audit` | 审计合规 | 强制开启 | 3s 超时 → below_warn |
-| `balanced` | 通用均衡 | 可选 | 2s 超时 → oldest |
+1. **硬编码默认值** — 编译进 `libdologger_core`。
+2. **系统配置** — `/etc/dologger/default.toml`
+3. **追加配置片段** — `/etc/dologger/conf.d/*.toml`（按字母顺序合并）
+4. **项目本地配置** — 当前工作目录下的 `dologger.toml`，向上逐级查找
+5. **环境变量** — `DO_LOG_LEVEL`、`DO_LOG_CONFIG_FILE` 等
+6. **运行时 API** — `dologger_config_load_from_string()`
+7. **不可降级项** — 绝对硬限制（任何更低层都无法放宽）
 
 ### 环境变量
 
-| 变量 | 说明 |
-|:-:|:-:|
-| `DO_LOG_LEVEL` | 覆盖日志级别 |
-| `DO_LOG_BUF_SIZE` | 覆盖环形缓冲区大小 |
-| `DO_LOG_PERF_PROFILE` | 覆盖性能 Profile |
-| `DO_LOG_CONFIG_FILE` | 指定配置文件路径 |
-| `DO_LOG_CONFIG_LOCK` | 禁止回退配置搜索（要求 `DO_LOG_CONFIG_FILE` 存在） |
+| 变量 | 覆盖项 | 示例 |
+|:-:|:-:|:-:|
+| `DO_LOG_LEVEL` | `level` | `DO_LOG_LEVEL=DEBUG` |
+| `DO_LOG_BUF_SIZE` | `ring_buffer_size` | `DO_LOG_BUF_SIZE=524288` |
+| `DO_LOG_PERF_PROFILE` | `performance_profile` | `DO_LOG_PERF_PROFILE=prod-audit` |
+| `DO_LOG_CONFIG_FILE` | 配置文件路径 | `DO_LOG_CONFIG_FILE=/opt/myapp/dologger.toml` |
+| `DO_LOG_PLUGIN_DIR` | 插件目录 | `DO_LOG_PLUGIN_DIR=/opt/myapp/plugins` |
+| `DO_LOG_CONFIG_LOCK` | 禁止回退配置搜索（要求 `DO_LOG_CONFIG_FILE` 存在） | `DO_LOG_CONFIG_LOCK=1` |
 
-### 配置热重载
+### 配置校验
 
-修改配置文件后，引擎自动检测（轮询间隔 1s，防抖 500ms）——规划中的行为：
+使用 `dologctl` 在应用配置前进行校验：
 
 ```bash
-# 伪代码/示意 — ConfigWatcher（core/src/config/watcher.rs）在 v0.1.0 尚未接入 Engine::init，
-# 引擎不会自动重载配置；需重启或（M3+）通过控制面触发
-# sed -i 's/level = "INFO"/level = "DEBUG"/' dologger.toml
+# 严格校验（强制不可降级的安全不变量）
+dologctl config validate --config /etc/dologger/default.toml --strict
+
+# （规划中 — v0.1.0 未发布 --compliance 参数）
+# 按合规 Profile 校验
+dologctl config validate \
+    --config /etc/dologger/default.toml \
+    --compliance gdpr
+
+# （规划中 — v0.1.0 未发布 config show / config diff 子命令）
+# 干跑：显示合并后的生效配置
+dologctl config show --effective
+
+# 对比两份配置
+dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 ```
 
-也可通过控制面 API 触发：
+### 热重载
+
+（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或 — M3+ 起 — 通过控制面触发重载。）
+
+1. 非安全键立即生效。
+2. 安全级键（不可降级项）— 收紧变更会被接受；放宽变更会被**拒绝，并产生一条 `CONFIG_RELOAD_DENIED` sysmon 事件**。
+3. 插件变更需要重启引擎（此版本不支持运行时动态加载插件）。
 
 ```bash
-# 伪代码/示意 — 控制面（POST /reload）在 v0.1.0 尚未随引擎启动（M3+）
+# 伪代码/示意 — v0.1.0 中不会自动生效
+# 无需重启修改日志级别
+# sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
+
+# 伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）
 # curl -X POST http://127.0.0.1:9090/reload
+
+# curl http://127.0.0.1:9090/status | jq .level
+# "DEBUG"
 ```
+
+### 合规模板
+
+DoLogger 为受监管环境提供预构建的配置模板：
+
+| 模板 | 路径 | 启用内容 |
+|:-:|:-:|:-:|
+| GDPR | `compliance/gdpr.toml` | 全部不可降级安全项 |
+| HIPAA | `compliance/hipaa.toml` | 全部不可降级安全项 |
+| PCI DSS | `compliance/pci-dss.toml` | 全部不可降级安全项 |
+
+应用合规模板（示意 — `config merge` 为规划中；当前请自行合并 TOML 的 `[dologger]` 段，然后运行 `dologctl config validate --strict`）：
+
+```bash
+dologctl config merge \
+    --base /etc/dologger/default.toml \
+    --overlay compliance/gdpr.toml \
+    --output /etc/dologger/gdpr-production.toml
+```
+
+---
+
+## 性能 Profile 选择
+
+**表 2：性能 Profile 参考**
+
+| 属性 | `dev` | `balanced` | `prod-performance` | `prod-audit` |
+|:-:|:-:|:-:|:-:|:-:|
+| 阻塞超时 | 100 ms | 2000 ms | 3000 ms | 3000 ms |
+| 丢弃策略 | `drop_newest` | `oldest` | `below_warn` | `below_warn` |
+| Ed25519 签名 | 关闭 | 可选 | 可选 | **必选** |
+| WORM 强制 | 关闭 | 可选 | 可选 | **必选** |
+| 批大小 | 32 | 128 | 256 | 128 |
+| 环形缓冲区大小 | 65536 | 131072 | 262144 | 262144 |
+
+> [!NOTE]
+> 阻塞超时与丢弃策略的值由 `core/src/pipeline/backpressure.rs` 强制执行。dev / prod-performance / prod-audit 的批大小与环形缓冲区大小和随附的配置模板一致；`balanced` 的值为示意（v0.1.0 未随附 `balanced` 模板）。
+
+| Escape HTML | 可选 | 开启 | 开启 | **开启** |
+| fsync on write | 关闭 | 关闭 | 可选 | **开启** |
+| Require TLS | 关闭 | 仅告警 | 开启 | **开启** |
+
+### 选择 Profile
+
+```toml
+# dologger.toml 中：
+[dologger]
+performance_profile = "prod-performance"
+```
+
+```bash
+# 或通过环境变量：
+export DO_LOG_PERF_PROFILE=prod-audit
+```
+
+你可以覆盖单个 Profile 值：
+
+```toml
+[dologger]
+performance_profile = "prod-performance"
+ring_buffer_size = 524288       # 覆盖 262144 默认值
+```
+
+覆盖值在 Profile 默认值之上合并。不可降级项不能通过覆盖放宽。
+
+### 丢弃策略
+
+| 策略 | 行为 |
+|:-:|:-:|
+| `drop_newest` | 环形缓冲区满时丢弃最新记录。防止阻塞生产者。 |
+| `oldest` | 环形缓冲区满时丢弃最旧未处理记录。保持新鲜度。 |
+| `below_warn` | 环形缓冲区满时仅丢弃 WARN 级别以下的记录。WARN 及以上保留。 |
+| `block` | 环形缓冲区满时阻塞生产者直至有空间。风险：可能拖停宿主应用。 |
 
 ---
 
 ## 监控与告警
 
-### Sysmon 事件类型
+### Sysmon 事件流
 
-| 事件码 | 严重等级 | 含义 | 处置 |
-|:-:|:-:|:-:|:-:|
-| `PIPELINE_BACKLOG` | WARN | 环形缓冲区占用 >50% | 检查消费者线程状态 |
-| `SHM_DROP` | WARN | sink_shm 丢弃记录 | 检查消费者进程是否存活 |
-| `SINK_CIRCUIT_OPEN` | ERROR | Sink 熔断器打开 | 检查下游服务 |
-| `EMERGENCY_BUFFER` | WARN | 紧急缓冲区激活 | 立即排查背压原因 |
-| `SANDBOX_VIOLATION` | CRITICAL | 沙箱违规 | 插件尝试禁用系统调用 |
-| `SIGNATURE_FAILURE` | CRITICAL | 签名验证失败 | 日志可能被篡改 |
+系统监视器（`sysmon`）默认向 `stderr` 输出结构化事件。每个事件是一行 JSON：
 
-（注：v0.1.0 实际 sysmon 行格式为 `{"sysmon_version":"1.0","error_code":0,"category":"...","description":"...","timestamp_ms":...,"severity":1}`）
-
-### 控制面状态查询
-
-```bash
-# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动（M3+）；
-# 下方响应格式与 core/src/sys/control_plane.rs 的 /status 处理器一致
-# curl http://127.0.0.1:9090/status
-# {"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false}
+```json
+（示意 — 实际 sysmon 行格式为：
+ {"sysmon_version":"1.0","error_code":0,"category":"engine","description":"...","timestamp_ms":...,"severity":1}）
+{"ts":"2026-08-12T14:30:00.123Z","level":"WARN","event":"PIPELINE_BACKLOG","pct":72,"buf_name":"main"}
 ```
 
-### 关键指标
+**表 3：Sysmon 事件类型**
 
-| 指标 | 基线 (P50) | 告警阈值 |
-|:-:|:-:|:-:|
-| 单条提交延迟 | < 102ns | > 500ns |
-| 环形缓冲区占用 | < 70% | > 90% |
-| 丢弃率 | 0% | > 0.1% |
-| Sink 写入延迟 | < 1ms | > 100ms |
-| 熔断器打开次数 | 0 | > 3/小时 |
+| 事件 | 严重等级 | 含义 | 立即处置 |
+|:-:|:-:|:-:|:-:|
+| `PIPELINE_BACKLOG` | WARN | 环形缓冲区占用超过 50% | 检查消费者线程健康；考虑增大 `ring_buffer_size` |
+| `PIPELINE_DROP` | WARN | 缓冲区满导致记录被丢弃 | 增大容量或切换到 `prod-performance` Profile |
+| `SHM_DROP` | WARN | 共享内存 Sink 丢弃记录 | 确认消费者进程存活并正常消费 |
+| `SINK_CIRCUIT_OPEN` | ERROR | Sink 熔断器跳闸 | 检查下游服务健康；熔断器 30 秒后自动复位 |
+| `SINK_CIRCUIT_CLOSED` | INFO | Sink 熔断器复位 | 下游已恢复 |
+| `EMERGENCY_BUFFER` | WARN | 紧急溢出缓冲区激活 | 环形缓冲区溢出；记录正在溢出到磁盘 |
+| `EMERGENCY_RECOVERED` | INFO | 溢出缓冲区已回灌管线 | 系统已从溢出中恢复 |
+| `SANDBOX_VIOLATION` | CRITICAL | 插件尝试调用不允许的系统调用 | 插件线程已终止；复核插件信任色 |
+| `SIGNATURE_FAILURE` | CRITICAL | Ed25519 签名验证失败 | 日志记录可能被篡改；启动事件响应 |
+| `LSN_GAP_DETECTED` | ERROR | 发现 LSN 序列缺口 | 记录可能缺失；运行 `dologctl verify-log` |
+| `CONFIG_RELOAD` | INFO | 配置已重载 | 验证 — 确认预期变更已生效 |
+| `CONFIG_RELOAD_DENIED` | WARN | 配置重载被拒绝 | 尝试放宽某个不可降级项 |
+| `LICENSE_POLICY_VIOLATION` | ERROR | 插件因许可证不兼容被拒绝 | 复核插件 SPDX 标识符 |
+
+### 控制面状态端点
+
+```bash
+# 伪代码/示意 — v0.1.0 中控制面尚未随引擎启动（M3+）；
+# 下方响应格式与 core/src/sys/control_plane.rs 的 /status 处理器一致
+# curl -s http://127.0.0.1:9090/status | jq .
+```
+
+```json
+（示意 — /status 处理器的实际响应更小：
+ {"status":"ok","level":"INFO","profile":"prod-performance","plugins":0,"signature_enabled":false}；
+ 下方丰富的指标体为规划中）
+{
+  "status": "ok",
+  "uptime_seconds": 86412,
+  "level": "INFO",
+  "profile": "prod-performance",
+  "plugins_loaded": 3,
+  "plugins_failed": 0,
+  "signature_enabled": false,
+  "worm_enabled": false,
+  "ring_buffer": {
+    "capacity": 262144,
+    "used": 8192,
+    "pct_used": 3.1,
+    "drops_total": 0,
+    "emergency_spills": 0
+  },
+  "sinks": {
+    "file": {"status": "healthy", "bytes_written": 1073741824},
+    "kafka": {"status": "healthy", "messages_sent": 5000000}
+  },
+  "pipeline": {
+    "records_processed": 10000000,
+    "records_dropped": 0,
+    "avg_latency_us": 82
+  }
+}
+```
+
+### 关键指标与告警阈值
+
+**表 4：运维指标**
+
+| 指标 | 基线 (P50) | 告警阈值 | 严重阈值 | 来源 |
+|:-:|:-:|:-:|:-:|:-:|
+| 记录提交延迟 | < 102 ns | > 500 ns | > 2 us | `/status` |
+| 环形缓冲区占用 | < 70% | > 80% | > 90% | `/status` |
+| 丢弃率 | 0% | > 0.01% | > 0.1% | `/status` |
+| Sink 写入延迟 | < 1 ms | > 10 ms | > 100 ms | `/status` |
+| 熔断器每小时跳闸次数 | 0 | > 1 | > 3 | sysmon `SINK_CIRCUIT_OPEN` 计数 |
+| 签名失败 | 0 | > 0 | > 0（任意） | sysmon `SIGNATURE_FAILURE` |
+| 沙箱违规 | 0 | > 0 | > 0（任意） | sysmon `SANDBOX_VIOLATION` |
+| LSN 缺口 | 0 | > 0 | > 0（任意） | sysmon `LSN_GAP_DETECTED` |
+
+### Prometheus 集成（M4）
+
+```yaml
+# prometheus.yml 抓取配置（示意 — M4 规划中）
+scrape_configs:
+  - job_name: 'dologger'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: '/metrics'
+```
+
+### 基于日志的告警
+
+将 sysmon 事件接入你的集中式日志平台（Elasticsearch、Loki、Splunk）并配置告警：
+
+```text
+（示意告警规则草图，非字面查询语法）
+# Elasticsearch 告警查询示例
+event: "SIGNATURE_FAILURE" OR event: "SANDBOX_VIOLATION"
+  → PagerDuty：critical（严重）
+  → Slack：#incident-response
+
+event: "SINK_CIRCUIT_OPEN"
+  → PagerDuty：warning（5 分钟后升级为 critical）
+
+event: "PIPELINE_BACKLOG" AND pct > 90
+  → Slack：#sre
+```
 
 ---
 
@@ -141,27 +451,58 @@ shutdown_timeout_ms = 5000
 
 ### HTTP API 端点
 
-| 方法 | 路径 | 功能 |
-|:-:|:-:|:-:|
-| GET | `/status` | 引擎状态 + 指标 |
-| GET | `/health` | 存活检查（规划中 — v0.1.0 未实现） |
-| POST | `/level` | 动态设置日志级别 |
-| POST | `/reload` | 触发配置重载 |
+**表 5：控制面 API（M3）** — 规划中：v0.1.0 中这些端点均未随引擎启动。
 
-### 示例
+| 方法 | 路径 | 认证 | 说明 |
+|:-:|:-:|:-:|:-:|
+| GET | `/status` | 无 | 引擎状态与指标（见上文） |
+| GET | `/health` | 无 | 存活检查（规划中 — v0.1.0 未实现） |
+| POST | `/level` | 无 | 动态设置日志级别 |
+| POST | `/reload` | 无 | 触发配置重载 |
+
+### 运行时修改日志级别
 
 ```bash
-# 伪代码/示意 — 控制面（POST /level、POST /reload）在 v0.1.0 尚未随引擎启动（M3+）
-# curl -X POST http://127.0.0.1:9090/level -d '{"level":"DEBUG"}'
-# curl -X POST http://127.0.0.1:9090/level -d '{"level":"INFO"}'
+# 伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）
+# 调试时临时提高日志详细程度
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "DEBUG"}'
+
+# 恢复生产日志级别
+# curl -X POST http://127.0.0.1:9090/level \
+#   -H "Content-Type: application/json" \
+#   -d '{"level": "INFO"}'
+
+# 查询当前级别
+# curl -s http://127.0.0.1:9090/status | jq .level
+```
+
+### 触发配置重载
+
+```bash
+# 伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）
+# 直接重载（语法合法即应用变更）
 # curl -X POST http://127.0.0.1:9090/reload
+
+# 干跑：仅校验待生效变更，不应用
+# （规划中 — v0.1.0 忽略 /reload 请求体）
+# curl -X POST http://127.0.0.1:9090/reload \
+#   -H "Content-Type: application/json" \
+#   -d '{"dry_run": true}'
 ```
 
 ### 安全注意事项
 
-- 控制面默认监听 127.0.0.1:9090（仅本地；规划中 — v0.1.0 未随引擎启动，M3+）
-- M4 阶段支持 mTLS + JWT 认证
-- 生产环境建议配合防火墙限制访问
+- 控制面默认监听 `127.0.0.1:9090`（规划中 — v0.1.0 中控制面未启动；M3+）— 仅同主机进程可达。
+- M4 将为远程访问增加 mTLS + JWT 认证。
+- 生产部署应使用主机级防火墙规则限制对控制面端口的访问：
+  ```bash
+  # iptables：仅允许本机访问
+  sudo iptables -A INPUT -p tcp --dport 9090 -s 127.0.0.1 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
+  ```
+- `DO_LOG_CONFIG_LOCK=1` 环境变量可禁止回退配置搜索（配置的 `DO_LOG_CONFIG_FILE` 必须存在）。
 
 ---
 
@@ -169,32 +510,81 @@ shutdown_timeout_ms = 5000
 
 ### 滚动策略
 
+文件 Sink 同时支持按大小与按时间滚动：
+
 ```toml
-# （示意 — v0.1.0 的 FileSinkConfig 仅含：path、max_size（字节）、fsync_on_write、
-# durability_level、buffer_size；按时间滚动、压缩与文件数保留均为规划中）
+# （示意 — v0.1.0 的 FileSinkConfig 包含：path、max_size（字节）、
+# fsync_on_write、durability_level、buffer_size；按时间滚动、
+# 压缩与文件数保留均为规划中）
 [sinks.file]
 type = "sink_file"
-max_size = "100MB"              # 按大小滚动
-rotation_interval = "24h"       # 按时间滚动
-compression = "zstd"            # gzip / zstd
+path = "/var/log/dologger/app.log"
+max_size = "100MB"              # 文件超过 100 MB 时滚动
+rotation_interval = "24h"       # 无论大小，每日零点滚动
+max_rotated_files = 90          # 最多保留 90 个滚动文件
+compression = "zstd"            # 压缩滚动文件（gzip | zstd | none）
 ```
+
+滚动不阻塞日志提交。新文件打开的同时，旧文件在后台线程中关闭并（可选地）压缩。
 
 ### 保留策略
 
 ```toml
 # （示意 — 保留策略键为规划中，v0.1.0 未解析）
 [sinks.file]
-retention_days = 90
-retention_total_size = "10GB"
+retention_days = 90             # 删除超过 90 天的文件
+retention_total_size = "10GB"   # 总量超过 10 GB 时删除最旧文件
 ```
+
+保留检查在每次滚动时执行一次。若同时设置 `retention_days` 与 `retention_total_size`，满足**任一**条件即删除文件。
 
 ### 冷热分层
 
-| 层级 | 存储 | 保留期 | 格式 |
-|:-:|:-:|:-:|:-:|
-| 热层 | 本地 NVMe | 0-7 天 | 当前写入（未压缩） |
-| 温层 | 本地 HDD | 7-90 天 | 压缩归档 |
-| 冷层 | S3 对象存储 | 90+ 天 | Parquet 列存 |
+**表 6：存储分层策略**
+
+| 层级 | 存储 | 保留期 | 格式 | 访问模式 |
+|:-:|:-:|:-:|:-:|:-:|
+| 热层 | 本地 NVMe/SSD | 0–7 天 | 未压缩 | `tail -f`、`grep`、实时看板 |
+| 温层 | 本地 HDD | 7–90 天 | Zstd 压缩 | `dologctl query`、事件调查 |
+| 冷层 | S3 / GCS / ABS | 90 天以上 | Parquet 列存 | 合规审计、长期分析 |
+
+**自动分层（M4 规划中）：**
+
+```toml
+# （规划中 — 示意 schema）
+[sinks.file.tiering]
+enabled = true
+warm_storage = "/data/dologger/warm/"
+cold_storage = "s3://my-audit-logs/cold/"
+promote_to_warm_after = "7d"
+archive_to_cold_after = "90d"
+```
+
+### WORM 审计日志处理
+
+WORM（一次性写入、多次读取）审计日志单独存储，需要特别处理：
+
+```bash
+# 列出 WORM 段
+ls -la /var/lib/dologger/audit/
+# -r-------- 1 root root 104857600 Aug 12 00:00 audit-000001.worm
+# -r-------- 1 root root  52428800 Aug 12 12:00 audit-000002.worm
+
+# 校验单个 WORM 文件的链完整性（verify-log 接受文件路径）
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+
+# 或报告目录下所有 *.worm 文件的 LSN 连续性
+dologctl recovery-report /var/lib/dologger/audit/
+
+# （规划中 — v0.1.0 未发布 dologctl audit export）
+# 导出审计记录为 JSON 以便分析
+dologctl audit export \
+    --path /var/lib/dologger/audit/ \
+    --from "2026-08-01" \
+    --to   "2026-08-12" \
+    --format json \
+    --output audit-august-2026.json
+```
 
 ---
 
@@ -203,22 +593,74 @@ retention_total_size = "10GB"
 ### WORM 审计日志备份
 
 ```bash
-# 验证审计链完整性（verify-log 接受单个 SIF/WORM 文件路径）
-dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+# 备份前先校验完整性
+dologctl recovery-report /var/lib/dologger/audit/
 
-# 外部锚定（M4；verify-anchor 接受锚定 JSON 文件路径 + --pubkey）
-dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
+# 校验通过后，rsync 到备份位置
+rsync -avz \
+    /var/lib/dologger/audit/ \
+    backup-server:/backups/dologger/$(hostname)/audit/
+
+# （规划中 — v0.1.0 未发布 --latest-lsn-only 参数与锚定发布）
+# 记录最后校验通过的 LSN 以便外部锚定
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
+# {"latest_lsn": 100042,"root_hash": "a3f8b2c1..."}
+
+# 将根哈希发布到外部见证（S3 对象元数据、区块链锚点等）
+# M4：dologctl anchor publish --s3-bucket audit-anchors --root-hash "a3f8b2c1..."
 ```
 
 ### 紧急缓冲恢复
 
-当环形缓冲区溢出时，记录自动溢出到紧急文件（位于系统临时目录 — 见 `core/src/buffer/emergency_buffer.rs`）。恢复正常后自动恢复：
+当环形缓冲区溢出时，记录溢出到磁盘上的紧急文件（位于系统临时目录的 `dologger/` 子目录 — 见 `core/src/buffer/emergency_buffer.rs`）：
 
-（伪代码/示意 — 恢复流程，非命令）：
+```text
+dologger_emergency_<pid>_<spill_id>.buf
+```
 
+恢复时（当环形缓冲区有可用空间）：
+
+1. 引擎在启动时检测到紧急文件。
+2. 从文件读取记录并注入主管线。
+3. 重放成功后删除紧急文件。
+4. 发出 `EMERGENCY_RECOVERED` sysmon 事件。
+
+**手动恢复：**
+
+```bash
+# 检查遗留的紧急文件（系统临时目录的 dologger/ 子目录）
+ls -la /tmp/dologger/dologger_emergency_*.buf
+
+# 若引擎正在运行且文件持续存在，检查引擎状态
+# （伪代码/示意 — v0.1.0 中控制面尚未启动（M3+）；
+# 规划中的 /status 响应尚无 ring_buffer 对象）
+# curl http://127.0.0.1:9090/status
+
+# 若引擎已崩溃，紧急文件将在下次启动时重放
 ```
-dologger_emergency_<pid>_<spill_id>.buf  →  引擎自动读取 → 注入主管线
+
+### 配置备份
+
+```bash
+# 备份当前生效配置
+cp /etc/dologger/default.toml /backups/dologger/config-$(date +%Y%m%d).toml
+
+# （规划中 — v0.1.0 未发布 config show 子命令）
+# 使用 dologctl 备份（包含合并后的生效配置）
+dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).toml
 ```
+
+### 恢复时间目标
+
+**表 7：RTO/RPO 参考**
+
+| 场景 | RPO | RTO | 处置流程 |
+|:-:|:-:|:-:|:-:|
+| 磁盘故障（非 WORM） | 最近一次滚动（最长 24h） | 重新置备磁盘 + 从备份恢复所需时间 | 从备份服务器恢复 |
+| 磁盘故障（WORM） | 最近一次 fsync（0 条记录丢失） | 重新置备磁盘所需时间 | WORM 文件每次写入均 fsync |
+| 进程崩溃 | 紧急缓冲区重放 | < 10 秒 | 引擎自动重启；紧急缓冲区重放 |
+| 意外删除日志（非 WORM） | 最近一次备份 | 从备份恢复所需时间 | 从备份服务器恢复 |
+| 意外删除日志（WORM） | 不适用 — 文件只读 | 不适用 | 未经操作系统层面干预，WORM 文件无法被删除 |
 
 ---
 
@@ -226,52 +668,194 @@ dologger_emergency_<pid>_<spill_id>.buf  →  引擎自动读取 → 注入主�
 
 ### 不可降级项
 
-以下配置在子域中只能收紧，不能放宽：
-- `enable_signature`
-- `escape_html`
-- `worm_enabled`
-- `fsync_on_write`
-- `require_tls`
-- `sign_ring2`
+以下 6 个配置项跨配置层只能**收紧**（朝更安全的方向调整），永远不能放宽：
+
+**表 8：不可降级安全项**
+
+| 配置项 | 放宽方式 | 放宽后的安全影响 |
+|:-:|:-:|:-:|
+| `enable_signature` | `true` → `false` | 日志不再可加密验证，失去不可否认性。 |
+| `escape_html` | `true` → `false` | 可能出现日志注入（CRLF）攻击。 |
+| `worm_enabled` | `true` → `false` | 审计日志变得可修改；历史记录可能被篡改或删除。 |
+| `fsync_on_write` | `true` → `false` | 崩溃可能丢失在途审计记录；持久化保证失效。 |
+| `require_tls` | `true` → `false` | 网络 Sink 接受未加密连接；暴露中间人攻击面。 |
+| `sign_ring2` | `true` → `false` | 受验证的扩展字段失去加密绑定。 |
+
+任何放宽这些项的尝试都会触发一条 `CONFIG_RELOAD_DENIED` sysmon 事件，且变更被拒绝。
 
 ### 密钥管理
 
-- Ed25519 密钥对由 `KeyProvider` 管理
-- 默认内置提供者生成临时密钥，永不落盘
-- 生产环境建议配置外部 KeyProvider（HSM/SSM）
+用于日志签名的 Ed25519 密钥对由 `KeyProvider` 插件管理：
 
-### 审计日志防篡改
+- **默认**：内置临时密钥生成器。密钥在启动时于内存中生成一次，**永不落盘**。重启引擎会生成新密钥，使旧签名失效。
+- **生产**：部署由 HSM（硬件安全模块）、AWS KMS 或 HashiCorp Vault 支撑的外部 `KeyProvider`。这样可保证密钥跨重启持久化，并提供基于硬件的密钥保护。
 
-审计链结构：每条记录通过 `prev_hash` 链接到下一条，所有记录均由 Ed25519 签名保护。
+```toml
+# （示意 — v0.1.0 未解析插件配置段）
+[plugins.hsm-key-provider]
+type = "key_provider"
+path = "/usr/lib/dologger/plugins/libhsm_keyprovider.so"
 
-- `LSN(N)` -- `prev_hash` --> `LSN(N+1)` -- `prev_hash` --> `LSN(N+2)`
-- 每条记录均通过 Ed25519 签名独立保护
+[plugins.hsm-key-provider.config]
+pkcs11_module = "/usr/lib/softhsm/libsofthsm2.so"
+slot_id = 0
+key_label = "dologger-signing-key"
+```
+
+### 审计链路防篡改检测
+
+LSN（日志序列号）链提供密码学层面的篡改证据（伪代码 — 示意）：
+
+```
+Record(N):
+  lsn       = N
+  prev_hash = SHA-256( Record(N-1).signature || Record(N-1).lsn )
+  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+
+Record(N+1):
+  lsn       = N+1
+  prev_hash = SHA-256( Record(N).signature || Record(N).lsn )
+  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+```
+
+若任何记录被修改、插入或删除，`prev_hash` 链将断裂，验证失败。
+
+**验证命令：**
+
+```bash
+# （--verbose 为规划中；v0.1.0 的 verify-log 以位置参数接受文件路径）
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+
+# （示意输出示例）
+# [OK]     LSN 000001 — 签名有效
+# [OK]     LSN 000002 — 签名有效
+# [GAP]    LSN 000003 — 缺失（期望存在，实际发现 LSN 000004）
+# [OK]     LSN 000004 — 签名有效，prev_hash 匹配
+# [FAIL]   LSN 000005 — 签名无效（记录可能被篡改）
+# ...
+# 汇总：9995 通过、1 处缺口、1 失败 — 完整性校验未通过
+```
+
+### 安全监控检查清单
+
+- [ ] sysmon 事件已接入集中式日志平台
+- [ ] `SIGNATURE_FAILURE` 与 `SANDBOX_VIOLATION` 事件触发 PagerDuty 告警
+- [ ] `dologctl verify-log` 通过 cron 每日运行并上报失败
+- [ ] 每周对照生产配置审计不可降级项
+- [ ] 制定密钥轮换计划（M3 手动；M4 自动化）
+- [ ] 每次引擎启动时验证插件签名
+- [ ] 控制面已通过防火墙限制为仅本机访问
+- [ ] 网络 Sink 的 TLS 证书到期时间受监控
 
 ---
 
 ## 故障处理流程
 
-### 日志丢失排查
+### 事件：检测到日志丢失
 
-1. 检查 sysmon 输出 `stderr` 中的 `PIPELINE_DROP` / `SHM_DROP` 事件
-2. 检查 `dologger_internal.log` 诊断日志
-3. 确认 `enable_signature` 状态与期望一致
-4. 检查 Sink 熔断器状态（`SINK_CIRCUIT_OPEN`）
-5. 验证消费者进程存活（sink_shm）
+**症状：**
 
-### 性能下降排查
+- sysmon 中出现 `PIPELINE_DROP` 事件
+- 输出文件中缺少记录
+- LSN 序列出现缺口
 
-1. 运行 `cargo bench` 获取当前基线
-2. 检查 `performance_profile` 配置是否正确
-3. 检查 sysmon 中的 `PIPELINE_BACKLOG` 频率
-4. 确认 ring_buffer_size 是否被意外覆盖
-5. 检查磁盘 I/O 延迟（WORM Sink fsync）
+**响应：**
 
-### 沙箱违规
+1. **分诊**：`curl http://127.0.0.1:9090/status | jq .ring_buffer`（伪代码/示意 — v0.1.0 中控制面尚未启动（M3+））
+2. **检查丢弃情况**：查看 `pct_used`、`drops_total`、`emergency_spills`
+3. **定位瓶颈**：Sink 健康状态 — 是否有 Sink 处于 `circuit_open` 状态？
+4. **缓解措施**：
+   ```bash
+   # （规划中 — v0.1.0 未发布 /sink/disable 端点）
+   # 若某 Sink 熔断且非关键，将其禁用
+   curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
+   ```
+5. **扩容**：
+   ```bash
+   # 通过环境变量设置更大的环形缓冲区并重启
+   export DO_LOG_BUF_SIZE=524288
+   ```
+6. **恢复**：紧急缓冲区文件会自动重放。使用 `dologctl verify-log` 验证。
 
-（伪代码/示意 — 沙箱违规事件格式示例）：
+### 事件：签名验证失败
 
+**症状：**
+
+- sysmon 中出现 `SIGNATURE_FAILURE` 事件
+- `dologctl verify-log` 对一条或多条记录报告 `FAIL`
+
+**响应：**
+
+1. **隔离**：确定受影响的 LSN 范围。
+   ```bash
+   # （--verbose 为规划中）
+   dologctl verify-log /var/lib/dologger/audit/audit-000001.worm 2>&1 | grep FAIL
+   ```
+2. **评估**：判断是单条记录损坏（磁盘错误）还是系统性篡改。
+3. **调查**：
+   - 检查受影响时间点附近的系统日志中是否有磁盘 I/O 错误。
+   - 验证文件权限 — WORM 文件是否曾被未授权进程写入？
+   - 检查受影响时间窗口内主机上的 root 用户活动。
+4. **遏制**：若怀疑篡改，将主机与网络隔离并保留取证镜像。
+5. **报告**：提交安全事件报告。受影响的记录带有密码学线索 — 保留 WORM 文件作为证据。
+6. **修复**：若确认密钥失陷，轮换签名密钥。
+
+### 事件：沙箱违规
+
+**症状：**
+
+- sysmon 中出现 `SANDBOX_VIOLATION` 事件
+- 插件进程被终止
+
+**响应：**
+
+1. **识别**：sysmon 事件包含插件名称与尝试调用的系统调用（示意示例）。
+   ```json
+   {"event":"SANDBOX_VIOLATION","plugin":"untrusted-plugin","syscall":"fork","action":"KILL"}
+   ```
+2. **隔离**：违规插件已被沙箱终止。
+3. **调查**：复核插件的 `manifest.toml` — 其 `trust.color` 是否与实际行为一致？
+4. **决策**：
+   - 若插件恶意或已失陷：永久移除。
+   - 若插件合法但分类错误：仅在代码审查并重新签名后升级其信任色（Red → Yellow、Yellow → Blue）。
+5. **预防**：更新插件准入审查流程。
+
+### 事件：性能下降
+
+**症状：**
+
+- `PIPELINE_BACKLOG` 频率上升
+- 应用延迟上升（AUDIT 记录阻塞在 `dologger_log`）
+- 环形缓冲区占用持续走高
+
+**响应：**
+
+1. **基线**：运行 `cargo bench` 确认引擎自身性能符合预期。
+2. **Profile 检查**：核对 `performance_profile` — 是否被改为低吞吐 Profile？
+   ```bash
+   # （伪代码/示意 — v0.1.0 中控制面尚未启动（M3+））
+   curl http://127.0.0.1:9090/status | jq .profile
+   ```
+3. **检查 Sink**：Sink 是否健康？下游变慢会引起背压。
+4. **检查签名**：`enable_signature` 是否意外为 `true`？签名使每条记录增加约 17 us。
+5. **检查磁盘**：文件 Sink 所在文件系统是否高延迟？
+   ```bash
+   iostat -x 1
+   ```
+6. **缓解措施**：
+   - 临时将日志级别降至 `WARN` 或 `ERROR`。
+   - 若尚未使用，切换到 `prod-performance` Profile。
+   - 增大 `ring_buffer_size`。
+   - 增加更多 Sink 消费者以并行写入。
+
+### 事后复盘
+
+任何事件发生后，收集诊断报告：
+
+```bash
+# （dologctl diag collect 为规划中；当前请手动收集以下内容）
+dologctl about --output json > post-incident-$(date +%Y%m%d-%H%M%S).json
+dologctl config validate --strict
 ```
-[SANDBOX_VIOLATION] plugin='untrusted-plugin' syscall='fork' action='KILL'
-→ 插件已被沙箱终止，检查插件 trust color 和 capabilities 声明
-```
+
+结合 sysmon 事件时间线复核收集到的数据，定位根因并制定预防措施。

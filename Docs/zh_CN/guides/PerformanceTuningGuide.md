@@ -218,7 +218,7 @@ audit_thread_affinity = [8]           # 专用审计管道线程
 
 （示意 — CPU 分配策略规划，非命令输出）：
 
-```
+```text
 CPU 0：     操作系统、中断、系统守护进程（未绑定）
 CPU 1：     宿主应用程序主线程
 CPU 2-5：   dologger-cpu_pool（Filter、Field、Process、Format）——计算密集型
@@ -407,7 +407,7 @@ export DO_LOG_BUF_SIZE=524288
 
 （公式示意 — 非命令）：
 
-```
+```text
 有效吞吐量 = MIN（最慢启用接收器的吞吐量）
 
 示例：
@@ -649,7 +649,7 @@ sudo sysctl -w vm.nr_hugepages=272
 
 （伪代码/示意 — 诊断工作流（控制面在 v0.1.0 尚未启用））：
 
-```
+```text
 1. 检查整体健康状态
    curl http://127.0.0.1:9090/status | jq .
 

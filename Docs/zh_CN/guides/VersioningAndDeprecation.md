@@ -208,7 +208,7 @@ flowchart TD
 
 （示意 — 规划中的错误消息格式，非实际输出）：
 
-```
+```text
 [ERROR] 插件 'json-formatter'（v1.2.0）基于 ABI 版本 1 编译，
         但引擎要求 ABI 版本 2。
         请基于 dologger_core >= 2.0.0 重新编译插件。
@@ -220,7 +220,7 @@ flowchart TD
 
 （示意 — 版本对照示例，非命令输出）：
 
-```
+```text
 引擎：     2.1.0        （libdologger_core 的版本）
 插件 A：   1.5.0        （json-formatter 的版本）
 插件 B：   3.2.1        （kafka-sink 的版本）
@@ -334,7 +334,7 @@ DoLogger 承诺以下向后兼容性窗口：
 
 （示意 — 预发布标签示例，非命令输出）：
 
-```
+```text
 2.0.0-alpha.1      ← v2.0 的第一个 alpha
 2.0.0-beta.1       ← v2.0 的第一个 beta
 2.0.0-rc.1         ← 第一个候选发布版

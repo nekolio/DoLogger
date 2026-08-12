@@ -207,6 +207,25 @@ Record 在 `RecordPool` 中预分配，避免热路径上的堆分配：
 
 ### 链结构
 
+（伪代码 — 仅示意，未编译）：
+
+```
+Record(1)：
+  lsn       = 1
+  prev_hash = SHA-256(0x00...00)       // 创世块——全零
+  signature = Ed25519_Sign(secret_key, Ring0+Ring1 字段)
+
+Record(2)：
+  lsn       = 2
+  prev_hash = SHA-256(Record(1).signature || Record(1).lsn)
+  signature = Ed25519_Sign(secret_key, Ring0+Ring1 字段)
+
+Record(3)：
+  lsn       = 3
+  prev_hash = SHA-256(Record(2).signature || Record(2).lsn)
+  signature = Ed25519_Sign(secret_key, Ring0+Ring1 字段)
+```
+
 | 记录 | LSN | prev_hash | signature |
 |:-:|:-:|:-:|:-:|
 | Record(1) | 1 | SHA-256(0x00...00) — 创世块 | Ed25519_Sign(secret_key, Ring0+Ring1) |
@@ -215,14 +234,30 @@ Record 在 `RecordPool` 中预分配，避免热路径上的堆分配：
 
 ### 验证算法
 
-`verify_chain(records)` 算法步骤：
+（伪代码 — 仅示意，未编译；已发布的验证器为 `dologctl verify-log`，参见[运维与安全指南](OperationsAndSecurity.md#审计验证)）：
 
-1. 验证 Ed25519 签名：`if !pubkey.verify(records[i].signature, serialize(Ring0+Ring1))` → 返回 FAIL at i
-2. 验证 prev_hash 链（i > 0 时）：`expected = SHA-256(records[i-1].signature || records[i-1].lsn)`；若 `records[i].prev_hash != expected` → 返回 CHAIN_BREAK at i
-3. 验证 LSN 单调性：若 `records[i].lsn <= records[i-1].lsn` → 返回 LSN_ORDER_VIOLATION at i
-4. 检测间隔（gap）：若 `records[i].lsn > records[i-1].lsn + 1` → 标记 GAP from (records[i-1].lsn+1) to (records[i].lsn-1)
+```
+verify_chain(records)：
+  for i = 0 to len(records)-1:
+    1. 验证 Ed25519 签名：
+       if !pubkey.verify(records[i].signature, serialize(Ring0+Ring1)):
+         return FAIL at i
 
-返回 OK with summary。
+    2. 验证 prev_hash 链（若 i > 0）：
+       expected = SHA-256(records[i-1].signature || records[i-1].lsn)
+       if records[i].prev_hash != expected:
+         return CHAIN_BREAK at i
+
+    3. 验证 LSN 单调性：
+       if records[i].lsn <= records[i-1].lsn:
+         return LSN_ORDER_VIOLATION at i
+
+    4. 检测间隔（gap）：
+       if records[i].lsn > records[i-1].lsn + 1:
+         标记 GAP（从 records[i-1].lsn+1 到 records[i].lsn-1）
+
+  return OK with summary
+```
 
 ### LSN 间隔处理
 
@@ -459,15 +494,19 @@ flowchart TD
 
 ### 恢复流程
 
-**引擎启动恢复流程：**
+（伪代码 — 仅示意，未编译）：
 
-1. 检查紧急缓冲区文件：`dologger_emergency_<pid>_<spill_id>.buf`（位于系统临时目录的 `dologger/` 子目录中）
-2. 若找到：
-   - a. 读取所有溢出的记录
-   - b. 基于 LSN 的去重（跳过已见过的 LSN）
-   - c. 重放到主管道
-   - d. 删除紧急文件
-3. 发出 EMERGENCY_RECOVERED 系统监控事件
+```
+引擎启动：
+  1. 检查紧急缓冲区文件：dologger_emergency_<pid>_<spill_id>.buf
+     （位于系统临时目录的 `dologger/` 子目录中）
+  2. 若找到：
+     a. 读取所有溢出的记录
+     b. 基于 LSN 的去重（跳过已见过的 LSN 的记录）
+     c. 重放到主管道
+     d. 删除紧急文件
+  3. 发出 EMERGENCY_RECOVERED 系统监控事件
+```
 
 ### 紧急缓冲区限制
 
@@ -507,11 +546,16 @@ flowchart TD
 
 所有线程遵循命名模式 `dologger-<pool>-<id>`：
 
-- `dologger-cpu_pool-0`、`dologger-cpu_pool-1`
-- `dologger-io_pool-0`
-- `dologger-sysmon_pool-0`
-- `dologger-audit-pipeline`
-- `dologger-config-watcher`
+（示意列表）：
+
+```
+dologger-cpu_pool-0
+dologger-cpu_pool-1
+dologger-io_pool-0
+dologger-sysmon_pool-0
+dologger-audit-pipeline
+dologger-config-watcher
+```
 
 ### 调度器
 

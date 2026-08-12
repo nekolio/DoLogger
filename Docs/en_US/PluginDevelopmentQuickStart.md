@@ -400,6 +400,12 @@ Each has different:
   - Dynamic linker names
 ```
 
+| Developer | Platform | Compiler | Standard Library |
+|:-:|:-:|:-:|:-:|
+| Developer A | macOS ARM | clang | libc++ |
+| Developer B | Linux x86 | gcc | libstdc++11 |
+| Developer C | Windows | MSVC | dynamic CRT |
+
 ### The Solution: Conan Profiles
 
 DoLogger ships with **5 pre-configured Conan profiles** in `.conan/profiles/`:

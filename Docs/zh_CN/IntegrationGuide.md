@@ -328,6 +328,8 @@ array_merge_policy = "unique_append"    # 添加到父域接收器（无重复�
 | `fsync_on_write` | 关闭 | 关闭 | 可选 | **开启** |
 | `require_tls` | 关闭 | 仅警告 | 开启 | **开启** |
 
+### 决策流程图
+
 ```mermaid
 flowchart TD
     A{"此部署是否需要法规合规（GDPR/HIPAA/PCI）？"}

@@ -99,31 +99,28 @@ sudo apt install linux-tools-common linux-tools-generic
 
 ## 基准测试套件
 
-DoLogger 提供四个基准测试目标，每个测量性能的不同维度。
+DoLogger 提供三个基准测试目标，每个测量性能的不同维度。
 
 **表 2：基准测试目标概览**
 
-| 基准测试 | Crate / 文件 | 测量内容 | 主要指标 | 运行时间（约） |
-|:-:|:-:|:-:|:-:|:-:|
-| `hot_path` | `benches/hot_path.rs`（规划中） | 端到端记录提交延迟 | P50/P99/P99.9 ns | ~5 分钟 |
-| `latency` | `benches/latency.rs` | 每管道阶段延迟细分 | 每阶段 P50 us | ~8 分钟 |
-| `throughput` | `benches/throughput.rs` | 最大持续记录/秒 | records/s | ~12 分钟 |
-| `latency_percentiles` | `benches/latency_percentiles.rs` | 完整延迟分布（直方图） | P50/P90/P99/P99.9/P99.99 | ~15 分钟 |
+| 基准测试 | Crate / 文件 | 测量内容 | 主要指标 |
+|:-:|:-:|:-:|:-:|
+| `latency` | `benches/latency.rs` | 单条记录提交延迟（`single_record_submit`、`single_record_submit_with_sign`） | P50/P99 ns |
+| `throughput` | `benches/throughput.rs` | 环形缓冲区推送吞吐量（`ring_buffer_push_1k`、`ring_buffer_push_batch_256`） | records/s |
+| `latency_percentiles` | `benches/latency_percentiles.rs` | 跨消息大小（80B/256B/1KB）、签名开/关、1/2/4/8/16 线程的完整延迟分布（每种 200K 样本） | P50/P99/P99.9/P99.99 |
 
-（注：v0.1.0 仓库仅提供后三个目标；`hot_path` 为规划中的目标）
+### `latency` — 提交延迟（"热路径"）
 
-### `hot_path` — 提交延迟
+测量从 `dologger_log()` 调用到返回的时间——这是宿主应用程序的**最关键指标**，因为它代表了每个日志语句额外增加的成本。实现为 `single_record_submit`（INFO）和 `single_record_submit_with_sign`（AUDIT，Ed25519）。
 
-测量从 `dologger_log()` 调用到返回的时间。这是宿主应用程序的**最关键指标**——它代表了每个日志语句额外增加的成本。
-
-- **测量内容**：环形缓冲区的 CAS 推送 + 任何协作帮助
+- **测量内容**：对象池分配 → 字段填充 → CAS 推入环形缓冲区（基准测试在批次之间排空缓冲区）
 - **不包含内容**：管道处理、格式化、接收器 I/O（这些是异步的）
 - **单位**：纳秒
-- **统计处理**：Criterion.rs，每次迭代 100 个样本，50 次迭代
+- **统计处理**：Criterion.rs
 
-### `latency` — 管道阶段细分
+### 规划中：逐阶段延迟细分
 
-独立测量每个管道阶段的处理时间：
+逐管道阶段的细分已规划但未在 v0.1.0 中实现（随附的 `latency` 基准测试测量的是完整提交延迟）：
 
 | 阶段 | 计时内容 |
 |:-:|:-:|
@@ -137,10 +134,10 @@ DoLogger 提供四个基准测试目标，每个测量性能的不同维度。
 
 ### `throughput` — 最大持续速率
 
-测量引擎在持续负载下端到端可处理的每秒记录数：
+测量引擎在持续负载下每秒可推入环形缓冲区的记录数（批量大小 256 和 1000）：
 
 - **测试的配置**：全部四种性能配置文件（`dev`、`balanced`、`prod-performance`、`prod-audit`）
-- **接收器变体**：Console、File（无 fsync）、File（fsync）、WORM（sign + fsync）
+- **接收器变体**：Console、File（无 fsync）、File（fsync）、WORM（sign + fsync）—— 规划中的扩展
 - **记录大小**：64 B、256 B、1 KB、4 KB 消息
 - **生产者线程数**：1、2、4、8、16
 
@@ -433,18 +430,16 @@ CI 基准测试需要专用的、隔离的硬件。自托管运行器必须：
 
 ### 文件结构
 
-（示意 — 规划中的布局；v0.1.0 仓库实际为 `core/benches/` 下的 `latency.rs`、`throughput.rs`、`latency_percentiles.rs` 三个文件，无 `hot_path.rs` 与 `common/` 共享模块）：
-
-```
+```text
+（v0.1.0 实际布局 — 基准测试位于 core/benches/ 下）
 benches/
-  hot_path.rs              ← 提交延迟（规划中）
-  latency.rs               ← 单条记录提交延迟（已提供）
-  throughput.rs            ← 端到端吞吐量（已提供）
-  latency_percentiles.rs   ← 完整分布（已提供）
-  common/
-    setup.rs               ← 共享框架：引擎初始化、配置、预热（规划中）
-    fixtures.rs            ← 预构建记录模板（规划中）
-    reporting.rs           ← 结果格式化（规划中）
+  latency.rs               ← 单条记录提交延迟（P50/P99）
+  throughput.rs            ← 环形缓冲区推送吞吐量
+  latency_percentiles.rs   ← 完整分布（P50/P99/P99.9/P99.99）
+  #（规划中）common/
+  #   setup.rs             ← 共享框架：引擎初始化、配置、预热
+  #   fixtures.rs          ← 预构建记录模板
+  #   reporting.rs         ← 结果格式化
 ```
 
 ### 基准测试模板
@@ -555,13 +550,12 @@ fn bench_throughput_new_sink(c: &mut Criterion) {
 
 每个发布的官方基线以 Criterion 数据形式存储在仓库中：
 
-（示意 — 规划中的基线存储布局，v0.1.0 仓库尚无 `benches/baselines/`）：
-
-```
+```text
+（示意 — `benches/baselines/` 为规划中；目前仅本地存在
+ target/criterion/ 数据且不提交）
 target/criterion/         ← 仅本地（不提交）
 benches/baselines/         ← 已提交的基线，用于 CI 比较
   v1.0.0/
-    hot_path.json
     latency.json
     throughput.json
     latency_percentiles.json

@@ -55,10 +55,9 @@ flowchart TD
 | `dologger_log` | 日志提交 | 1 |
 | `dologger_version` | 版本字符串查询 | 1 |
 | `dologger_get_last_error` | 错误获取 | 1 |
-| `dologger_register_callback_sink` | 回调注册 | 1 |
-| `dologger_config_*` | 配置管理 | 4 |
-| `dologger_record_*` | 记录字段操作 | 3 |
-| `dologger_would_log` | 条件日志守卫 | 1 |
+| `dologger_field_set` / `dologger_field_get` | 记录字段操作 | 2 |
+| `dologger_config_load_from_string` | 运行时配置 | 1 |
+| `dologger_alloc` / `dologger_free` | 内存分配 | 2 |
 
 完整参考请参见[宿主集成指南](HostIntegrationGuide.md#c-abi-初始化与关闭)。
 
@@ -92,7 +91,7 @@ C ABI 是 DoLogger 项目的稳定性锚点。完整兼容性保证请参见[版
 
 ### 通用适配器结构
 
-```
+```text
 my-dologger-adapter/
   src/
     ffi.py / ffi.go / ffi.rs     -- 原始 C ABI 声明（dlsym/cgo/bindgen）

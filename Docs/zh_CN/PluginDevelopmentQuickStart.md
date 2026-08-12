@@ -313,6 +313,20 @@ bash scripts/build-plugins.sh --filter go
 
 ### 问题
 
+（示意场景）：
+
+```
+开发者 A（macOS ARM）：clang + libc++
+开发者 B（Linux x86）：gcc + libstdc++11
+开发者 C（Windows）：MSVC + dynamic CRT
+
+每个平台都有不同的：
+  - 编译器标志
+  - ABI 约定
+  - 库路径
+  - 动态链接器名称
+```
+
 不同开发平台的差异：
 
 | 开发者 | 平台 | 编译器 | 标准库 |
@@ -378,6 +392,7 @@ core/include/dologger_core.h
 | **类型** | `dologger_plugin_info_t`、`dologger_filter_vtable_t`、`dologger_formatter_vtable_t`、... |
 | **错误码** | `DO_LOG_OK`、`DO_LOG_ERR_INVALID_ARG`、`DO_LOG_ERR_NOT_SUPPORTED`、... |
 | **阶段常量** | `DO_LOG_PHASE_FILTER`、`DO_LOG_PHASE_FORMATTING`、`DO_LOG_PHASE_SINK`、... |
+| **信任级别** | *（规划中 — 沙箱信任级别在 M4 落地）* |
 | **日志级别** | `DO_LOG_TRACE` 到 `DO_LOG_AUDIT`（`dologger_level_t` 枚举） |
 | **记录访问器** | `dologger_field_get()`、`dologger_field_set()`、... |
 | **ABI 版本** | 由每个插件在 `plugin_info.abi_version` 字段声明（如 `0x000100` = 0.1.0）；头文件中无全局 `DO_LOG_ABI_VERSION`/`DO_LOG_CORE_ABI_VERSION` 宏 |
