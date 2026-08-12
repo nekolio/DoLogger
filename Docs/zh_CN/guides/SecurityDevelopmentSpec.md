@@ -162,7 +162,7 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 **表 3：按信任颜色的沙箱能力**
 
 | 能力 | Blue | Yellow | Red |
-|:-:|:-:-:|:-::-:|:-::|
+|:-:|:-:|:-::-:|:-:|
 | 内存分配（`mmap`、`munmap`、`brk`） | 是 | 是 | 是 |
 | 线程操作（`clone`、`futex`） | 是 | 是 | 是 |
 | 时间函数（`clock_gettime`） | 是 | 是 | 是 |
@@ -340,7 +340,7 @@ dologger_error_t rc = dologger_verify_record_signature(
 **表 6：按插件类型的模糊测试要求**
 
 | 插件类型 | 需要模糊测试？ | 理由 |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | `Filter` | 否 | 仅读取记录字段；无解析 |
 | `PolicyProvider` | 否 | 仅读取指标计数器 |
 | `FieldProvider` | 否 | 仅写入字段；无解析 |
@@ -601,7 +601,7 @@ cc -shared -fPIC \
 如果您发现 DoLogger 或任何插件中的安全漏洞：
 
 1. **不要**提交公开 Issue。
-2. 发送邮件至 `security@dologger.dev`，附：
+2. 发送邮件至 `nekoliowork+DoLogger@gmail.com`，附：
    - 漏洞描述
    - 复现步骤
    - 受影响版本（引擎、插件、平台）
@@ -611,7 +611,7 @@ cc -shared -fPIC \
 ### 披露时间线
 
 | 严重性 | 补丁时间线 | 披露方式 |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | **严重**（RCE、沙箱逃逸、签名绕过） | 7 天 | 与报告者协调 |
 | **高危**（信息泄露、权限提升） | 14 天 | 与报告者协调 |
 | **中危**（DoS、轻微数据泄露） | 30 天 | 发布说明中公开披露 |

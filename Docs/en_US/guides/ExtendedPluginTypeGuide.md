@@ -27,59 +27,20 @@
 
 When you have a logging extension in mind, use this decision tree to select the appropriate VTable plugin type.
 
-```
-What does your plugin need to do?
-  |
-  ├─ Decide which records to keep or drop
-  |     -> Filter
-  |        Mount Phase: filter (Stage 1)
-  |        Key Question: "Should this record continue through the pipeline?"
-  |
-  ├─ Control the rate or volume of logging
-  |     -> PolicyProvider
-  |        Mount Phase: prefilter (Stage 0)
-  |        Key Question: "How many records per second should pass?"
-  |
-  ├─ Add metadata to every record
-  |     ├─ Host/environment metadata (PID, hostname, container ID)
-  |     |     -> HostInfoProvider
-  |     |        Mount Phase: field (Stage 2)
-  |     |        Has Ring 1 write access
-  |     |
-  |     └─ Application/business metadata (user ID, session ID, trace ID)
-  |           -> FieldProvider
-  |              Mount Phase: field (Stage 2)
-  |              Has Ring 2 write access (Blue/Yellow) or Ring 3 (Red)
-  |
-  ├─ Transform or redact log content
-  |     -> Processor
-  |        Mount Phase: process (Stage 4)
-  |        Key Question: "Does the record need PII masking, enrichment, or restructuring?"
-  |
-  ├─ Change how records are serialized
-  |     -> Formatter
-  |        Mount Phase: format (Stage 5)
-  |        Key Question: "Should output be JSON, CSV, protobuf, or custom binary?"
-  |
-  ├─ Write records to a destination
-  |     -> IOSink
-  |        Mount Phase: sink (Stage 6)
-  |        Key Question: "Where should formatted records go? File, network, database?"
-  |
-  ├─ Load configuration from an external source
-  |     -> ConfigProvider
-  |        Mount Phase: config (load-time, not in pipeline)
-  |        Key Question: "Does config come from Vault, etcd, S3, or a database?"
-  |
-  ├─ Manage cryptographic keys
-  |     -> KeyProvider
-  |        Mount Phase: key (load-time, not in pipeline)
-  |        Key Question: "Should signing keys come from HSM, KMS, or file?"
-  |
-  └─ Mediate OS access for sandboxed plugins
-        -> SyscallBroker
-           Mount Phase: syscall (proxy, not in pipeline)
-           Key Question: "Can a sandboxed plugin safely perform file I/O or network calls?"
+```mermaid
+flowchart TD
+    Q{"What does your plugin need to do?"}
+    Q -->|"Decide which records to keep or drop"| A["Filter<br/>Mount Phase: filter (Stage 1)<br/>Key Question: Should this record continue through the pipeline?"]
+    Q -->|"Control the rate or volume of logging"| B["PolicyProvider<br/>Mount Phase: prefilter (Stage 0)<br/>Key Question: How many records per second should pass?"]
+    Q -->|"Add metadata to every record"| M{"Host/environment or application/business metadata?"}
+    M -->|"Host/environment metadata (PID, hostname, container ID)"| C["HostInfoProvider<br/>Mount Phase: field (Stage 2)<br/>Has Ring 1 write access"]
+    M -->|"Application/business metadata (user ID, session ID, trace ID)"| D["FieldProvider<br/>Mount Phase: field (Stage 2)<br/>Has Ring 2 write access (Blue/Yellow) or Ring 3 (Red)"]
+    Q -->|"Transform or redact log content"| E["Processor<br/>Mount Phase: process (Stage 4)<br/>Key Question: Does the record need PII masking, enrichment, or restructuring?"]
+    Q -->|"Change how records are serialized"| F["Formatter<br/>Mount Phase: format (Stage 5)<br/>Key Question: Should output be JSON, CSV, protobuf, or custom binary?"]
+    Q -->|"Write records to a destination"| G["IOSink<br/>Mount Phase: sink (Stage 6)<br/>Key Question: Where should formatted records go? File, network, database?"]
+    Q -->|"Load configuration from an external source"| H["ConfigProvider<br/>Mount Phase: config (load-time, not in pipeline)<br/>Key Question: Does config come from Vault, etcd, S3, or a database?"]
+    Q -->|"Manage cryptographic keys"| I["KeyProvider<br/>Mount Phase: key (load-time, not in pipeline)<br/>Key Question: Should signing keys come from HSM, KMS, or file?"]
+    Q -->|"Mediate OS access for sandboxed plugins"| J["SyscallBroker<br/>Mount Phase: syscall (proxy, not in pipeline)<br/>Key Question: Can a sandboxed plugin safely perform file I/O or network calls?"]
 ```
 
 ### Plugin Type Capabilities
@@ -87,7 +48,7 @@ What does your plugin need to do?
 **Table 1: Plugin Type Capability Matrix**
 
 | Plugin Type | Can Drop Records? | Can Modify Records? | Ring Access (Write) | Pipeline Stage |
-|:-:|:-::|:-::|:-::|:-:|
+|:-:|:-:|:-::|:-:|:-:|
 | `Filter` | **Yes** | No | None (read-only) | 1 |
 | `PolicyProvider` | **Yes** (rate limit) | No | None (read-only) | 0 |
 | `FieldProvider` | No | **Yes** | Ring 2 (Blue/Yellow) or Ring 3 (Red) | 2 |
@@ -234,30 +195,21 @@ A `SyscallBroker` is the mechanism by which sandboxed (Yellow/Red) plugins perfo
 
 ### Architecture
 
-```
-Yellow Plugin                   SyscallBroker (Blue trust)         OS Kernel
-     │                                 │                              │
-     │ dologger_syscall_broker(        │                              │
-     │   SYS_open,                     │                              │
-     │   "/var/log/dologger/state",    │                              │
-     │   O_RDONLY)                     │                              │
-     │────────────────────────────────>│                              │
-     │                                 │ open("/var/log/...", ...)    │
-     │                                 │─────────────────────────────>│
-     │                                 │                 fd = 42     │
-     │                                 │<─────────────────────────────│
-     │ returns 42                      │                              │
-     │<────────────────────────────────│                              │
-     │                                 │                              │
-     │ dologger_syscall_broker(        │                              │
-     │   SYS_read, fd=42, buf, len)    │                              │
-     │────────────────────────────────>│                              │
-     │                                 │ read(42, buf, len)           │
-     │                                 │─────────────────────────────>│
-     │                                 │                 bytes_read   │
-     │                                 │<─────────────────────────────│
-     │ returns bytes_read              │                              │
-     │<────────────────────────────────│                              │
+```mermaid
+sequenceDiagram
+    participant Y as Yellow Plugin
+    participant B as SyscallBroker (Blue trust)
+    participant K as OS Kernel
+
+    Y->>B: dologger_syscall_broker(SYS_open, "/var/log/dologger/state", O_RDONLY)
+    B->>K: open("/var/log/...", ...)
+    K-->>B: fd = 42
+    B-->>Y: returns 42
+
+    Y->>B: dologger_syscall_broker(SYS_read, fd=42, buf, len)
+    B->>K: read(42, buf, len)
+    K-->>B: bytes_read
+    B-->>Y: returns bytes_read
 ```
 
 ### SyscallBroker VTable
@@ -777,14 +729,11 @@ The engine discovers additional VTables by symbol lookup. The primary VTable (ma
 
 When a plugin registers in multiple phases, each phase instance is called independently in its respective pipeline position:
 
-```
-Pipeline:
-  PreFilter -> Filter -> Field -> Process -> Format -> Sink
-                 │                    │
-                 │                    │
-           pii-guardian         pii-guardian
-           (filter phase)       (process phase)
-              called first         called later
+```mermaid
+flowchart LR
+    A["PreFilter"] --> B["Filter"] --> C["Field"] --> D["Process"] --> E["Format"] --> F["Sink"]
+    X["pii-guardian (filter phase) — called first"] -.-> B
+    Y["pii-guardian (process phase) — called later"] -.-> D
 ```
 
 The plugin's `plugin_init()` is called **once** before the pipeline starts. The same plugin state is shared across all phases. This means:

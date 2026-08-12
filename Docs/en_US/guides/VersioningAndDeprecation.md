@@ -26,17 +26,12 @@ DoLogger follows **Semantic Versioning 2.0.0** (`MAJOR.MINOR.PATCH`). The versio
 
 ### Version Number Format
 
-```
-MAJOR.MINOR.PATCH          e.g., 1.4.2
-  │     │     │
-  │     │     └─ PATCH: Backward-compatible bug fixes, security patches
-  │     │
-  │     └─────── MINOR: Backward-compatible new features, new plugin types,
-  │               new VTable functions (added at end), new C ABI symbols
-  │
-  └───────────── MAJOR: Breaking changes — ABI version bump, VTable layout
-                  changes, removed deprecated symbols, plugin recompilation
-                  required
+```mermaid
+flowchart TD
+    V["MAJOR.MINOR.PATCH — e.g., 1.4.2"]
+    V --> A["PATCH: Backward-compatible bug fixes, security patches"]
+    V --> B["MINOR: Backward-compatible new features, new plugin types, new VTable functions (added at end), new C ABI symbols"]
+    V --> C["MAJOR: Breaking changes — ABI version bump, VTable layout changes, removed deprecated symbols, plugin recompilation required"]
 ```
 
 ### What Each Bump Means
@@ -138,21 +133,10 @@ DoLogger follows a **3-release deprecation cycle** to give plugin authors and in
 
 ### Deprecation Timeline
 
-```
-Release N (MINOR):     Mark as deprecated
-    │                  ─ Annotation in header: DO_LOG_DEPRECATED("Use new_fn instead")
-    │                  ─ Compiler warning enabled
-    │                  ─ Documentation updated with migration path
-    │
-Release N+1 (MINOR):   Warning intensifies
-    │                  ─ Runtime warning logged on first use (once per process)
-    │                  ─ Sysmon emits DEPRECATED_API_USAGE event
-    │                  ─ Documentation marks as "will be removed in next MAJOR"
-    │
-Release N+2 (MAJOR):   Removal
-                       ─ Symbol removed from headers and library
-                       ─ Plugins using removed symbols fail to compile
-                       ─ Engine rejects plugins with stale ABI version
+```mermaid
+flowchart TD
+    N["Release N (MINOR): Mark as deprecated<br/>─ Annotation in header: DO_LOG_DEPRECATED(`Use new_fn instead`)<br/>─ Compiler warning enabled<br/>─ Documentation updated with migration path"] --> N1["Release N+1 (MINOR): Warning intensifies<br/>─ Runtime warning logged on first use (once per process)<br/>─ Sysmon emits DEPRECATED_API_USAGE event<br/>─ Documentation marks as `will be removed in next MAJOR`"]
+    N1 --> N2["Release N+2 (MAJOR): Removal<br/>─ Symbol removed from headers and library<br/>─ Plugins using removed symbols fail to compile<br/>─ Engine rejects plugins with stale ABI version"]
 ```
 
 ### Deprecation Macros
@@ -207,13 +191,13 @@ enabled = true
 
 When the engine's `DO_LOG_ABI_VERSION` is bumped (MAJOR release), all plugins **must** be recompiled:
 
-```
-Engine v2.0.0 (ABI_VERSION = 2)
-  │
-  ├─ Blue plugin compiled for ABI v1 → Load rejected: DO_LOG_ERR_PLUGIN_ABI
-  ├─ Blue plugin compiled for ABI v2 → Load accepted, normal operation
-  ├─ Yellow plugin compiled for ABI v1 → Load rejected
-  └─ Yellow plugin compiled for ABI v2 → Load accepted
+```mermaid
+flowchart TD
+    E["Engine v2.0.0 (ABI_VERSION = 2)"]
+    E --> A["Blue plugin compiled for ABI v1<br/>→ Load rejected: DO_LOG_ERR_PLUGIN_ABI"]
+    E --> B["Blue plugin compiled for ABI v2<br/>→ Load accepted, normal operation"]
+    E --> C["Yellow plugin compiled for ABI v1<br/>→ Load rejected"]
+    E --> D["Yellow plugin compiled for ABI v2<br/>→ Load accepted"]
 ```
 
 The error message is explicit:
@@ -275,10 +259,10 @@ The version constraint uses Cargo-style semver ranges. The engine validates the 
 
 Every MAJOR release is accompanied by a migration guide published in this directory:
 
-```
+```text
 Docs/en_US/guides/migration/
-  v1-to-v2.md       ← Migration guide from 1.x to 2.0
-  v2-to-v3.md       ← Migration guide from 2.x to 3.0
+├── v1-to-v2.md     # Migration guide from 1.x to 2.0
+└── v2-to-v3.md     # Migration guide from 2.x to 3.0
 ```
 
 Each migration guide covers:
@@ -382,18 +366,18 @@ git tag -a v2.0.0 -m "Release v2.0.0 — ABI version 2, see migration guide"
 **Table 5: Version Support Matrix**
 
 | Version Track | Support Level | Security Patches | Bug Fixes | EOL |
-|:-:|:-::|:-::|:-::|:-:|
+|:-:|:-:|:-::|:-:|:-:|
 | Latest MAJOR (N) | **Full** | Yes | Yes | — |
 | Previous MAJOR (N-1) | **Critical** | Security only | No | 6 months after N release |
 | N-2 and older | **None** | No | No | Immediately on N release |
 
 ### Example Support Timeline
 
-```
-v1.0.0 released          → Full support begins
-v1.5.0 (final MINOR)     → Full support continues
-v2.0.0 released          → v2 gets Full support; v1 moves to Critical (6-month window)
-v2.0.0 + 6 months        → v1 End-of-Life, unsupported
+```mermaid
+flowchart TD
+    A["v1.0.0 released → Full support begins"] --> B["v1.5.0 (final MINOR) → Full support continues"]
+    B --> C["v2.0.0 released → v2 gets Full support; v1 moves to Critical (6-month window)"]
+    C --> D["v2.0.0 + 6 months → v1 End-of-Life, unsupported"]
 ```
 
 ### Pre-1.0 Policy

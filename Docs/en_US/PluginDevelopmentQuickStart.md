@@ -28,44 +28,13 @@
 
 Understanding the full compilation chain is essential for debugging build issues:
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                    DEVELOPER WORKFLOW                         │
-│                                                              │
-│  1. bash scripts/setup-conan.sh   ← install C libraries     │
-│  2. bash scripts/build-all.sh     ← build everything        │
-│                                                              │
-│  Under the hood, build-all.sh runs:                          │
-│                                                              │
-│  ┌───────────────────┐                                        │
-│  │ setup-conan.sh    │  Conan 2.x installs C libraries:     │
-│  │                   │  librdkafka, sqlite3, libsodium      │
-│  │                   │  → generates conan_toolchain.cmake   │
-│  └────────┬──────────┘                                        │
-│           │ conan_toolchain.cmake                             │
-│           ▼                                                   │
-│  ┌───────────────────┐                                        │
-│  │ cargo build       │  Rust compilation (always):          │
-│  │                   │  core/ → libdologger_core.{so,dll}   │
-│  │                   │  cli/  → dologctl                    │
-│  └────────┬──────────┘                                        │
-│           │ libdologger_core + dologger_core.h                │
-│           ▼                                                   │
-│  ┌───────────────────┐                                        │
-│  │ cmake --build      │  C/C++ plugin compilation:          │
-│  │  (with Conan       │  plugins/examples/filter/c/         │
-│  │   toolchain)       │  plugins/examples/formatter/cpp/    │
-│  └────────┬──────────┘                                        │
-│           │                                                   │
-│           ▼                                                   │
-│  ┌───────────────────┐                                        │
-│  │ go build           │  Go plugin compilation:             │
-│  │  -buildmode=       │  plugins/examples/filter/go/        │
-│  │   c-shared         │  → dologger-plugin-*.{so,dll}       │
-│  └───────────────────┘                                        │
-│                                                              │
-│  OUTPUT: build/plugins/*.so  (or .dll / .dylib)             │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    W["DEVELOPER WORKFLOW<br/>1. bash scripts/setup-conan.sh (install C libraries)<br/>2. bash scripts/build-all.sh (build everything)<br/>Under the hood, build-all.sh runs:"] --> A
+    A["setup-conan.sh<br/>Conan 2.x installs C libraries:<br/>librdkafka, sqlite3, libsodium<br/>→ generates conan_toolchain.cmake"] -->|"conan_toolchain.cmake"| B["cargo build<br/>Rust compilation (always):<br/>core/ → libdologger_core.{so,dll}<br/>cli/ → dologctl"]
+    B -->|"libdologger_core + dologger_core.h"| C["cmake --build (with Conan toolchain)<br/>C/C++ plugin compilation:<br/>plugins/examples/filter/c/<br/>plugins/examples/formatter/cpp/"]
+    C --> D["go build -buildmode=c-shared<br/>Go plugin compilation:<br/>plugins/examples/filter/go/<br/>→ dologger-plugin-*.{so,dll}"]
+    D --> E["OUTPUT: build/plugins/*.so<br/>(or .dll / .dylib)"]
 ```
 
 ### What Does Conan Actually Do?
@@ -127,7 +96,7 @@ We will create a Filter plugin that drops messages below a minimum severity leve
 
 ### Step 1: Directory Structure
 
-```
+```text
 plugins/examples/filter/c/my_filter/
 ├── CMakeLists.txt
 ├── my_filter.c
@@ -420,29 +389,17 @@ The engine discovers all plugin functions through the VTable pointer returned by
 
 ### Memory Model
 
-```
-┌──────────────────────────────────────────────┐
-│               HOST APPLICATION               │
-│  (C, C++, Python, Go, Rust — any language)   │
-└──────────────────┬───────────────────────────┘
-                   │ dologger_log()  ← C ABI
-┌──────────────────▼───────────────────────────┐
-│           libdologger_core.{so,dll}          │
-│  (Rust cdylib — single shared library)       │
-│                                              │
-│  ┌──────────┐  ┌──────────┐  ┌────────────┐ │
-│  │ Pipeline │  │  Buffer  │  │  Security   │ │
-│  │  7-stage │  │  Lock-   │  │  Ed25519    │ │
-│  │          │  │  free    │  │  AES-256    │ │
-│  └──────────┘  └──────────┘  └────────────┘ │
-└──────────────────┬───────────────────────────┘
-                   │ dlopen / LoadLibrary
-      ┌────────────┼────────────┐
-      ▼            ▼            ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐
-│ C plugin │ │C++plugin │ │Go plugin │
-│  .so     │ │  .so     │ │  .so     │
-└──────────┘ └──────────┘ └──────────┘
+```mermaid
+flowchart TD
+    A["HOST APPLICATION<br/>(C, C++, Python, Go, Rust — any language)"] -->|"dologger_log() ← C ABI"| B
+    subgraph B["libdologger_core.{so,dll} (Rust cdylib — single shared library)"]
+        B1["Pipeline 7-stage"]
+        B2["Buffer Lock-free"]
+        B3["Security Ed25519 AES-256"]
+    end
+    B -->|"dlopen / LoadLibrary"| C["C plugin (.so)"]
+    B -->|"dlopen / LoadLibrary"| D["C++ plugin (.so)"]
+    B -->|"dlopen / LoadLibrary"| E["Go plugin (.so)"]
 ```
 
 Plugins live in separate shared libraries. They never link against the core at build time — the VTable pointer indirection means zero build-time coupling. At runtime, the engine loads plugins via `dlopen` and calls through the VTable.
@@ -478,17 +435,15 @@ PKG_CONFIG_PATH=$PKG_CONFIG_PATH
 
 ### How Profiles Are Selected
 
-```
-bash scripts/setup-conan.sh
-│
-├─ --profile <name> provided? → use that profile
-├─ --detect?                  → print detected profile, exit
-├─ otherwise                  → auto-detect:
-│   ├─ uname -s → Linux/macOS/Windows
-│   ├─ uname -m → x86_64/arm64
-│   └─ which compiler → gcc/clang/msvc
-│
-└─ → conan install . --profile:host=<profile> --profile:build=<profile>
+```mermaid
+flowchart TD
+    A["bash scripts/setup-conan.sh"] --> B{"--profile <name> provided?"}
+    B -->|"yes"| P["use that profile"]
+    B -->|"no"| C{"--detect?"}
+    C -->|"yes"| Q["print detected profile, exit"]
+    C -->|"no"| R["auto-detect:<br/>uname -s → Linux/macOS/Windows<br/>uname -m → x86_64/arm64<br/>which compiler → gcc/clang/msvc"]
+    P --> S["conan install . --profile:host=<profile> --profile:build=<profile>"]
+    R --> S
 ```
 
 ---

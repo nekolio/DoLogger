@@ -129,28 +129,18 @@ printf("DoLogger ABI: v%u\n", abi);
 
 DoLoader uses a 7-layer priority system. Lower-numbered layers have lower priority:
 
+```mermaid
+flowchart TD
+    L1["Layer 1: Hardcoded defaults"] --> L2["Layer 2: System config (/etc/dologger/default.toml)"]
+    L2 --> L3["Layer 3: Drop-in fragments (/etc/dologger/conf.d/*.toml)"]
+    L3 --> L4["Layer 4: Project-local config (./dologger.toml, searched upward)"]
+    L4 --> L5["Layer 5: Environment variables (DO_LOG_LEVEL, etc.)"]
+    L5 --> L6["Layer 6: Runtime API (dologger_config_load_from_string)"]
+    L6 --> L7["Layer 7: Per-record metadata tags"]
+    L7 --> E["Effective Configuration"]
 ```
-Priority (lowest to highest):
-
-  Layer 1: Hardcoded defaults
-     │
-  Layer 2: System config  (/etc/dologger/default.toml)
-     │
-  Layer 3: Drop-in fragments  (/etc/dologger/conf.d/*.toml)
-     │
-  Layer 4: Project-local config  (./dologger.toml, searched upward)
-     │
-  Layer 5: Environment variables  (DO_LOG_LEVEL, etc.)
-     │
-  Layer 6: Runtime API  (dologger_config_load_from_string)
-     │
-  Layer 7: Per-record metadata tags
-     │
-     ▼
-  Effective Configuration
 
 Non-downgradable items: Layers can only tighten security, never loosen it.
-```
 
 ### Core Configuration Keys
 
@@ -251,32 +241,14 @@ dologctl config show --effective
 
 Domains let you define separate logging configurations for different subsystems of your application. Child domains inherit from parents and can only tighten security settings.
 
-### ASCII Art
+### Diagram
 
-```
-                    ┌──────────────────────┐
-                    │     root domain      │
-                    │                      │
-                    │ level       = INFO   │
-                    │ profile     = prod   │
-                    │ sign        = false  │
-                    │ sinks       = [file] │
-                    └──────────┬───────────┘
-                               │ inherits from
-               ┌───────────────┼───────────────┐
-               │                               │
-               ▼                               ▼
-    ┌──────────────────────┐     ┌──────────────────────┐
-    │   app:security_audit │     │    app:api_service   │
-    │                      │     │                      │
-    │ inherits: root       │     │ inherits: root       │
-    │ level       = DEBUG  │     │ level       = WARN   │
-    │ sign        = true   │     │ sinks       = [kafka]│
-    │ profile     = audit  │     │  (append to parent)  │
-    │ sinks       = [worm] │     │                      │
-    └──────────────────────┘     └──────────────────────┘
-         AUDIT domain                    API service domain
-    (Ed25519 signed, WORM)         (WARN+, Kafka output)
+```mermaid
+flowchart TD
+    ROOT["root domain<br/>level = INFO<br/>profile = prod<br/>sign = false<br/>sinks = [file]"] -->|"inherits from"| SEC
+    ROOT -->|"inherits from"| API
+    SEC["app:security_audit<br/>inherits: root<br/>level = DEBUG<br/>sign = true<br/>profile = audit<br/>sinks = [worm]<br/>AUDIT domain (Ed25519 signed, WORM)"]
+    API["app:api_service<br/>inherits: root<br/>level = WARN<br/>sinks = [kafka] (append to parent)<br/>API service domain (WARN+, Kafka output)"]
 ```
 
 ### Configuration Example
@@ -349,14 +321,15 @@ Six security items can only be tightened by child domains. Attempting to loosen 
 
 ### Decision Flowchart
 
-```
-Does this deployment require regulatory compliance (GDPR/HIPAA/PCI)?
-  ├── YES  → prod-audit  (Ed25519 + WORM + fsync on all records)
-  └── NO   → Is this a development machine?
-              ├── YES  → dev  (fast startup, small buffers)
-              └── NO   → Is raw throughput the top priority?
-                          ├── YES  → prod-performance  (up to 13.3M rec/s)
-                          └── NO   → balanced  (good default for most workloads)
+```mermaid
+flowchart TD
+    A{"Does this deployment require regulatory compliance (GDPR/HIPAA/PCI)?"}
+    A -->|"YES"| B["prod-audit (Ed25519 + WORM + fsync on all records)"]
+    A -->|"NO"| C{"Is this a development machine?"}
+    C -->|"YES"| D["dev (fast startup, small buffers)"]
+    C -->|"NO"| E{"Is raw throughput the top priority?"}
+    E -->|"YES"| F["prod-performance (up to 13.3M rec/s)"]
+    E -->|"NO"| G["balanced (good default for most workloads)"]
 ```
 
 ### Performance Data
@@ -378,31 +351,15 @@ Measured on AMD Ryzen 9 7950X, DDR5-6000, Samsung 990 Pro NVMe:
 
 Every log record contains fields organized into four permission rings, modeled after CPU privilege levels:
 
-```
-                     ┌─────────────────┐
-                     │     Ring 3      │
-                     │  (ext.* fields) │
-                     │  CRC32C only    │
-                     │  Red plugins OK │
-                     │  ┌────────────┐ │
-                     │  │   Ring 2   │ │
-                     │  │(verified.*)│ │
-                     │  │Blue/Yellow │ │
-                     │  │Ed25519(opt)│ │
-                     │  │ ┌─────────┐│ │
-                     │  │ │ Ring 1  ││ │
-                     │  │ │System   ││ │
-                     │  │ │Fields   ││ │
-                     │  │ │+HostInfo││ │
-                     │  │ │Ed25519  ││ │
-                     │  │ │ ┌──────┐││ │
-                     │  │ │ │Ring 0│││ │
-                     │  │ │ │Core  │││ │
-                     │  │ │ │Immut.│││ │
-                     │  │ │ └──────┘││ │
-                     │  │ └─────────┘│ │
-                     │  └────────────┘ │
-                     └─────────────────┘
+```mermaid
+flowchart TD
+    subgraph R3["Ring 3 (ext.* fields)<br/>CRC32C only<br/>Red plugins OK"]
+        subgraph R2["Ring 2 (verified.*)<br/>Blue/Yellow<br/>Ed25519 (opt)"]
+            subgraph R1["Ring 1 System Fields<br/>+ HostInfo<br/>Ed25519"]
+                R0["Ring 0 Core<br/>Immutable"]
+            end
+        end
+    end
 ```
 
 ### Ring 0 -- Immutable Core Fields
@@ -472,9 +429,9 @@ dologger_record_set_field(record, "ext.my_key", "my_value");
 
 ### Plugin Types and Pipeline Position
 
-```
-PreFilter ──▶ Filter ──▶ FieldProvider ──▶ Assembly ──▶ Processing ──▶ Formatting ──▶ Sink
-   (0)          (1)          (2)             (3)          (4)           (5)          (6)
+```mermaid
+flowchart LR
+    A["PreFilter (0)"] --> B["Filter (1)"] --> C["FieldProvider (2)"] --> D["Assembly (3)"] --> E["Processing (4)"] --> F["Formatting (5)"] --> G["Sink (6)"]
 ```
 
 ### Which Plugins Do You Need?

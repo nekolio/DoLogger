@@ -129,21 +129,18 @@ printf("DoLogger ABI: v%u\n", abi);
 
 DoLogger 使用 7 层优先级系统。编号越低的层优先级越低：
 
-**配置优先级（从低到高）：**
-
-| 层级 | 来源 |
-|:-:|:-:|
-| 第 1 层 | 硬编码默认值 |
-| 第 2 层 | 系统配置（`/etc/dologger/default.toml`） |
-| 第 3 层 | 片段文件（`/etc/dologger/conf.d/*.toml`） |
-| 第 4 层 | 项目本地配置（`./dologger.toml`，向上搜索） |
-| 第 5 层 | 环境变量（`DO_LOG_LEVEL` 等） |
-| 第 6 层 | 运行时 API（`dologger_config_load_from_string`） |
-| 第 7 层 | 每条记录元数据标签 |
-| **结果** | **有效配置** |
+```mermaid
+flowchart TD
+    L1["第 1 层：硬编码默认值"] --> L2["第 2 层：系统配置（/etc/dologger/default.toml）"]
+    L2 --> L3["第 3 层：片段文件（/etc/dologger/conf.d/*.toml）"]
+    L3 --> L4["第 4 层：项目本地配置（./dologger.toml，向上搜索）"]
+    L4 --> L5["第 5 层：环境变量（DO_LOG_LEVEL 等）"]
+    L5 --> L6["第 6 层：运行时 API（dologger_config_load_from_string）"]
+    L6 --> L7["第 7 层：每条记录元数据标签"]
+    L7 --> E["有效配置"]
+```
 
 不可降级项：各层只能收紧安全，绝不能放松。
-```
 
 ### 核心配置键
 
@@ -244,20 +241,15 @@ dologctl config show --effective
 
 域允许您为应用程序的不同子系统定义独立的日志配置。子域从父域继承，且只能收紧安全设置。
 
-### ASCII 图示
+### 图示
 
-**域继承关系：**
-
-`root 域`（level=INFO, profile=prod, sign=false, sinks=[file]）--继承自--> 两个子域：
-
-| 属性 | `app:security_audit`（审计域） | `app:api_service`（API 服务域） |
-|:-:|:-:|:-:|
-| 继承自 | root | root |
-| level | DEBUG | WARN |
-| signature | **true**（开启） | （继承） |
-| profile | audit | （继承） |
-| sinks | [worm]（替换） | [kafka]（追加到父域） |
-| 特征 | Ed25519 签名，WORM | WARN+，Kafka 输出 |
+```mermaid
+flowchart TD
+    ROOT["root 域<br/>level = INFO<br/>profile = prod<br/>sign = false<br/>sinks = [file]"] -->|"继承自"| SEC
+    ROOT -->|"继承自"| API
+    SEC["app:security_audit（审计域）<br/>继承自：root<br/>level = DEBUG<br/>sign = true（开启）<br/>profile = audit<br/>sinks = [worm]（替换）<br/>特征：Ed25519 签名，WORM"]
+    API["app:api_service（API 服务域）<br/>继承自：root<br/>level = WARN<br/>sinks = [kafka]（追加到父域）<br/>特征：WARN+，Kafka 输出"]
+```
 
 ### 配置示例
 
@@ -327,15 +319,16 @@ array_merge_policy = "unique_append"    # 添加到父域接收器（无重复�
 | `fsync_on_write` | 关闭 | 关闭 | 可选 | **开启** |
 | `require_tls` | 关闭 | 仅警告 | 开启 | **开启** |
 
-### 决策流程图
-
-1. 此部署是否需要法规合规（GDPR/HIPAA/PCI）？
-   - **是** → `prod-audit`（所有记录 Ed25519 + WORM + fsync）
-   - **否** → 继续判断：这是开发机器吗？
-     - **是** → `dev`（快速启动，小缓冲区）
-     - **否** → 继续判断：原始吞吐量是首要目标吗？
-       - **是** → `prod-performance`（高达 13.3M rec/s）
-       - **否** → `balanced`（大多数工作负载的良好默认值）
+```mermaid
+flowchart TD
+    A{"此部署是否需要法规合规（GDPR/HIPAA/PCI）？"}
+    A -->|"是"| B["prod-audit（所有记录 Ed25519 + WORM + fsync）"]
+    A -->|"否"| C{"这是开发机器吗？"}
+    C -->|"是"| D["dev（快速启动，小缓冲区）"]
+    C -->|"否"| E{"原始吞吐量是首要目标吗？"}
+    E -->|"是"| F["prod-performance（高达 13.3M rec/s）"]
+    E -->|"否"| G["balanced（大多数工作负载的良好默认值）"]
+```
 
 ### 性能数据
 
@@ -356,14 +349,16 @@ array_merge_policy = "unique_append"    # 添加到父域接收器（无重复�
 
 每条日志记录包含组织为四个权限环的字段，仿照 CPU 特权级别：
 
-**字段权限环（从外到内）：**
-
-| 环 | 命名空间 | 完整性保护 | 写入权限 |
-|:-:|:-:|:-:|:-:|
-| **Ring 3**（外层） | `ext.*` | 仅 CRC32C | Red 插件可用 |
-| **Ring 2** | `verified.*` | Ed25519（可选） | Blue/Yellow 插件 |
-| **Ring 1** | 系统字段 + HostInfo | Ed25519（始终） | 核心引擎 + HostInfoProvider |
-| **Ring 0**（核心） | 引擎核心字段 | Ed25519（始终） | 仅核心引擎（不可变） |
+```mermaid
+flowchart TD
+    subgraph R3["Ring 3（外层，ext.*）<br/>仅 CRC32C<br/>Red 插件可用"]
+        subgraph R2["Ring 2（verified.*）<br/>Ed25519（可选）<br/>Blue/Yellow 插件"]
+            subgraph R1["Ring 1 系统字段 + HostInfo<br/>Ed25519（始终）<br/>核心引擎 + HostInfoProvider"]
+                R0["Ring 0（核心）引擎核心字段<br/>Ed25519（始终）<br/>仅核心引擎（不可变）"]
+            end
+        end
+    end
+```
 
 ### Ring 0 -- 不可变核心字段
 
@@ -432,7 +427,10 @@ dologger_record_set_field(record, "ext.my_key", "my_value");
 
 ### 插件类型和管道位置
 
-**管道流程：** PreFilter (0) → Filter (1) → FieldProvider (2) → Assembly (3) → Processing (4) → Formatting (5) → Sink (6)
+```mermaid
+flowchart LR
+    A["PreFilter (0)"] --> B["Filter (1)"] --> C["FieldProvider (2)"] --> D["Assembly (3)"] --> E["Processing (4)"] --> F["Formatting (5)"] --> G["Sink (6)"]
+```
 
 ### 您需要哪些插件？
 

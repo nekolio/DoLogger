@@ -27,20 +27,20 @@
 
 当您有一个日志扩展想法时，使用此决策表选择合适的 VTable 插件类型。
 
-**问题：您的插件需要做什么？**
-
-| 需求 | 插件类型 | 挂载阶段 | 关键问题 |
-|:-:|:-:|:-:|:-:|
-| 决定保留或丢弃哪些记录 | **Filter** | filter（阶段 1） | "此记录应继续通过管道吗？" |
-| 控制日志的速率或量级 | **PolicyProvider** | prefilter（阶段 0） | "每秒应通过多少条记录？" |
-| 主机/环境元数据（PID、主机名、容器 ID） | **HostInfoProvider** | field（阶段 2） | 具有 Ring 1 写入权限 |
-| 应用程序/业务元数据（用户 ID、会话 ID、追踪 ID） | **FieldProvider** | field（阶段 2） | 具有 Ring 2 写入权限（Blue/Yellow）或 Ring 3（Red） |
-| 转换或脱敏日志内容 | **Processor** | process（阶段 4） | "记录是否需要 PII 掩码、丰富或重构？" |
-| 更改记录的序列化方式 | **Formatter** | format（阶段 5） | "输出应为 JSON、CSV、protobuf 还是自定义二进制格式？" |
-| 将记录写入目标位置 | **IOSink** | sink（阶段 6） | "格式化后的记录应发往哪里？文件、网络、数据库？" |
-| 从外部源加载配置 | **ConfigProvider** | config（加载时，不在管道中） | "配置是否来自 Vault、etcd、S3 或数据库？" |
-| 管理加密密钥 | **KeyProvider** | key（加载时，不在管道中） | "签名密钥应来自 HSM、KMS 还是文件？" |
-| 为沙箱插件中介操作系统访问 | **SyscallBroker** | syscall（代理，不在管道中） | "沙箱插件能否安全地执行文件 I/O 或网络调用？" |
+```mermaid
+flowchart TD
+    Q{"您的插件需要做什么？"}
+    Q -->|"决定保留或丢弃哪些记录"| A["Filter<br/>挂载阶段：filter（阶段 1）<br/>关键问题：此记录应继续通过管道吗？"]
+    Q -->|"控制日志的速率或量级"| B["PolicyProvider<br/>挂载阶段：prefilter（阶段 0）<br/>关键问题：每秒应通过多少条记录？"]
+    Q -->|"为每条记录添加元数据"| M{"主机/环境元数据还是应用程序/业务元数据？"}
+    M -->|"主机/环境元数据（PID、主机名、容器 ID）"| C["HostInfoProvider<br/>挂载阶段：field（阶段 2）<br/>具有 Ring 1 写入权限"]
+    M -->|"应用程序/业务元数据（用户 ID、会话 ID、追踪 ID）"| D["FieldProvider<br/>挂载阶段：field（阶段 2）<br/>具有 Ring 2 写入权限（Blue/Yellow）或 Ring 3（Red）"]
+    Q -->|"转换或脱敏日志内容"| E["Processor<br/>挂载阶段：process（阶段 4）<br/>关键问题：记录是否需要 PII 掩码、丰富或重构？"]
+    Q -->|"更改记录的序列化方式"| F["Formatter<br/>挂载阶段：format（阶段 5）<br/>关键问题：输出应为 JSON、CSV、protobuf 还是自定义二进制格式？"]
+    Q -->|"将记录写入目标位置"| G["IOSink<br/>挂载阶段：sink（阶段 6）<br/>关键问题：格式化后的记录应发往哪里？文件、网络、数据库？"]
+    Q -->|"从外部源加载配置"| H["ConfigProvider<br/>挂载阶段：config（加载时，不在管道中）<br/>关键问题：配置是否来自 Vault、etcd、S3 或数据库？"]
+    Q -->|"管理加密密钥"| I["KeyProvider<br/>挂载阶段：key（加载时，不在管道中）<br/>关键问题：签名密钥应来自 HSM、KMS 还是文件？"]
+    Q -->|"为沙箱插件中介操作系统访问"| J["SyscallBroker<br/>挂载阶段：syscall（代理，不在管道中）<br/>关键问题：沙箱插件能否安全地执行文件 I/O 或网络调用？"]
 ```
 
 ### 插件类型能力
@@ -48,7 +48,7 @@
 **表 1：插件类型能力矩阵**
 
 | 插件类型 | 可丢弃记录？ | 可修改记录？ | Ring 访问（写入） | 管道阶段 |
-|:-:|:-::|:-::|:-::|:-:|
+|:-:|:-:|:-::|:-:|:-:|
 | `Filter` | **是** | 否 | 无（只读） | 1 |
 | `PolicyProvider` | **是**（速率限制） | 否 | 无（只读） | 0 |
 | `FieldProvider` | 否 | **是** | Ring 2（Blue/Yellow）或 Ring 3（Red） | 2 |
@@ -195,19 +195,22 @@ path = "/usr/lib/dologger/plugins/libvault_keys.so"
 
 ### 架构
 
-SyscallBroker 中介流程：**Yellow 插件** → **SyscallBroker（Blue 信任）** → **OS 内核**
+```mermaid
+sequenceDiagram
+    participant Y as Yellow 插件
+    participant B as SyscallBroker（Blue 信任）
+    participant K as OS 内核
 
-**示例流程 1 -- 打开文件：**
-1. Yellow 插件调用 `dologger_syscall_broker(SYS_open, "/var/log/dologger/state", O_RDONLY)` → SyscallBroker
-2. SyscallBroker 执行 `open("/var/log/...", ...)` → OS 内核
-3. OS 内核返回 `fd = 42` → SyscallBroker
-4. SyscallBroker 返回 `42` → Yellow 插件
+    Y->>B: dologger_syscall_broker(SYS_open, "/var/log/dologger/state", O_RDONLY)
+    B->>K: open("/var/log/...", ...)
+    K-->>B: fd = 42
+    B-->>Y: 返回 42
 
-**示例流程 2 -- 读取文件：**
-1. Yellow 插件调用 `dologger_syscall_broker(SYS_read, fd=42, buf, len)` → SyscallBroker
-2. SyscallBroker 执行 `read(42, buf, len)` → OS 内核
-3. OS 内核返回 `bytes_read` → SyscallBroker
-4. SyscallBroker 返回 `bytes_read` → Yellow 插件
+    Y->>B: dologger_syscall_broker(SYS_read, fd=42, buf, len)
+    B->>K: read(42, buf, len)
+    K-->>B: bytes_read
+    B-->>Y: 返回 bytes_read
+```
 
 ### SyscallBroker VTable
 
@@ -726,11 +729,12 @@ const dologger_filter_vtable_t dologger_filter_vtable = {
 
 当插件在多个阶段注册时，每个阶段实例在其各自的管道位置独立调用：
 
-**管道流程：** PreFilter → Filter → Field → Process → Format → Sink
-
-以 `pii-guardian` 为例，它在两个阶段注册：
-- **filter 阶段**（先调用）-- 检查和过滤
-- **process 阶段**（后调用）-- 掩码/脱敏
+```mermaid
+flowchart LR
+    A["PreFilter"] --> B["Filter"] --> C["Field"] --> D["Process"] --> E["Format"] --> F["Sink"]
+    X["pii-guardian（filter 阶段）— 先调用，检查和过滤"] -.-> B
+    Y["pii-guardian（process 阶段）— 后调用，掩码/脱敏"] -.-> D
+```
 
 插件的 `plugin_init()` 在管道开始前调用**一次**。相同的插件状态在所有阶段间共享。这意味着：
 

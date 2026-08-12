@@ -55,67 +55,35 @@
 
 ### System Overview
 
-```
-                          HOST APPLICATION
-                               │
-                    dologger_log() / dologger_logv()
-                               │
-                         102 ns P50 (CAS push)
-                               │
-                               ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                     LOCK-FREE MPSC RING BUFFER                                │
-│                                                                              │
-│  ┌──────────────────────┐  ┌──────────────────────┐  ┌────────────────────┐  │
-│  │   Normal Partition   │  │   AUDIT Partition    │  │  Cooperative       │  │
-│  │       (90%)          │  │       (10%)          │  │  Helping           │  │
-│  │  CAS-based enqueue   │  │  Dedicated, isolated │  │  Producer drains   │  │
-│  │  Wait-free producers │  │  Never drops         │  │  at >90% full      │  │
-│  └──────────┬───────────┘  └──────────┬───────────┘  └────────────────────┘  │
-│             │                         │                                      │
-└─────────────┬─────────────────────────┬──────────────────────────────────────┘
-              │                         │
-              ▼                         ▼
-┌──────────────────────────┐  ┌───────────────────────────────────────────────┐
-│  REGULAR PIPELINE         │  │  AUDIT PIPELINE (independent consumer)        │
-│                           │  │                                               │
-│  Stage 0: PreFilter       │  │  Ring Buffer → Direct Processing              │
-│    PolicyProvider plugins │  │    (no plugin stages -- bypasses all)          │
-│    (rate_limiter, level)  │  │                                               │
-│         │                 │  │  Ed25519 Sign (mandatory)                     │
-│         ▼                 │  │         │                                     │
-│  Stage 1: Filter          │  │         ▼                                     │
-│    Filter plugins         │  │  Dual-Write Sinks:                            │
-│         │                 │  │    → WORM Sink  (LSN chain, prev_hash)        │
-│         ▼                 │  │    → Security Sink (0600, plugin bypass)      │
-│  Stage 2: FieldProvider   │  │                                               │
-│    HostInfo + Field       │  └───────────────────────────────────────────────┘
-│         │                 │
-│         ▼                 │
-│  Stage 3: Assembly        │
-│    Core: LSN assign       │
-│    + Ed25519 sign         │
-│    + CRC32C Ring 3 check  │
-│    + Secret detection     │
-│         │                 │
-│         ▼                 │
-│  Stage 4: Processing      │
-│    Processor plugins      │
-│    (transform, redact)    │
-│         │                 │
-│         ▼                 │
-│  Stage 5: Formatting      │
-│    Formatter plugins      │
-│    (JSON, text, SIF)      │
-│         │                 │
-│         ▼                 │
-│  Stage 6: Sink Fan-Out    │
-│    IOSink plugins         │
-│    (parallel writes)      │
-│         │                 │
-│         ▼                 │
-│  11 sink types available  │
-└───────────────────────────┘
+```mermaid
+flowchart TD
+    A["HOST APPLICATION<br/>dologger_log() / dologger_logv()<br/>102 ns P50 (CAS push)"] --> RB
+
+    subgraph RB["LOCK-FREE MPSC RING BUFFER"]
+        B1["Normal Partition (90%)<br/>CAS-based enqueue<br/>Wait-free producers"]
+        B2["AUDIT Partition (10%)<br/>Dedicated, isolated<br/>Never drops"]
+        B3["Cooperative Helping<br/>Producer drains at >90% full"]
+    end
+
+    B1 --> RP
+    B2 --> AP
+
+    subgraph RP["REGULAR PIPELINE"]
+        direction TB
+        C0["Stage 0: PreFilter<br/>PolicyProvider plugins<br/>(rate_limiter, level)"] --> C1["Stage 1: Filter<br/>Filter plugins"]
+        C1 --> C2["Stage 2: FieldProvider<br/>HostInfo + Field"]
+        C2 --> C3["Stage 3: Assembly<br/>Core: LSN assign<br/>+ Ed25519 sign<br/>+ CRC32C Ring 3 check<br/>+ Secret detection"]
+        C3 --> C4["Stage 4: Processing<br/>Processor plugins<br/>(transform, redact)"]
+        C4 --> C5["Stage 5: Formatting<br/>Formatter plugins<br/>(JSON, text, SIF)"]
+        C5 --> C6["Stage 6: Sink Fan-Out<br/>IOSink plugins<br/>(parallel writes)"]
+        C6 --> C7["11 sink types available"]
+    end
+
+    subgraph AP["AUDIT PIPELINE (independent consumer)"]
+        direction TB
+        D1["Ring Buffer → Direct Processing<br/>(no plugin stages -- bypasses all)"] --> D2["Ed25519 Sign (mandatory)"]
+        D2 --> D3["Dual-Write Sinks:<br/>→ WORM Sink (LSN chain, prev_hash)<br/>→ Security Sink (0600, plugin bypass)"]
+    end
 ```
 
 ### Stage Details
@@ -132,24 +100,16 @@
 
 ### Record Lifecycle
 
-```
-Object Pool (Treiber stack)
-       │
-       ├─ alloc() ──▶ Record (pre-zeroed)
-       │                 │
-       │        Application fills Ring 1 fields
-       │                 │
-       │        dologger_log() → CAS push into ring buffer
-       │                 │
-       │        Consumer drains batch
-       │                 │
-       │        Pipeline stages 0-6 process
-       │                 │
-       │        Formatter serializes
-       │                 │
-       │        Sink writes to destination(s)
-       │                 │
-       └─ free() ◀──────┘
+```mermaid
+flowchart TD
+    A["Object Pool (Treiber stack)"] -->|"alloc()"| B["Record (pre-zeroed)"]
+    B --> C["Application fills Ring 1 fields"]
+    C --> D["dologger_log() → CAS push into ring buffer"]
+    D --> E["Consumer drains batch"]
+    E --> F["Pipeline stages 0-6 process"]
+    F --> G["Formatter serializes"]
+    G --> H["Sink writes to destination(s)"]
+    H -->|"free()"| A
 ```
 
 ---
@@ -158,21 +118,10 @@ Object Pool (Treiber stack)
 
 ### Architecture
 
-```
-Producer Threads (multiple)          Consumer Thread (single per domain)
-       │                                         │
-       │  CAS on producer_sequence               │
-       ▼                                         ▼
-┌──────────────────────────────────────────────────────────────┐
-│  Slot 0 │ Slot 1 │ Slot 2 │ ... │ Slot N-1                  │
-│  [data] │ [data] │ [data] │     │ [data]                    │
-│  [seq]  │ [seq]  │ [seq]  │     │ [seq]                     │
-└──────────────────────────────────────────────────────────────┘
-       ▲                                         │
-       │            Capacity = 2^k               │
-       │            Mask = 2^k - 1               │
-       │                                         │
-       └───── index = sequence & mask ───────────┘
+```mermaid
+flowchart TD
+    P["Producer Threads (multiple)<br/>CAS on producer_sequence"] -->|"index = sequence & mask"| B
+    B["Ring Buffer<br/>Slot 0 | Slot 1 | Slot 2 | ... | Slot N-1<br/>each slot holds data + seq<br/>Capacity = 2^k, Mask = 2^k - 1"] --> C["Consumer Thread (single per domain)"]
 ```
 
 ### Design Properties
@@ -337,44 +286,15 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ### Field Permission Rings
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                          RING 3                              │
-│  Untrusted Extensions  (ext.* namespace)                     │
-│  Write: Any plugin (including Red)                           │
-│  Read:  Any plugin                                           │
-│  Integrity: CRC32C hardware checksum (~0.5 cycles/byte)      │
-│  NOT covered by Ed25519 signature                            │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐  │
-│  │                        RING 2                          │  │
-│  │  Verified Extensions  (verified.* namespace)           │  │
-│  │  Write: Blue + Yellow plugins only                     │  │
-│  │  Read:  Any plugin                                     │  │
-│  │  Integrity: Ed25519 (when sign_ring2=true)             │  │
-│  │  Audit: Each write appends audit_tags entry            │  │
-│  │                                                        │  │
-│  │  ┌──────────────────────────────────────────────────┐  │  │
-│  │  │                      RING 1                      │  │  │
-│  │  │  System Trusted Fields                           │  │  │
-│  │  │  Write: Core engine + HostInfoProvider           │  │  │
-│  │  │  Read:  All plugins (read-only)                  │  │  │
-│  │  │  Integrity: Ed25519 (always)                     │  │  │
-│  │  │  Fields: level, message, host, process,          │  │  │
-│  │  │          thread_id, environment                  │  │  │
-│  │  │                                                  │  │  │
-│  │  │  ┌────────────────────────────────────────────┐  │  │  │
-│  │  │  │                RING 0                      │  │  │  │
-│  │  │  │  Engine Core -- Immutable                  │  │  │  │
-│  │  │  │  Write: Core engine ONLY                   │  │  │  │
-│  │  │  │  Read:  Formatter + Sink (read-only)       │  │  │  │
-│  │  │  │  Integrity: Ed25519 (always)               │  │  │  │
-│  │  │  │  Fields: id, timestamp, signature,         │  │  │  │
-│  │  │  │          origin_lsn                        │  │  │  │
-│  │  │  └────────────────────────────────────────────┘  │  │  │
-│  │  └──────────────────────────────────────────────────┘  │  │
-│  └────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph R3["RING 3 — Untrusted Extensions (ext.* namespace)<br/>Write: Any plugin (including Red) | Read: Any plugin<br/>Integrity: CRC32C hardware checksum (~0.5 cycles/byte)<br/>NOT covered by Ed25519 signature"]
+        subgraph R2["RING 2 — Verified Extensions (verified.* namespace)<br/>Write: Blue + Yellow plugins only | Read: Any plugin<br/>Integrity: Ed25519 (when sign_ring2=true)<br/>Audit: Each write appends audit_tags entry"]
+            subgraph R1["RING 1 — System Trusted Fields<br/>Write: Core engine + HostInfoProvider | Read: All plugins (read-only)<br/>Integrity: Ed25519 (always)<br/>Fields: level, message, host, process, thread_id, environment"]
+                R0["RING 0 — Engine Core — Immutable<br/>Write: Core engine ONLY | Read: Formatter + Sink (read-only)<br/>Integrity: Ed25519 (always)<br/>Fields: id, timestamp, signature, origin_lsn"]
+            end
+        end
+    end
 ```
 
 ### Three-Color Plugin Trust Model
@@ -392,16 +312,15 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ### seccomp-bpf Syscall Allowlist (Linux)
 
-```
-                    Blue        Yellow      Red
-Memory              ALL         ALL         ALL
-Threading           ALL         ALL         ALL
-Time                ALL         ALL         ALL
-Signal              ALL         ALL         DENIED
-File I/O            ALL         ALL         DENIED
-Network             ALL         DENIED      DENIED
-Process             ALL         DENIED      DENIED
-```
+| Category | Blue | Yellow | Red |
+|:-:|:-:|:-:|:-:|
+| Memory | ALL | ALL | ALL |
+| Threading | ALL | ALL | ALL |
+| Time | ALL | ALL | ALL |
+| Signal | ALL | ALL | DENIED |
+| File I/O | ALL | ALL | DENIED |
+| Network | ALL | DENIED | DENIED |
+| Process | ALL | DENIED | DENIED |
 
 Violation action: `SECCOMP_RET_KILL_PROCESS` -- the plugin thread is terminated by the kernel with SIGSYS. A `SANDBOX_VIOLATION` sysmon event is emitted.
 
@@ -411,17 +330,17 @@ Violation action: `SECCOMP_RET_KILL_PROCESS` -- the plugin thread is terminated 
 
 ### Fan-Out Architecture
 
-```
-Pipeline Output (formatted record)
-           │
-           ▼
-    ┌──────────────────────┐
-    │    Sink Dispatcher   │
-    │  (parallel dispatch) │
-    └──────┬───────┬───────┬──────┬──────┬──────┬──────┐
-           │       │       │      │      │      │      │
-           ▼       ▼       ▼      ▼      ▼      ▼      ▼
-        Console  File   Callback Kafka Syslog Webhook SQLite ...
+```mermaid
+flowchart TD
+    A["Pipeline Output (formatted record)"] --> B["Sink Dispatcher<br/>(parallel dispatch)"]
+    B --> C1["Console"]
+    B --> C2["File"]
+    B --> C3["Callback"]
+    B --> C4["Kafka"]
+    B --> C5["Syslog"]
+    B --> C6["Webhook"]
+    B --> C7["SQLite"]
+    B --> C8["..."]
 ```
 
 Each enabled sink receives a copy of every formatted record. Dispatch is parallel across the `io_pool` thread pool.
@@ -460,29 +379,22 @@ brokers = ["kafka1:9092"]
 fallback = "file"            # If Kafka is down, write to file instead
 ```
 
-```
-Primary Sink (Kafka)
-       │
-       │ write failure
-       ▼
-Fallback Sink (File)
-       │
-       │ write failure
-       ▼
-Emergency Sink (Console stderr)
+```mermaid
+flowchart TD
+    A["Primary Sink (Kafka)"] -->|"write failure"| B["Fallback Sink (File)"]
+    B -->|"write failure"| C["Emergency Sink (Console stderr)"]
 ```
 
 ### Circuit Breaker Per Remote Sink
 
 Each remote sink (Kafka, Syslog, Webhook) has an independent circuit breaker:
 
-```
-CLOSED ──(failures >= threshold)──▶ OPEN
-  ▲                                    │
-  │                              (timeout_ms)
-  │                                    ▼
-  └────(probe success)──── HALF_OPEN ◀─┘
-       (probe failure)─────────────▶ OPEN
+```mermaid
+stateDiagram-v2
+    CLOSED --> OPEN : failures >= threshold
+    OPEN --> HALF_OPEN : timeout_ms elapsed
+    HALF_OPEN --> CLOSED : probe success
+    HALF_OPEN --> OPEN : probe failure
 ```
 
 | Parameter | Default | AUDIT Override |
@@ -509,23 +421,12 @@ When the ring buffer is full and the configured `block_timeout_ms` expires, reco
 
 ### Backpressure Thresholds
 
-```
-Ring Buffer Occupancy:
-
-   0% ──────────── normal operation ────────────▶ 50%
-                                                     │
-                                                     ▼
-   50% ───── PIPELINE_BACKLOG (WARN sysmon) ────▶ 90%
-                                                     │
-                                                     ▼
-   90% ──── Cooperative helping activates ───────▶ 95%
-    (producer threads help drain inline)              │
-                                                     ▼
-   95% ─── Emergency buffer activates ───────────▶ 100%
-    (spill to mmap file on disk)                      │
-                                                     ▼
-   100% ── Drop strategy applied ────────────────▶
-    (drop_newest / oldest / below_warn / never)
+```mermaid
+flowchart TD
+    A["0% — normal operation"] --> B["50% — PIPELINE_BACKLOG (WARN sysmon)"]
+    B --> C["90% — Cooperative helping activates<br/>(producer threads help drain inline)"]
+    C --> D["95% — Emergency buffer activates<br/>(spill to mmap file on disk)"]
+    D --> E["100% — Drop strategy applied<br/>(drop_newest / oldest / below_warn / never)"]
 ```
 
 ### Cooperative Helping
@@ -563,21 +464,12 @@ The AUDIT iron law overrides all profiles: AUDIT records never drop.
 
 ### Emergency Buffer Data Flow
 
-```
-Normal Path:                   Emergency Path:
-                               (ring buffer >95%)
-dologger_log()                 dologger_log()
-     │                              │
-     ▼                              ▼
-ring_buffer.try_push()         ring_buffer.try_push()
-     │                              │
-     │ OK                           │ ERR (full)
-     │                              ▼
-     │                         emergency_buffer.push()
-     │                              │
-     │                              ▼
-     │                         mmap file on disk
-     │                         (AES-256-GCM if AUDIT)
+```mermaid
+flowchart TD
+    A["dologger_log()"] --> B["ring_buffer.try_push()"]
+    B -->|"OK (normal path)"| C["Record enqueued"]
+    B -->|"ERR (full) — ring buffer >95%"| D["emergency_buffer.push()"]
+    D --> E["mmap file on disk<br/>(AES-256-GCM if AUDIT)"]
 ```
 
 ### Recovery
@@ -608,38 +500,23 @@ If these limits are exceeded, the emergency buffer itself drops records and a `E
 
 ### Pool Layout
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     THREAD POOLS                            │
-│                                                             │
-│  ┌──────────────────┐  ┌─────────────────┐  ┌─────────────┐ │
-│  │    cpu_pool      │  │    io_pool      │  │ sysmon_pool │ │
-│  │                  │  │                 │  │             │ │
-│  │ Threads: N       │  │ Threads: N/2    │  │ Threads: 1  │ │
-│  │ Priority: Normal │  │ Priority: Normal│  │ Priority:Low│ │
-│  │                  │  │                 │  │             │ │
-│  │ Pipeline stages: │  │ Sink writes:    │  │ Sysmon flush│ │
-│  │  Filter          │  │  File           │  │ Diagnostics │ │
-│  │  FieldProvider   │  │  Kafka          │  │             │ │
-│  │  Assembly        │  │  Syslog         │  │             │ │
-│  │  Processing      │  │  Webhook        │  │             │ │
-│  │  Formatting      │  │  OTel           │  │             │ │
-│  │                  │  │                 │  │             │ │
-│  └──────────────────┘  └─────────────────┘  └─────────────┘ │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  AUDIT Consumer Thread (dedicated, never shared)        ││
-│  │  Name: dologger-audit-pipeline                          ││
-│  │  Priority: Normal                                       ││
-│  │  Work: Read→Sign→Dual-write(WORM+Security)→Pool return  ││
-│  └─────────────────────────────────────────────────────────┘│
-│                                                             │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  Config Watcher Thread (1 thread)                       ││
-│  │  Name: dologger-config-watcher                          ││
-│  │  Work: Poll config file every 1s (500ms debounce)       ││
-│  └─────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph CPU["cpu_pool — Threads: N, Priority: Normal"]
+        C1["Pipeline stages:<br/>Filter, FieldProvider, Assembly, Processing, Formatting"]
+    end
+    subgraph IO["io_pool — Threads: N/2, Priority: Normal"]
+        I1["Sink writes:<br/>File, Kafka, Syslog, Webhook, OTel"]
+    end
+    subgraph SYS["sysmon_pool — Threads: 1, Priority: Low"]
+        S1["Sysmon flush<br/>Diagnostics"]
+    end
+    subgraph AUDIT["AUDIT Consumer Thread (dedicated, never shared)"]
+        A1["Name: dologger-audit-pipeline<br/>Priority: Normal<br/>Work: Read → Sign → Dual-write (WORM + Security) → Pool return"]
+    end
+    subgraph WATCH["Config Watcher Thread (1 thread)"]
+        W1["Name: dologger-config-watcher<br/>Work: Poll config file every 1s (500ms debounce)"]
+    end
 ```
 
 ### Thread Naming Convention
@@ -696,29 +573,28 @@ typedef dologger_error_t (*vtable_fn_t)(/* parameters */);
 
 ### Plugin Lifecycle
 
-```
-engine_start()
-  │
-  └─ for each plugin in config:
-       ├─ dlopen(plugin_path)                     // Load shared library
-       ├─ dlsym("plugin_query")                   // → PluginInfo
-       │   ├─ Validate ABI version
-       │   ├─ Validate type
-       │   └─ Validate license SPDX
-       ├─ dlsym("dologger_vtable")                // → VTable struct
-       │   └─ Validate required function pointers
-       ├─ (Blue only) Verify Ed25519 signature
-       ├─ Apply sandbox policy (seccomp/AppContainer)
-       └─ plugin_init(config)                     // → Allocate state
-           │
-           │  ... runtime: VTable functions called ...
-           │
-           ▼
-engine_shutdown()
-  │
-  └─ for each plugin in REVERSE load order:
-       ├─ plugin_shutdown()                       // → Free state
-       └─ dlclose()
+```mermaid
+sequenceDiagram
+    participant E as Engine
+    participant P as Plugin (.so / .dll)
+
+    Note over E: engine_start()
+    loop for each plugin in config
+        E->>P: dlopen(plugin_path) — load shared library
+        E->>P: dlsym("plugin_query") → PluginInfo
+        Note over E,P: Validate ABI version, type, license SPDX
+        E->>P: dlsym("dologger_vtable") → VTable struct
+        Note over E,P: Validate required function pointers
+        Note over E: (Blue only) Verify Ed25519 signature
+        Note over E: Apply sandbox policy (seccomp / AppContainer)
+        E->>P: plugin_init(config) → allocate state
+    end
+    Note over E,P: ... runtime: VTable functions called ...
+    Note over E: engine_shutdown()
+    loop for each plugin in REVERSE load order
+        E->>P: plugin_shutdown() → free state
+        E->>P: dlclose()
+    end
 ```
 
 ### Required C ABI Exports
@@ -749,30 +625,26 @@ SIF (Structured Interchange Format) is the binary log record format used for WOR
 
 ### Record Layout (simplified)
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Offset │ Size  │ Field             │ Description             │
-├────────┼───────┼───────────────────┼─────────────────────────┤
-│   0    │   4   │ magic             │ b"SIF1" (0x53494631)    │
-│   4    │   4   │ version           │ Format version (1)      │
-│   8    │   4   │ length            │ Total record length     │
-│  12    │   8   │ lsn               │ Log Sequence Number     │
-│  20    │   8   │ timestamp_hi      │ Timestamp high 64 bits  │
-│  28    │   8   │ timestamp_lo      │ Timestamp low 64 bits   │
-│  36    │   1   │ level             │ Log level (0-6)         │
-│  37    │   1   │ flags             │ Bit flags               │
-│  38    │   2   │ reserved          │ Reserved (padding)      │
-│  40    │   8   │ thread_id         │ Thread ID               │
-│  48    │   8   │ process_id        │ Process ID              │
-│  56    │   8   │ origin_lsn        │ Origin LSN (distributed)│
-│  64    │  64   │ signature         │ Ed25519 signature       │
-│ 128    │  32   │ prev_hash         │ SHA-256 chain hash      │
-│ 160    │  ...  │ message           │ Length-prefixed UTF-8   │
-│  ...   │  ...  │ source_file       │ Length-prefixed UTF-8   │
-│  ...   │  ...  │ host_name         │ Length-prefixed UTF-8   │
-│  ...   │   4   │ crc32c            │ CRC32C of entire record │
-└──────────────────────────────────────────────────────────────┘
-```
+| Offset | Size | Field | Description |
+|:-:|:-:|:-:|:-:|
+| 0 | 4 | magic | b"SIF1" (0x53494631) |
+| 4 | 4 | version | Format version (1) |
+| 8 | 4 | length | Total record length |
+| 12 | 8 | lsn | Log Sequence Number |
+| 20 | 8 | timestamp_hi | Timestamp high 64 bits |
+| 28 | 8 | timestamp_lo | Timestamp low 64 bits |
+| 36 | 1 | level | Log level (0-6) |
+| 37 | 1 | flags | Bit flags |
+| 38 | 2 | reserved | Reserved (padding) |
+| 40 | 8 | thread_id | Thread ID |
+| 48 | 8 | process_id | Process ID |
+| 56 | 8 | origin_lsn | Origin LSN (distributed) |
+| 64 | 64 | signature | Ed25519 signature |
+| 128 | 32 | prev_hash | SHA-256 chain hash |
+| 160 | ... | message | Length-prefixed UTF-8 |
+| ... | ... | source_file | Length-prefixed UTF-8 |
+| ... | ... | host_name | Length-prefixed UTF-8 |
+| ... | 4 | crc32c | CRC32C of entire record |
 
 ### Future Direction
 

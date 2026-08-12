@@ -44,30 +44,13 @@ DoLogger provides four pre-configured performance profiles. Selecting the right 
 
 ### Profile Selection Decision Tree
 
-```
-Start: What is the deployment purpose?
-  |
-  ├─ Local development or CI testing
-  |     -> dev
-  |        Rationale: Fast startup, small footprint, no persistence requirements.
-  |        config: performance_profile = "dev"
-  |
-  ├─ Production, regulatory compliance required (GDPR/HIPAA/PCI DSS)
-  |     -> prod-audit
-  |        Rationale: Ed25519 signatures, WORM storage, fsync durability,
-  |                   non-downgradable security items enforced.
-  |        config: performance_profile = "prod-audit"
-  |
-  ├─ Production, maximum throughput, no regulatory requirement
-  |     -> prod-performance
-  |        Rationale: Largest ring buffer, best drop strategy (below_warn),
-  |                   Ed25519 signing optional.
-  |        config: performance_profile = "prod-performance"
-  |
-  └─ Production, general-purpose, moderate throughput needs
-        -> balanced
-           Rationale: Good balance of throughput and safety.
-           config: performance_profile = "balanced"
+```mermaid
+flowchart TD
+    S{"Start: What is the deployment purpose?"}
+    S -->|"Local development or CI testing"| A["dev<br/>Rationale: Fast startup, small footprint, no persistence requirements.<br/>config: performance_profile = `dev`"]
+    S -->|"Production, regulatory compliance required (GDPR/HIPAA/PCI DSS)"| B["prod-audit<br/>Rationale: Ed25519 signatures, WORM storage, fsync durability, non-downgradable security items enforced.<br/>config: performance_profile = `prod-audit`"]
+    S -->|"Production, maximum throughput, no regulatory requirement"| C["prod-performance<br/>Rationale: Largest ring buffer, best drop strategy (below_warn), Ed25519 signing optional.<br/>config: performance_profile = `prod-performance`"]
+    S -->|"Production, general-purpose, moderate throughput needs"| D["balanced<br/>Rationale: Good balance of throughput and safety.<br/>config: performance_profile = `balanced`"]
 ```
 
 ### Profile Overrides
@@ -89,7 +72,7 @@ Overrides are merged on top of the profile defaults. Non-downgradable security i
 ### When to Switch Profiles
 
 | Symptom | Current Profile | Recommended Profile | Rationale |
-|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|
 | Ring buffer overflowing, emergency spills | `balanced` | `prod-performance` | Larger buffer, better drop strategy |
 | Compliance audit upcoming | `prod-performance` | `prod-audit` | Ed25519 + WORM + fsync required |
 | Development machine, engine starts slowly | `prod-performance` | `dev` | Smaller buffer, faster init |
@@ -296,7 +279,7 @@ Safety Factor: 1.5 to 2.0 (accounts for bursty workloads)
 **Worked examples:**
 
 | Scenario | Peak Rate | Max Drain | Safety Factor | Calculated Size | Rounded (power of 2) |
-|:-:|:-:|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|:-:|:-:|
 | REST API (bursty) | 500,000 rec/s | 2 seconds | 2.0 | 1,000,000 | **1,048,576** |
 | Streaming pipeline (steady) | 200,000 rec/s | 1 second | 1.5 | 300,000 | **524,288** |
 | Batch job (massive burst) | 2,000,000 rec/s | 5 seconds | 2.0 | 20,000,000 | **16,777,216** |
@@ -376,7 +359,7 @@ Sinks are not created equal. The slowest enabled sink determines your effective 
 **Table 4: Sink Throughput Characteristics (Reference Hardware)**
 
 | Sink | Throughput (rec/s) | Latency Per Write | Bottleneck | Async? |
-|:-:|:-::|:-::|:-:|:-:|
+|:-:|:-:|:-::|:-:|:-:|
 | Console (`sink_console`) | ~1,200,000 | ~0.8 us | Terminal emulator speed | Yes |
 | File, no fsync (`sink_file`) | ~950,000 | ~1.0 us | Filesystem page cache | Yes |
 | Callback (`sink_callback`) | ~2,000,000 | ~0.5 us | Callback function speed | No (sync) |
@@ -466,7 +449,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 **Table 6: RAM Required for Given Throughput Targets**
 
 | Target Throughput | Buffer Size | Object Pool | Total RAM (approx.) | Recommended System RAM |
-|:-::|:-::|:-::|:-::|:-::|
+|:-:|:-::|:-:|:-::|:-:|
 | 50K rec/s (light) | 65536 | 65536 | ~25 MB | 512 MB |
 | 100K rec/s (moderate) | 131072 | 131072 | ~48 MB | 1 GB |
 | 250K rec/s (production) | 262144 | 262144 | ~92 MB | 2 GB |
@@ -477,7 +460,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 ### Memory Constraints by Platform
 
 | Platform | Max Buffer Size (practical) | Limiting Factor |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | Container (512 MB limit) | 524288 | Container memory limit - buffer + object pool + application must fit |
 | Kubernetes pod (2 GB limit) | 2097152 | Pod resource quota; leave headroom for application |
 | Bare metal (64 GB) | 16777216 | Diminishing returns beyond ~8M slots on current hardware |

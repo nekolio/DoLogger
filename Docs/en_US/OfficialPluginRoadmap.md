@@ -170,7 +170,7 @@ Community-driven with official reference implementations.
 
 ### Plugin Crate Template
 
-```
+```text
 plugins/official/fmt_json/
 ├── Cargo.toml
 ├── PluginManifest.toml

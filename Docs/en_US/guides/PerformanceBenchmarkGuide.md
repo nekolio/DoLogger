@@ -560,7 +560,7 @@ benches/baselines/         ← Committed baselines for CI comparison
 **Table 10: Performance Deviation Thresholds**
 
 | Change Type | Hot Path P50 | Hot Path P99 | Throughput | Action |
-|:-:|:-::|:-::|:-::|:-:|
+|:-:|:-:|:-::|:-:|:-:|
 | Within noise | < 2% | < 3% | < 2% | Accept — no action |
 | Minor improvement | 2-10% | 3-10% | 2-10% | Accept — note in changelog |
 | Minor regression | 2-5% | 3-5% | 2-5% | Review — document if intentional |

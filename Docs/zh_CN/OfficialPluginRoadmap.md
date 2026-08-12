@@ -167,11 +167,13 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 
 ### 插件 Crate 模板
 
-- `plugins/official/fmt_json/`
-  - `Cargo.toml`
-  - `PluginManifest.toml`
-  - `src/`
-    - `lib.rs`
+```text
+plugins/official/fmt_json/
+├── Cargo.toml
+├── PluginManifest.toml
+└── src/
+    └── lib.rs
+```
 
 每个官方插件：
 - 导出 `plugin_query`、`plugin_init`、`plugin_shutdown` C ABI 符号

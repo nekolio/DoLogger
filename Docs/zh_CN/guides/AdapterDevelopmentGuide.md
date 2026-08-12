@@ -28,20 +28,29 @@
 
 所有语言适配器共享一个共同基础：它们加载 `libdologger_core`（`.so` / `.dylib` / `.dll`）并调用 C ABI 函数。无需重新实现引擎。
 
-**架构层次：**
-
-| 层次 | 组件 | 说明 |
-|:-:|:-:|:-:|
-| **宿主应用程序** | Python 适配器（ctypes）、Go 适配器（cgo）、Rust Crate、C/C++（直接）、其他语言 | 各语言通过适配器调用 C ABI |
-| **接口层** | `dologger_*` C ABI | 统一的 C 语言接口 |
-| **引擎层** | `libdologger_core`（.so / .dylib / .dll） | 单一共享库，包含所有核心功能 |
+```mermaid
+flowchart TD
+    subgraph HOST["宿主应用程序"]
+        A["Python 适配器（ctypes）"]
+        B["Go 适配器（cgo）"]
+        C["Rust Crate"]
+        D["C/C++（直接）"]
+        E["其他语言"]
+    end
+    A --> ABI
+    B --> ABI
+    C --> ABI
+    D --> ABI
+    E --> ABI
+    ABI["dologger_* C ABI（统一的 C 语言接口）"] --> CORE["libdologger_core<br/>（.so / .dylib / .dll）"]
+```
 
 ### C ABI 接口面
 
 公共 C ABI 由以下函数族组成：
 
 | 函数族 | 用途 | 签名数量 |
-|:-:|:-:|:-::|
+|:-:|:-:|:-:|
 | `dologger_init` / `dologger_shutdown` | 引擎生命周期 | 2 |
 | `dologger_log` / `dologger_logv` | 日志提交 | 2 |
 | `dologger_get_abi_version` | ABI 版本检查 | 1 |
@@ -772,7 +781,7 @@ C ABI 对于并发的 `dologger_log()` 调用是线程安全的。适配器必�
 **表 2：线程安全保证**
 
 | 操作 | 线程安全？ | 备注 |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | `dologger_init()` | 否 | 从一个线程调用一次 |
 | `dologger_log()` | **是** | 无锁 CAS 推送。可从任何线程安全调用，包括信号处理程序。 |
 | `dologger_shutdown()` | 否 | 调用一次。阻塞直到进行中的记录排空。不要与 `shutdown()` 并发调用 `log()`。 |
@@ -821,7 +830,7 @@ func (e *Engine) Shutdown() error {
 **表 3：适配器测试矩阵**
 
 | 平台 | 架构 | 库格式 | 测试环境 |
-|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|
 | Linux | x86_64 | `.so` | GitHub Actions `ubuntu-latest` |
 | Linux | aarch64 | `.so` | AWS Graviton 或 QEMU 模拟 |
 | macOS | x86_64 | `.dylib` | GitHub Actions `macos-13` |

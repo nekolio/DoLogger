@@ -27,21 +27,14 @@
 
 理解完整的编译链对于调试构建问题至关重要：
 
-**开发者工作流：**
-
-1. `bash scripts/setup-conan.sh` -- 安装 C 库
-2. `bash scripts/build-all.sh` -- 构建一切
-
-在底层，`build-all.sh` 按顺序运行：
-
-| 步骤 | 工具 | 操作 | 输出 |
-|:-:|:-:|:-:|:-:|
-| 1 | Conan 2.x（setup-conan.sh） | 安装 C 库：librdkafka、sqlite3、libsodium | `conan_toolchain.cmake` |
-| 2 | `cargo build`（Rust 编译） | core/ → `libdologger_core.{so,dll}`；cli/ → `dologctl` | `libdologger_core` + `dologger_core.h` |
-| 3 | `cmake --build`（使用 Conan 工具链） | C/C++ 插件编译：`plugins/examples/filter/c/`、`plugins/examples/formatter/cpp/` | 插件 .so/.dll |
-| 4 | `go build -buildmode=c-shared` | Go 插件编译：`plugins/examples/filter/go/` | `dologger-plugin-*.{so,dll}` |
-
-**最终输出：** `build/plugins/*.so`（或 .dll / .dylib）
+```mermaid
+flowchart LR
+    W["开发者工作流<br/>1. bash scripts/setup-conan.sh（安装 C 库）<br/>2. bash scripts/build-all.sh（构建一切）<br/>在底层，build-all.sh 按顺序运行："] --> A
+    A["setup-conan.sh（Conan 2.x）<br/>安装 C 库：librdkafka、sqlite3、libsodium<br/>→ 生成 conan_toolchain.cmake"] -->|"conan_toolchain.cmake"| B["cargo build（Rust 编译）<br/>core/ → libdologger_core.{so,dll}<br/>cli/ → dologctl"]
+    B -->|"libdologger_core + dologger_core.h"| C["cmake --build（使用 Conan 工具链）<br/>C/C++ 插件编译：<br/>plugins/examples/filter/c/<br/>plugins/examples/formatter/cpp/"]
+    C --> D["go build -buildmode=c-shared<br/>Go 插件编译：<br/>plugins/examples/filter/go/<br/>→ dologger-plugin-*.{so,dll}"]
+    D --> E["最终输出：build/plugins/*.so<br/>（或 .dll / .dylib）"]
+```
 
 ### Conan 实际做什么？
 
@@ -102,10 +95,12 @@ pwsh scripts/dologger-env-check.ps1
 
 ### 步骤 1：目录结构
 
-- `plugins/examples/filter/c/my_filter/`
-  - `CMakeLists.txt`
-  - `my_filter.c`
-  - `PluginManifest.toml`
+```text
+plugins/examples/filter/c/my_filter/
+├── CMakeLists.txt
+├── my_filter.c
+└── PluginManifest.toml
+```
 
 ### 步骤 2：编写插件
 
@@ -391,17 +386,18 @@ int plugin_shutdown(void);
 
 ### 内存模型
 
-**架构层次（从上到下）：**
-
-1. **宿主应用程序**（C、C++、Python、Go、Rust——任何语言）→ 调用 `dologger_log()`（C ABI）
-2. **`libdologger_core.{so,dll}`**（Rust cdylib——单一共享库），包含核心模块：
-   - 管道（7 阶段）
-   - 缓冲区（无锁）
-   - 安全（Ed25519、AES-256）
-3. **插件**（通过 `dlopen` / `LoadLibrary` 动态加载）：
-   - C 插件（.so）
-   - C++ 插件（.so）
-   - Go 插件（.so）
+```mermaid
+flowchart TD
+    A["宿主应用程序<br/>（C、C++、Python、Go、Rust——任何语言）"] -->|"dologger_log() ← C ABI"| B
+    subgraph B["libdologger_core.{so,dll}（Rust cdylib——单一共享库）"]
+        B1["管道（7 阶段）"]
+        B2["缓冲区（无锁）"]
+        B3["安全（Ed25519、AES-256）"]
+    end
+    B -->|"dlopen / LoadLibrary"| C["C 插件（.so）"]
+    B -->|"dlopen / LoadLibrary"| D["C++ 插件（.so）"]
+    B -->|"dlopen / LoadLibrary"| E["Go 插件（.so）"]
+```
 
 插件位于独立的共享库中。它们在构建时从不链接到核心——VTable 指针间接意味着零构建时耦合。在运行时，引擎通过 `dlopen` 加载插件并通过 VTable 调用。
 
@@ -436,15 +432,16 @@ PKG_CONFIG_PATH=$PKG_CONFIG_PATH
 
 ### Profile 如何被选择
 
-`bash scripts/setup-conan.sh` 执行流程：
-
-1. 若提供 `--profile <name>` → 使用该 profile
-2. 若 `--detect` → 打印检测到的 profile，退出
-3. 否则 → 自动检测：
-   - `uname -s` → Linux / macOS / Windows
-   - `uname -m` → x86_64 / arm64
-   - 检测编译器 → gcc / clang / msvc
-4. 最终执行：`conan install . --profile:host=<profile> --profile:build=<profile>`
+```mermaid
+flowchart TD
+    A["bash scripts/setup-conan.sh"] --> B{"提供 --profile <name>？"}
+    B -->|"是"| P["使用该 profile"]
+    B -->|"否"| C{"--detect？"}
+    C -->|"是"| Q["打印检测到的 profile，退出"]
+    C -->|"否"| R["自动检测：<br/>uname -s → Linux / macOS / Windows<br/>uname -m → x86_64 / arm64<br/>检测编译器 → gcc / clang / msvc"]
+    P --> S["conan install . --profile:host=<profile> --profile:build=<profile>"]
+    R --> S
+```
 
 ---
 

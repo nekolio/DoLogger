@@ -660,6 +660,6 @@ dologctl compliance report \
 
 ### Responsible Disclosure
 
-Security vulnerabilities in DoLogger should be reported to `security@dologger.dev`. Please do not file public issues for security-sensitive bugs. The project follows a 90-day disclosure deadline. Critical vulnerabilities (RCE, sandbox escape, signature bypass) will be patched within 7 days of confirmation.
+Security vulnerabilities in DoLogger should be reported to `nekoliowork+DoLogger@gmail.com`. Please do not file public issues for security-sensitive bugs. The project follows a 90-day disclosure deadline. Critical vulnerabilities (RCE, sandbox escape, signature bypass) will be patched within 7 days of confirmation.
 
 **Bug Bounty**: A bug bounty program covering the DoLogger core engine, official plugins, and `dologctl` CLI is planned for M4.

@@ -55,29 +55,36 @@
 
 ### 系统概览
 
-**数据流：** 宿主应用程序 → `dologger_log()` / `dologger_logv()`（102 ns P50 CAS 推入）→ 无锁 MPSC 环形缓冲区
+```mermaid
+flowchart TD
+    A["宿主应用程序<br/>dologger_log() / dologger_logv()<br/>102 ns P50（CAS 推入）"] --> RB
 
-**环形缓冲区分区：**
+    subgraph RB["无锁 MPSC 环形缓冲区"]
+        B1["普通分区（90%）<br/>CAS 入队<br/>生产者无等待"]
+        B2["审计分区（10%）<br/>专用隔离<br/>永不丢弃"]
+        B3["协作式帮助<br/>占用率 >90% 时生产者侧排空"]
+    end
 
-| 分区 | 占比 | 特性 |
-|:-:|:-:|:-:|
-| 普通分区 | 90% | CAS 入队，生产者无等待 |
-| 审计分区 | 10% | 专用隔离，永不丢弃 |
-| 协作式帮助 | — | 占用率 >90% 时生产者侧排空 |
+    B1 --> RP
+    B2 --> AP
 
-**常规管道（7 阶段）：**
+    subgraph RP["常规管道"]
+        direction TB
+        C0["阶段 0：PreFilter<br/>PolicyProvider 插件<br/>（rate_limiter、level）"] --> C1["阶段 1：Filter<br/>Filter 插件"]
+        C1 --> C2["阶段 2：FieldProvider<br/>HostInfo + Field"]
+        C2 --> C3["阶段 3：Assembly<br/>核心：LSN 分配 + Ed25519 签名<br/>+ CRC32C Ring 3 校验 + 密钥检测"]
+        C3 --> C4["阶段 4：Processing<br/>Processor 插件<br/>（transform、redact）"]
+        C4 --> C5["阶段 5：Formatting<br/>Formatter 插件<br/>（JSON、text、SIF）"]
+        C5 --> C6["阶段 6：Sink Fan-Out<br/>IOSink 插件<br/>（并行写入）"]
+        C6 --> C7["11 种接收器可用"]
+    end
 
-| 阶段 | 名称 | 说明 |
-|:-:|:-:|:-:|
-| 0 | PreFilter | PolicyProvider 插件（rate_limiter、level） |
-| 1 | Filter | Filter 插件 |
-| 2 | FieldProvider | HostInfo + Field 插件 |
-| 3 | Assembly | 核心：LSN 分配 + Ed25519 签名 + CRC32C Ring 3 校验 + 密钥检测 |
-| 4 | Processing | Processor 插件（transform、redact） |
-| 5 | Formatting | Formatter 插件（JSON、text、SIF） |
-| 6 | Sink Fan-Out | IOSink 插件（并行写入），11 种接收器可用 |
-
-**审计管道（独立消费者）：** 环形缓冲区 → 直接处理（无插件阶段——全部绕过）→ Ed25519 签名（强制）→ 双写接收器 → WORM 接收器（LSN 链、prev_hash）+ 安全文件接收器（0600、绕过插件）
+    subgraph AP["审计管道（独立消费者）"]
+        direction TB
+        D1["环形缓冲区 → 直接处理<br/>（无插件阶段——全部绕过）"] --> D2["Ed25519 签名（强制）"]
+        D2 --> D3["双写接收器：<br/>→ WORM 接收器（LSN 链、prev_hash）<br/>→ 安全文件接收器（0600、绕过插件）"]
+    end
+```
 
 ### 各阶段详情
 
@@ -93,16 +100,17 @@
 
 ### Record 生命周期
 
-Record 生命周期流程：
-
-1. 对象池（Treiber 栈）→ `alloc()` → Record（预置零）
-2. 应用程序填充 Ring 1 字段
-3. `dologger_log()` → CAS 推入环形缓冲区
-4. 消费者批量排空
-5. 管道阶段 0-6 依次处理
-6. Formatter 序列化
-7. Sink 写入目标位置
-8. `free()` → 归还对象池
+```mermaid
+flowchart TD
+    A["对象池（Treiber 栈）"] -->|"alloc()"| B["Record（预置零）"]
+    B --> C["应用程序填充 Ring 1 字段"]
+    C --> D["dologger_log() → CAS 推入环形缓冲区"]
+    D --> E["消费者批量排空"]
+    E --> F["管道阶段 0-6 依次处理"]
+    F --> G["Formatter 序列化"]
+    G --> H["Sink 写入目标位置"]
+    H -->|"free()"| A
+```
 
 ---
 
@@ -110,11 +118,11 @@ Record 生命周期流程：
 
 ### 架构
 
-**环形缓冲区架构：**
-
-- **生产者线程（多个）** -- 对 producer_sequence 进行 CAS --> **环形缓冲区槽位**：[槽 0] [槽 1] [槽 2] ... [槽 N-1]（每个槽含 data + seq）
-- **消费者线程（每个域一个）** -- 批量排空 --> 从环形缓冲区读取
-- 索引计算：`index = sequence & mask`，其中 `容量 = 2^k`，`掩码 = 2^k - 1`
+```mermaid
+flowchart TD
+    P["生产者线程（多个）<br/>对 producer_sequence 进行 CAS"] -->|"index = sequence & mask"| B
+    B["环形缓冲区<br/>槽 0 | 槽 1 | 槽 2 | ... | 槽 N-1<br/>每个槽含 data + seq<br/>容量 = 2^k，掩码 = 2^k - 1"] --> C["消费者线程（每个域一个）<br/>批量排空"]
+```
 
 ### 设计属性
 
@@ -253,20 +261,15 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ### 字段权限环
 
-**字段权限环（从外到内）：**
-
-| 环 | 命名空间 | 写入权限 | 读取权限 | 完整性保护 | Ed25519 签名 |
-|:-:|:-:|:-:|:-:|:-:|:-:|
-| **Ring 3** | `ext.*` | 任意插件（含 Red） | 任意插件 | CRC32C 硬件校验（~0.5 周期/字节） | 不受保护 |
-| **Ring 2** | `verified.*` | 仅 Blue + Yellow 插件 | 任意插件 | Ed25519（sign_ring2=true 时）；审计：每次写入追加 audit_tags 条目 | 可选 |
-| **Ring 1** | 系统信任字段 | 核心引擎 + HostInfoProvider | 所有插件（只读） | Ed25519（始终） | 始终 |
-| **Ring 0** | 引擎核心 | 仅核心引擎 | Formatter + Sink（只读） | Ed25519（始终） | 始终 |
-
-**各环字段：**
-- **Ring 0：** `id`、`timestamp`、`signature`、`origin_lsn`
-- **Ring 1：** `level`、`message`、`host`、`process`、`thread_id`、`environment`
-- **Ring 2：** `verified.*` 命名空间字段
-- **Ring 3：** `ext.*` 命名空间字段
+```mermaid
+flowchart TD
+    subgraph R3["RING 3 — 不受信任扩展（ext.* 命名空间）<br/>写入：任意插件（含 Red）| 读取：任意插件<br/>完整性：CRC32C 硬件校验（~0.5 周期/字节）<br/>不受 Ed25519 签名保护"]
+        subgraph R2["RING 2 — 已验证扩展（verified.* 命名空间）<br/>写入：仅 Blue + Yellow 插件 | 读取：任意插件<br/>完整性：Ed25519（sign_ring2=true 时）<br/>审计：每次写入追加 audit_tags 条目"]
+            subgraph R1["RING 1 — 系统信任字段<br/>写入：核心引擎 + HostInfoProvider | 读取：所有插件（只读）<br/>完整性：Ed25519（始终）<br/>字段：level、message、host、process、thread_id、environment"]
+                R0["RING 0 — 引擎核心 — 不可变<br/>写入：仅核心引擎 | 读取：Formatter + Sink（只读）<br/>完整性：Ed25519（始终）<br/>字段：id、timestamp、signature、origin_lsn"]
+            end
+        end
+    end
 ```
 
 ### 三色插件信任模型
@@ -284,16 +287,15 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ### seccomp-bpf 系统调用白名单（Linux）
 
-```
-                     Blue        Yellow      Red
-内存                 全部         全部         全部
-线程                 全部         全部         全部
-时间                 全部         全部         全部
-信号                 全部         全部         禁止
-文件 I/O             全部         全部         禁止
-网络                 全部         禁止         禁止
-进程                 全部         禁止         禁止
-```
+| 类别 | Blue | Yellow | Red |
+|:-:|:-:|:-:|:-:|
+| 内存 | 全部 | 全部 | 全部 |
+| 线程 | 全部 | 全部 | 全部 |
+| 时间 | 全部 | 全部 | 全部 |
+| 信号 | 全部 | 全部 | 禁止 |
+| 文件 I/O | 全部 | 全部 | 禁止 |
+| 网络 | 全部 | 禁止 | 禁止 |
+| 进程 | 全部 | 禁止 | 禁止 |
 
 违规处理：`SECCOMP_RET_KILL_PROCESS`——内核以 SIGSYS 终止插件线程。发出 `SANDBOX_VIOLATION` 系统监控事件。
 
@@ -303,9 +305,18 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ### 扇出架构
 
-**接收器扇出数据流：**
-
-管道输出（已格式化的记录）→ 接收器分发器（并行分发）→ Console / File / Callback / Kafka / Syslog / Webhook / SQLite / Shared Memory / OpenTelemetry / WORM / Security File（共 11 种）
+```mermaid
+flowchart TD
+    A["管道输出（已格式化的记录）"] --> B["接收器分发器<br/>（并行分发）"]
+    B --> C1["Console"]
+    B --> C2["File"]
+    B --> C3["Callback"]
+    B --> C4["Kafka"]
+    B --> C5["Syslog"]
+    B --> C6["Webhook"]
+    B --> C7["SQLite"]
+    B --> C8["..."]
+```
 
 每个启用的接收器会收到每条已格式化记录的副本。分发通过 `io_pool` 线程池并行执行。
 
@@ -345,20 +356,23 @@ brokers = ["kafka1:9092"]
 fallback = "file"            # 若 Kafka 宕机，改写文件
 ```
 
-**回退链数据流：** 主接收器（Kafka）--（写入失败）--> 回退接收器（File）--（写入失败）--> 紧急接收器（Console stderr）
+```mermaid
+flowchart TD
+    A["主接收器（Kafka）"] -->|"写入失败"| B["回退接收器（File）"]
+    B -->|"写入失败"| C["紧急接收器（Console stderr）"]
+```
 
 ### 每个远程接收器的断路器
 
 每个远程接收器（Kafka、Syslog、Webhook）均有独立的断路器：
 
-**断路器状态机：**
-
-| 状态转换 | 条件 |
-|:-:|:-:|
-| CLOSED → OPEN | 失败次数 >= 阈值 |
-| OPEN → HALF_OPEN | timeout_ms 超时后 |
-| HALF_OPEN → CLOSED | 探测成功 |
-| HALF_OPEN → OPEN | 探测失败 |
+```mermaid
+stateDiagram-v2
+    CLOSED --> OPEN : 失败次数 >= 阈值
+    OPEN --> HALF_OPEN : timeout_ms 超时后
+    HALF_OPEN --> CLOSED : 探测成功
+    HALF_OPEN --> OPEN : 探测失败
+```
 
 | 参数 | 默认值 | AUDIT 覆盖值 |
 |:-:|:-:|:-:|
@@ -384,15 +398,13 @@ fallback = "file"            # 若 Kafka 宕机，改写文件
 
 ### 背压阈值
 
-**环形缓冲区占用率阈值：**
-
-| 占用率 | 系统行为 |
-|:-:|:-:|
-| 0%-50% | 正常运行 |
-| 50%-90% | 发出 PIPELINE_BACKLOG（WARN 系统监控） |
-| 90%-95% | 协作式帮助激活（生产者线程协助内联排空） |
-| 95%-100% | 紧急缓冲区激活（溢出至磁盘 mmap 文件） |
-| 100% | 应用丢弃策略（drop_newest / oldest / below_warn / never） |
+```mermaid
+flowchart TD
+    A["0% — 正常运行"] --> B["50% — 发出 PIPELINE_BACKLOG（WARN 系统监控）"]
+    B --> C["90% — 协作式帮助激活<br/>（生产者线程协助内联排空）"]
+    C --> D["95% — 紧急缓冲区激活<br/>（溢出至磁盘 mmap 文件）"]
+    D --> E["100% — 应用丢弃策略<br/>（drop_newest / oldest / below_warn / never）"]
+```
 
 ### 协作式帮助
 
@@ -429,11 +441,13 @@ AUDIT 铁律覆盖所有配置：审计记录永不丢弃。
 
 ### 紧急缓冲区数据流
 
-**紧急缓冲区数据流对比：**
-
-**正常路径：** `dologger_log()` → `ring_buffer.try_push()` → OK（正常入队）
-
-**紧急路径（环形缓冲区 >95%）：** `dologger_log()` → `ring_buffer.try_push()` → ERR（已满）→ `emergency_buffer.push()` → 磁盘 mmap 文件（AUDIT 时 AES-256-GCM 加密）
+```mermaid
+flowchart TD
+    A["dologger_log()"] --> B["ring_buffer.try_push()"]
+    B -->|"OK（正常路径）"| C["正常入队"]
+    B -->|"ERR（已满）— 环形缓冲区 >95%"| D["emergency_buffer.push()"]
+    D --> E["磁盘 mmap 文件<br/>（AUDIT 时 AES-256-GCM 加密）"]
+```
 
 ### 恢复流程
 
@@ -462,15 +476,24 @@ AUDIT 铁律覆盖所有配置：审计记录永不丢弃。
 
 ### 池布局
 
-**线程池布局：**
-
-| 线程池 | 线程数 | 优先级 | 工作内容 |
-|:-:|:-:|:-:|:-:|
-| `cpu_pool` | N（= CPU 核数） | 普通 | 管道阶段：Filter、FieldProvider、Assembly、Processing、Formatting |
-| `io_pool` | N/2 | 普通 | 接收器写入：File、Kafka、Syslog、Webhook、OTel |
-| `sysmon_pool` | 1 | 低 | Sysmon 刷新诊断信息 |
-| `AUDIT 消费者线程` | 1（专用，永不共享） | 普通 | 名称：`dologger-audit-pipeline`；工作：读取 → 签名 → 双写（WORM+Security）→ 回收 |
-| `配置监控线程` | 1 | — | 名称：`dologger-config-watcher`；工作：每 1 秒轮询配置文件（500ms 去抖） |
+```mermaid
+flowchart TD
+    subgraph CPU["cpu_pool — 线程数：N（= CPU 核数），优先级：普通"]
+        C1["管道阶段：<br/>Filter、FieldProvider、Assembly、Processing、Formatting"]
+    end
+    subgraph IO["io_pool — 线程数：N/2，优先级：普通"]
+        I1["接收器写入：<br/>File、Kafka、Syslog、Webhook、OTel"]
+    end
+    subgraph SYS["sysmon_pool — 线程数：1，优先级：低"]
+        S1["Sysmon 刷新<br/>诊断信息"]
+    end
+    subgraph AUDIT["AUDIT 消费者线程（1 个，专用，永不共享）"]
+        A1["名称：dologger-audit-pipeline<br/>优先级：普通<br/>工作：读取 → 签名 → 双写（WORM+Security）→ 回收"]
+    end
+    subgraph WATCH["配置监控线程（1 个）"]
+        W1["名称：dologger-config-watcher<br/>工作：每 1 秒轮询配置文件（500ms 去抖）"]
+    end
+```
 
 ### 线程命名规范
 
@@ -523,24 +546,29 @@ typedef dologger_error_t (*vtable_fn_t)(/* parameters */);
 
 ### 插件生命周期
 
-**插件生命周期流程：**
+```mermaid
+sequenceDiagram
+    participant E as 引擎
+    participant P as 插件（.so / .dll）
 
-`engine_start()` → 对配置中的每个插件执行以下步骤：
-
-1. `dlopen(plugin_path)` — 加载共享库
-2. `dlsym("plugin_query")` → PluginInfo
-   - 验证 ABI 版本
-   - 验证类型
-   - 验证许可证 SPDX
-3. `dlsym("dologger_vtable")` → VTable 结构体
-   - 验证必需函数指针
-4. （仅 Blue）验证 Ed25519 签名
-5. 应用沙箱策略（seccomp/AppContainer）
-6. `plugin_init(config)` → 分配状态
-7. ... 运行时：调用 VTable 函数 ...
-8. `engine_shutdown()` → 对每个插件按**反向加载顺序**执行：
-   - `plugin_shutdown()` → 释放状态
-   - `dlclose()`
+    Note over E: engine_start()
+    loop 对配置中的每个插件
+        E->>P: dlopen(plugin_path) — 加载共享库
+        E->>P: dlsym("plugin_query") → PluginInfo
+        Note over E,P: 验证 ABI 版本、类型、许可证 SPDX
+        E->>P: dlsym("dologger_vtable") → VTable 结构体
+        Note over E,P: 验证必需函数指针
+        Note over E: （仅 Blue）验证 Ed25519 签名
+        Note over E: 应用沙箱策略（seccomp / AppContainer）
+        E->>P: plugin_init(config) → 分配状态
+    end
+    Note over E,P: ... 运行时：调用 VTable 函数 ...
+    Note over E: engine_shutdown()
+    loop 对每个插件按反向加载顺序
+        E->>P: plugin_shutdown() → 释放状态
+        E->>P: dlclose()
+    end
+```
 
 ### 必需的 C ABI 导出
 

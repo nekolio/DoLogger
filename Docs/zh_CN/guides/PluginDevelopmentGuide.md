@@ -26,12 +26,18 @@ DoLogger 插件是编译为共享库（.so/.dylib/.dll）的独立二进制文�
 
 ### 插件生命周期
 
-1. `plugin_query()` → 返回 `PluginInfo`（类型、版本、依赖）
-2. `plugin_init()` → 初始化插件，分配内部状态
-3. 运行时调用 → 核心按 VTable 调度插件函数
-4. `plugin_shutdown()` → 清理资源，释放内存
-5. `plugin_state_serialize()` → 热重载时序列化状态
-6. `plugin_state_deserialize()` → 热重载时恢复状态
+```mermaid
+sequenceDiagram
+    participant E as 引擎
+    participant P as 插件
+
+    E->>P: plugin_query() → 返回 PluginInfo（类型、版本、依赖）
+    E->>P: plugin_init() → 初始化插件，分配内部状态
+    Note over E,P: 运行时 — 核心按 VTable 调度插件函数
+    E->>P: plugin_shutdown() → 清理资源，释放内存
+    E->>P: plugin_state_serialize() → （可选）热重载时序列化状态
+    E->>P: plugin_state_deserialize() → （可选）热重载时恢复状态
+```
 
 ---
 
@@ -275,10 +281,14 @@ dologctl plugin verify my-plugin
 
 ### 构件格式
 
-- `my-plugin-1.0.0/`
-  - `manifest.toml`
-  - `my_plugin.so`（Linux x86_64）
-  - `my_plugin.dylib`（macOS x86_64）
-  - `my_plugin.dll`（Windows x86_64）
-  - `LICENSE`
-  - `README.md`
+```text
+my-plugin-1.0.0/
+├── manifest.toml
+├── libmy_plugin.so           # Linux x86_64
+├── libmy_plugin.aarch64.so   # Linux aarch64
+├── libmy_plugin.dylib        # macOS x86_64
+├── libmy_plugin.arm64.dylib  # macOS aarch64
+├── my_plugin.dll             # Windows x86_64
+├── LICENSE
+└── README.md
+```

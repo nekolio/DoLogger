@@ -31,18 +31,17 @@ A DoLogger plugin is a shared library (`.so` / `.dylib` / `.dll`) that exports a
 
 ### Plugin Lifecycle
 
-```
-plugin_query()         → Returns PluginInfo (type, version, dependencies)
-     │
-plugin_init()          → Allocates state, validates configuration
-     │
-  [ Runtime ]          → Core dispatches VTable function pointers
-     │
-plugin_shutdown()      → Releases resources, frees memory
-     │
-plugin_state_serialize()   → (Optional) Serializes state for hot reload
-     │
-plugin_state_deserialize() → (Optional) Restores state on hot reload
+```mermaid
+sequenceDiagram
+    participant E as Engine
+    participant P as Plugin
+
+    E->>P: plugin_query() → Returns PluginInfo (type, version, dependencies)
+    E->>P: plugin_init() → Allocates state, validates configuration
+    Note over E,P: [Runtime] — Core dispatches VTable function pointers
+    E->>P: plugin_shutdown() → Releases resources, frees memory
+    E->>P: plugin_state_serialize() → (Optional) Serializes state for hot reload
+    E->>P: plugin_state_deserialize() → (Optional) Restores state on hot reload
 ```
 
 ### Design Philosophy
@@ -192,7 +191,7 @@ color = "blue"
 
 [plugin.author]
 name = "DoLogger Core Team"
-email = "core@dologger.dev"
+email = "nekoliowork+DoLogger@gmail.com"
 url = "https://github.com/dologger/json-formatter"
 
 [dependencies]
@@ -609,7 +608,7 @@ Relevant diagnostic entries include:
 
 ### Artifact Layout
 
-```
+```text
 my-plugin-1.0.0/
 ├── manifest.toml
 ├── libmy_plugin.so           # Linux x86_64
@@ -673,24 +672,34 @@ dologctl plugin update --all
 
 ### Initialization Sequence
 
-```
-engine_start()
-  └─ for each plugin in config:
-       ├─ dlopen(plugin_path)
-       ├─ dlsym("plugin_query") → validate type, ABI, license
-       ├─ dlsym("dologger_vtable") → validate function pointers
-       ├─ (Blue only) verify Ed25519 signature
-       ├─ seccomp/AppContainer sandbox applied (Yellow/Red)
-       └─ plugin_init(config)
+```mermaid
+sequenceDiagram
+    participant E as Engine
+    participant P as Plugin
+
+    Note over E: engine_start()
+    loop for each plugin in config
+        E->>P: dlopen(plugin_path)
+        E->>P: dlsym("plugin_query") → validate type, ABI, license
+        E->>P: dlsym("dologger_vtable") → validate function pointers
+        Note over E: (Blue only) verify Ed25519 signature
+        Note over E: seccomp/AppContainer sandbox applied (Yellow/Red)
+        E->>P: plugin_init(config)
+    end
 ```
 
 ### Shutdown Sequence
 
-```
-engine_shutdown()
-  └─ for each plugin in reverse load order:
-       ├─ plugin_shutdown()
-       └─ dlclose()
+```mermaid
+sequenceDiagram
+    participant E as Engine
+    participant P as Plugin
+
+    Note over E: engine_shutdown()
+    loop for each plugin in reverse load order
+        E->>P: plugin_shutdown()
+        E->>P: dlclose()
+    end
 ```
 
 ### Hot Reload

@@ -339,28 +339,11 @@ require_owner = true
 
 ### Key Rotation Lifecycle
 
-```
-Phase 1: Initiate Rotation
-  │   New key pair generated
-  │   Old key enters grace period
-  │
-  ▼
-Phase 2: Grace Period (default 7 days)
-  │   Both keys active simultaneously
-  │   Old key signs in-flight records
-  │   New key signs newly submitted records
-  │   Verifier accepts records signed by EITHER key
-  │
-  ▼
-Phase 3: Rotation Complete
-  │   Old key revoked (added to CRL)
-  │   All new records signed with new key
-  │   Old-key records still verifiable with old public key
-  │
-  ▼
-Phase 4: Emergency Revocation (optional)
-      Key fingerprint added to CRL immediately
-      All records signed by revoked key fail verification
+```mermaid
+flowchart TD
+    P1["Phase 1: Initiate Rotation<br/>New key pair generated<br/>Old key enters grace period"] --> P2["Phase 2: Grace Period (default 7 days)<br/>Both keys active simultaneously<br/>Old key signs in-flight records<br/>New key signs newly submitted records<br/>Verifier accepts records signed by EITHER key"]
+    P2 --> P3["Phase 3: Rotation Complete<br/>Old key revoked (added to CRL)<br/>All new records signed with new key<br/>Old-key records still verifiable with old public key"]
+    P3 --> P4["Phase 4: Emergency Revocation (optional)<br/>Key fingerprint added to CRL immediately<br/>All records signed by revoked key fail verification"]
 ```
 
 ### Certificate Revocation List (CRL)

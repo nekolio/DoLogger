@@ -28,26 +28,21 @@
 
 All language adapters share a common foundation: they load `libdologger_core` (`.so` / `.dylib` / `.dll`) and call the C ABI functions. No reimplementation of the engine is needed.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        HOST APPLICATION                              │
-│                                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────┐ │
-│  │  Python  │  │    Go    │  │   Rust   │  │   C/C++  │  │  ...  │ │
-│  │ Adapter  │  │ Adapter  │  │  Crate   │  │ (direct) │  │       │ │
-│  │ (ctypes) │  │  (cgo)   │  │          │  │          │  │       │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └──┬────┘ │
-│       │             │             │             │           │        │
-│       └─────────────┴─────────────┴─────────────┴───────────┘        │
-│                                 │                                    │
-│                        dologger_* C ABI                              │
-│                                 │                                    │
-└─────────────────────────────────┼────────────────────────────────────┘
-                                  │
-                    ┌─────────────┴─────────────┐
-                    │    libdologger_core        │
-                    │    (.so / .dylib / .dll)   │
-                    └───────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph HOST["HOST APPLICATION"]
+        A["Python Adapter (ctypes)"]
+        B["Go Adapter (cgo)"]
+        C["Rust Crate"]
+        D["C/C++ (direct)"]
+        E["..."]
+    end
+    A --> ABI
+    B --> ABI
+    C --> ABI
+    D --> ABI
+    E --> ABI
+    ABI["dologger_* C ABI"] --> CORE["libdologger_core<br/>(.so / .dylib / .dll)"]
 ```
 
 ### The C ABI Surface
@@ -55,7 +50,7 @@ All language adapters share a common foundation: they load `libdologger_core` (`
 The public C ABI consists of these function families:
 
 | Function Family | Purpose | Signature Count |
-|:-:|:-:|:-::|
+|:-:|:-:|:-:|
 | `dologger_init` / `dologger_shutdown` | Engine lifecycle | 2 |
 | `dologger_log` / `dologger_logv` | Log submission | 2 |
 | `dologger_get_abi_version` | ABI version check | 1 |
@@ -786,7 +781,7 @@ The C ABI is thread-safe for concurrent `dologger_log()` calls. Adapters must do
 **Table 2: Thread Safety Guarantees**
 
 | Operation | Thread-Safe? | Notes |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | `dologger_init()` | No | Call once from one thread |
 | `dologger_log()` | **Yes** | Lock-free CAS push. Safe from any thread, including signal handlers. |
 | `dologger_shutdown()` | No | Call once. Blocks until in-flight records drain. Do not call `log()` concurrently with `shutdown()`. |
@@ -835,7 +830,7 @@ Adapters must be validated on every supported platform before release.
 **Table 3: Adapter Test Matrix**
 
 | Platform | Architecture | Library Format | Test Environment |
-|:-:|:-::|:-:|:-:|
+|:-:|:-:|:-:|:-:|
 | Linux | x86_64 | `.so` | GitHub Actions `ubuntu-latest` |
 | Linux | aarch64 | `.so` | AWS Graviton or QEMU emulation |
 | macOS | x86_64 | `.dylib` | GitHub Actions `macos-13` |

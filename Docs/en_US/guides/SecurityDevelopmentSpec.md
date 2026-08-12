@@ -162,7 +162,7 @@ The sandbox restricts which operating system operations a plugin can perform. It
 **Table 3: Sandbox Capabilities by Trust Color**
 
 | Capability | Blue | Yellow | Red |
-|:-:|:-:-:|:-::-:|:-::|
+|:-:|:-:|:-::-:|:-:|
 | Memory allocation (`mmap`, `munmap`, `brk`) | Yes | Yes | Yes |
 | Thread operations (`clone`, `futex`) | Yes | Yes | Yes |
 | Time functions (`clock_gettime`) | Yes | Yes | Yes |
@@ -340,7 +340,7 @@ The engine manages public key distribution, key rotation, and CRL checking. Your
 **Table 6: Fuzzing Requirements by Plugin Type**
 
 | Plugin Type | Fuzzing Required? | Rationale |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | `Filter` | No | Only reads record fields; no parsing |
 | `PolicyProvider` | No | Only reads metrics counters |
 | `FieldProvider` | No | Only writes fields; no parsing |
@@ -601,7 +601,7 @@ Every plugin code review must verify the following items before merge.
 If you discover a security vulnerability in DoLogger or any plugin:
 
 1. **DO NOT** file a public issue.
-2. Email `security@dologger.dev` with:
+2. Email `nekoliowork+DoLogger@gmail.com` with:
    - Description of the vulnerability
    - Steps to reproduce
    - Affected versions (engine, plugin, platform)
@@ -611,7 +611,7 @@ If you discover a security vulnerability in DoLogger or any plugin:
 ### Disclosure Timeline
 
 | Severity | Patch Timeline | Disclosure |
-|:-:|:-::|:-:|
+|:-:|:-:|:-:|
 | **Critical** (RCE, sandbox escape, signature bypass) | 7 days | Coordinated with reporter |
 | **High** (information disclosure, privilege escalation) | 14 days | Coordinated with reporter |
 | **Medium** (DoS, minor data leak) | 30 days | Public disclosure in release notes |
