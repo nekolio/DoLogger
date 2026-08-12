@@ -10,7 +10,7 @@ plugin_type = "filter"
 mount_phase = ["filter"]
 abi_version = 1
 min_core_abi = "0.1.0"
-description = "Production-ready"
+description = "Drops log records below a configurable severity level with per-domain overrides."
 
 [plugin.trust]
 color = "blue"

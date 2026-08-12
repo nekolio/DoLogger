@@ -74,7 +74,7 @@ Every plugin crate MUST have:
 
 ## Quick Links
 
-- [Official Plugin Roadmap](../Docs/en_US/OfficialPluginRoadmap.md)
+- [Official Plugins](../Docs/en_US/OfficialPluginRoadmap.md)
 - [Plugin Development Guide](../Docs/en_US/guides/PluginDevelopmentGuide.md)
 - [Plugin Index](index/index.toml)
 
