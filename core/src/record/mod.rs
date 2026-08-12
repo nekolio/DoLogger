@@ -215,7 +215,7 @@ impl RecordString {
             self.inline[len] = 0;
         }
         // For strings exceeding inline capacity, the rest is silently truncated.
-        // Full heap fallback (Arc<str>) deferred to M4 per design doc.
+        // Full heap fallback (Arc<str>) is deferred (not implemented).
         if bytes.len() >= RECORD_STRING_INLINE_CAPACITY {
             // Log truncation via diag
             crate::sys::diag::warn(
@@ -447,7 +447,7 @@ impl Record {
         _caller_ring: FieldRing,
     ) -> Result<String, &'static str> {
         // Ring 0 fields are only readable by output-stage plugins (Formatter/Sink)
-        // For M1, we allow all callers to read for simplicity
+        // For now, we allow all callers to read for simplicity
         match field_name {
             "record.id" => Ok(format!("{:016x}{:016x}", self.id.hi, self.id.lo)),
             "record.timestamp" => Ok(format!("{}.{:09}", self.timestamp.hi, self.timestamp.lo)),
@@ -598,7 +598,7 @@ impl Record {
     }
 }
 
-// Simple hex encoding helper (avoid adding a dependency for M1)
+// Simple hex encoding helper (avoids an extra dependency)
 mod hex {
     pub fn encode(bytes: &[u8]) -> String {
         bytes.iter().map(|b| format!("{b:02x}")).collect()

@@ -1,12 +1,12 @@
 //! KeyProvider — manages signing keys for DoLogger.
 //!
-//! # M2 Default Implementation
+//! # Default Implementation
 //!
 //! Generates a temporary Ed25519 key pair at initialization time.
 //! The private key never touches disk. The public key is available
 //! via the API for offline verification.
 //!
-//! # M3+ External KMS
+//! # Planned: External KMS
 //!
 //! KeyProvider plugins can delegate signing to external HSM/KMS,
 //! in which case the core never holds the private key.

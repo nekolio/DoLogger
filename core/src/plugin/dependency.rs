@@ -115,8 +115,8 @@ impl DependencyValidator {
     /// field from a provider at the same or later stage, that is an ordering
     /// violation — the provider hasn't run yet when the consumer needs the field.
     ///
-    /// For M3, this is a simplified check that reports warnings via diag
-    /// rather than rejecting plugins. A full enforcement will be added in M4
+    /// This is a simplified check for now that reports warnings via diag
+    /// rather than rejecting plugins. A full enforcement is planned
     /// when the plugin dependency graph is formalised.
     pub fn validate_pipeline_ordering(&self) {
         // Build a map: plugin_name -> stage index

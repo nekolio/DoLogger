@@ -956,7 +956,7 @@ mod sandbox_backend {
         assert!(SandboxBackend::Seccomp.supports_isolation());
         assert!(SandboxBackend::MacOSSandbox.supports_isolation());
 
-        // AppContainer is skeleton only (M4 deferred), Windows doesn't support full isolation yet
+        // AppContainer is skeleton only — Windows doesn't support full isolation yet
         assert!(!SandboxBackend::AppContainer.supports_isolation());
         assert!(!SandboxBackend::None.supports_isolation());
     }

@@ -85,7 +85,7 @@ pub struct SifHeader {
     /// Number of `Record` tables embedded in the payload.
     ///
     /// Always 1 for single-record SIF messages.  Future versions will use
-    /// this field when `RecordBatch` batch transfer is implemented (M2+).
+    /// this field when `RecordBatch` batch transfer is implemented.
     pub record_count: u32,
 }
 

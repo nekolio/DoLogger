@@ -212,9 +212,9 @@ pub struct Engine {
     pub config: DologgerConfig,
     /// Time source for timestamps and IDs
     pub time_source: TimeSource,
-    /// Ed25519 signature engine (M2) — owns the signing key
+    /// Ed25519 signature engine — owns the signing key
     pub signature_engine: SignatureEngine,
-    /// Plugin manager (M2)
+    /// Plugin manager
     pub plugin_manager: PluginManager,
     /// Sysmon self-monitoring channel
     pub sysmon: Sysmon,

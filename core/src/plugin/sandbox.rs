@@ -19,14 +19,14 @@
 //! | Windows | AppContainer + LowBoxToken | CreateAppContainerProfile + restricted SID |
 //! | macOS | App Sandbox + seatbelt | sandbox_init(3) with SBPL profile |
 //!
-//! # Implementation status (M3)
+//! # Implementation status
 //!
 //! - Linux seccomp: full BPF filter generation for syscall allowlist
 //! - Windows AppContainer: profile creation skeleton (requires process isolation)
 //! - macOS Sandbox: SBPL profile generation skeleton
 //!
 //! Full process isolation (fork + exec for plugin subprocesses) is deferred
-//! to M4. M3 provides the sandbox policy framework and BPF filter generation.
+//! not yet implemented. The sandbox currently provides the policy framework\n//! and BPF filter generation.
 
 // TODO: Remove #![allow(missing_docs)] and add doc comments to all public items.
 // This module has many public types (SandboxLevel, SandboxBackend, SyscallCategory,
@@ -481,7 +481,7 @@ fn apply_seccomp_policy(policy: &SandboxPolicy) -> SandboxResult {
 
     // Build a simple BPF filter program.
     // In production, this would use the `seccomp` crate or generate proper BPF bytecode.
-    // For M3, we use prctl with SECCOMP_MODE_FILTER and a minimal filter.
+    // For now, we use prctl with SECCOMP_MODE_FILTER and a minimal filter.
 
     // Generate BPF instructions for the syscall allowlist
     let filter = build_bpf_filter(&allowed_syscalls);
@@ -682,8 +682,8 @@ fn apply_appcontainer_policy(policy: &SandboxPolicy) -> SandboxResult {
     // 3. CreateRestrictedToken() + AddSIDsToToken() for the LowBox token
     // 4. CreateProcessAsUser() with the restricted token
     //
-    // Full implementation requires process-level isolation (M4).
-    // For M3, we return a skeleton result indicating the policy was registered.
+    // Full implementation requires process-level isolation (not yet implemented).
+    // For now, we return a skeleton result indicating the policy was registered.
 
     crate::sys::diag::info(
         "sandbox",
@@ -697,7 +697,7 @@ fn apply_appcontainer_policy(policy: &SandboxPolicy) -> SandboxResult {
         success: true,
         backend: SandboxBackend::AppContainer,
         level: policy.level,
-        error: Some("AppContainer: full process isolation deferred to M4".into()),
+        error: Some("AppContainer: full process isolation not yet implemented".into()),
         context_id: None,
     }
 }
@@ -712,8 +712,8 @@ fn apply_macos_sandbox_policy(policy: &SandboxPolicy) -> SandboxResult {
     // 1. sandbox_init(3) with an SBPL (Sandbox Profile Language) profile
     // 2. Or using App Sandbox entitlements at the process level
     //
-    // Full implementation requires process-level isolation (M4).
-    // For M3, we register the policy and return.
+    // Full implementation requires process-level isolation (not yet implemented).
+    // For now, we register the policy and return.
 
     crate::sys::diag::info(
         "sandbox",
@@ -727,7 +727,7 @@ fn apply_macos_sandbox_policy(policy: &SandboxPolicy) -> SandboxResult {
         success: true,
         backend: SandboxBackend::MacOSSandbox,
         level: policy.level,
-        error: Some("macOS sandbox: full isolation deferred to M4".into()),
+        error: Some("macOS sandbox: full isolation not yet implemented".into()),
         context_id: None,
     }
 }

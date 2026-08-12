@@ -386,7 +386,7 @@ fn cmd_run(dry_run: bool, config_path: Option<&str>, trace: bool) {
     } else if trace {
         commands::run::cmd_run_trace(config_path);
     } else {
-        stderr!("Engine startup not yet implemented (M3+)");
+        stderr!("Engine startup not yet implemented");
         stderr!("Use --dry-run to validate configuration without starting.");
         stderr!("Use --trace to run with pipeline stage timing.");
         std::process::exit(EXIT_ERR);

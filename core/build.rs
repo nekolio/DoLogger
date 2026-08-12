@@ -1,8 +1,8 @@
 //! Build script for libdologger_core.
 //!
-//! Responsibilities (growing over milestones):
-//! - M1: Generate version info, embed git hash
-//! - M2+: FlatBuffers code generation (SIF schema), bindgen for plugin headers
+//! Responsibilities:
+//! - Generate version info, embed git hash
+//! - Planned: FlatBuffers code generation (SIF schema), bindgen for plugin headers
 
 fn main() {
     // Embed version info from Cargo

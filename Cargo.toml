@@ -20,3 +20,7 @@ authors = ["DoLogger Contributors"]
 
 [workspace.dependencies]
 # Future shared dependencies will be declared here
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

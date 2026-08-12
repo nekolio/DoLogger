@@ -1,12 +1,12 @@
 //! PolicyProvider — pre-filter policies for rate limiting, sampling, etc.
 //!
-//! # M2 Implementation
+//! # Implementation
 //!
 //! - Rate limiter using a token bucket algorithm
 //! - Configurable rate limit and burst size
 //! - Thread-safe atomic implementation
 //!
-//! # M3+ Extensions
+//! # Planned Extensions
 //!
 //! - Deterministic sampler (hash-based)
 //! - Multi-domain rate limiting

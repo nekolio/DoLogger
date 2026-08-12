@@ -107,7 +107,7 @@ pub fn crc32c_update(initial: u32, data: &[u8]) -> u32 {
 // SSE 4.2 implementation
 // ---------------------------------------------------------------------------
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(target_arch = "x86_64")]
 fn crc32c_sse42(initial: u32, data: &[u8]) -> u32 {
     let mut crc = !initial;
 
@@ -133,6 +133,38 @@ fn crc32c_sse42(initial: u32, data: &[u8]) -> u32 {
         // guarantees as _mm_crc32_u64 above.
         unsafe {
             crc = core::arch::x86_64::_mm_crc32_u8(crc, byte);
+        }
+    }
+
+    !crc
+}
+
+// 32-bit x86: the SSE 4.2 crc32 instruction only covers 8/16/32-bit
+// operands — there is no _mm_crc32_u64 — so process 4-byte chunks.
+#[cfg(target_arch = "x86")]
+fn crc32c_sse42(initial: u32, data: &[u8]) -> u32 {
+    let mut crc = !initial;
+
+    let chunks = data.chunks_exact(4);
+    let remainder = chunks.remainder();
+
+    for chunk in chunks {
+        let val = u32::from_le_bytes(chunk.try_into().unwrap());
+        // SAFETY: _mm_crc32_u32 is an SSE 4.2 intrinsic — it only reads the
+        // two u32 operands and returns a u32, with no side effects. The
+        // caller must ensure SSE 4.2 is available (runtime cpuid check via
+        // detect_crc_impl).
+        unsafe {
+            crc = core::arch::x86::_mm_crc32_u32(crc, val);
+        }
+    }
+
+    // Process remaining bytes
+    for &byte in remainder {
+        // SAFETY: _mm_crc32_u8 is an SSE 4.2 intrinsic — same safety
+        // guarantees as _mm_crc32_u32 above.
+        unsafe {
+            crc = core::arch::x86::_mm_crc32_u8(crc, byte);
         }
     }
 

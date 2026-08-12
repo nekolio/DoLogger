@@ -2,7 +2,7 @@
 //!
 //! Lightweight HTTP/JSON control API for runtime management.
 //! Supports SetLevel, GetStatus, and ReloadConfig operations.
-//! Upgradable to full gRPC with mTLS/JWT in M4.
+//! Planned upgrade path: full gRPC with mTLS/JWT.
 //!
 //! # Endpoints
 //!
@@ -34,7 +34,7 @@ const MAX_CONTENT_LENGTH: usize = 65536;
 pub struct ControlPlaneConfig {
     /// Bind address (e.g., "127.0.0.1:9090")
     pub bind_addr: String,
-    /// Enable mTLS (M4: requires cert paths)
+    /// Enable mTLS (planned — requires cert paths)
     pub enable_tls: bool,
 }
 

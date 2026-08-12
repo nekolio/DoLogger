@@ -13,7 +13,7 @@ pub struct DologgerConfig {
     pub ring_buffer_size: usize,
     /// Batch size for consumer drain
     pub batch_size: usize,
-    /// Enable Ed25519 signatures (M2+)
+    /// Enable Ed25519 signatures
     pub enable_signature: bool,
     /// Path to the active config file (for diagnostics)
     pub config_path: Option<PathBuf>,
@@ -336,7 +336,7 @@ impl DologgerConfig {
     /// 3. Project local config (cwd + parent traversal up to 2 levels)
     /// 4. Environment variables (`DO_LOG_LEVEL`, `DO_LOG_BUF_SIZE`, `DO_LOG_PERF_PROFILE`, `DO_LOG_CONFIG_FILE`)
     /// 5. API parameters (not implemented in load_default)
-    /// 6. Record metadata tags (deferred to M4)
+    /// 6. Record metadata tags (deferred)
     /// 7. Absolute non-downgradable items (hardcoded)
     ///
     /// Returns (config, warnings).

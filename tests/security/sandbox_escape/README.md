@@ -16,7 +16,7 @@ Covers trust model enforcement, platform isolation policies, and seccomp-bpf fil
 
 ## Test Categories
 
-### Policy Presets (1--M4-13.3)
+### Policy Presets
 Tests that `SandboxPolicy::blue()`, `SandboxPolicy::yellow()`, and `SandboxPolicy::red()`
 produce correct configurations with the expected permission gates.
 
@@ -112,7 +112,7 @@ cargo test -p dologger-security-tests
 - **BPF filter tests** (`bpf_filter_validation` module) run **only on Linux** (`#[cfg(target_os = "linux")]`).
   On Windows and macOS, these tests are silently skipped.
 - **Policy and engine tests** run on all platforms.
-- On Windows, the `AppContainer` backend is a skeleton (full process isolation deferred to M4).
+- On Windows, the `AppContainer` backend is a skeleton (full process isolation not yet implemented).
   The `supports_isolation()` method returns `false` for `AppContainer`.
 
 ### Output

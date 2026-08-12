@@ -189,12 +189,12 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
     ctx.record(StageIndex::PreFilter, StageAction::Continue);
 
     // ── Stage 1: Filter ─────────────────────────────────────────────
-    // M3: Plugin-based filter dispatch will go here.
+    // Plugin-based filter dispatch will go here.
     // For now, built-in AUDIT-level filter: always pass AUDIT records.
     ctx.record(StageIndex::Filter, StageAction::Continue);
 
     // ── Stage 2: FieldProvider ──────────────────────────────────────
-    // M3: HostInfoProvider + FieldProvider plugins enrich the record.
+    // HostInfoProvider + FieldProvider plugins enrich the record.
     // Built-in fields (thread_id, process_id, host_name) are set in
     // the hot-path dologger_log FFI call, not here.
     ctx.record(StageIndex::FieldProvider, StageAction::Continue);
@@ -291,13 +291,13 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
 
     // ── Stage 5: Formatting ─────────────────────────────────────────
     // The format kind is pre-initialized to "plain" in PipelineContext.
-    // When formatter plugins are loaded (M4+), this stage will select
+    // When formatter plugins are loaded, this stage will select
     // a format based on plugin configuration (SIF, JSON, text, etc.).
     // For now, the default "plain" is already set — no allocation needed.
     ctx.record(StageIndex::Formatting, StageAction::Continue);
 
     // ── Stage 6: Sink ───────────────────────────────────────────────
-    // M3: Multi-sink fan-out + fallback chain.
+    // Multi-sink fan-out + fallback chain.
     // The sink write is handled by the consumer loop.
     ctx.record(StageIndex::Sink, StageAction::Continue);
 

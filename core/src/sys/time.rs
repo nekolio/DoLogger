@@ -1,10 +1,10 @@
 //! High-precision timestamp generation for DoLogger.
 //!
-//! # M1 Implementation
+//! # Implementation
 //!
 //! Uses `std::time::SystemTime` for basic wall-clock timestamps.
 //!
-//! # M2+ Enhancements
+//! # Planned Enhancements
 //!
 //! - TSC (Time Stamp Counter) via `rdtsc` for sub-nanosecond resolution
 //! - VDSO clock_gettime on Linux (no syscall overhead)

@@ -248,7 +248,7 @@ pub extern "C" fn dologger_get_last_error(
 }
 
 // ==========================================================================
-// Field access (M2+)
+// Field access
 // ==========================================================================
 
 #[no_mangle]
@@ -286,7 +286,7 @@ pub extern "C" fn dologger_field_set(
     // SAFETY: record is a valid DologgerRecord pointer from the host.
     // We're accessing the engine's record pool. In practice this function
     // is a placeholder — the real implementation routes through Engine.
-    // For M3, we return DO_LOG_ERR_NOT_SUPPORTED as field access requires
+    // For now, we return DO_LOG_ERR_NOT_SUPPORTED as field access requires
     // the full Engine context.
     let _ = (record, name_str, val_str);
     DO_LOG_ERR_NOT_SUPPORTED
@@ -305,7 +305,7 @@ pub extern "C" fn dologger_field_get(
     }
 
     if buffer_size > 0 {
-        let msg = b"(field_get: M4+)\0";
+        let msg = b"(field_get: not implemented)\0";
         let len = msg.len().min(buffer_size);
         // SAFETY: buffer is valid for buffer_size bytes (non-null check above).
         // msg is a static byte string within bounds; we copy at most buffer_size bytes.
@@ -343,7 +343,7 @@ pub extern "C" fn dologger_free(ptr: *mut std::os::raw::c_void) {
     unsafe {
         let layout = std::alloc::Layout::from_size_align(1, 8).unwrap();
         // Note: This is not strictly correct — the original allocation layout
-        // should be tracked. M4 will implement a proper tracked allocator.
+        // should be tracked. A proper tracked allocator is planned.
         std::alloc::dealloc(ptr as *mut u8, layout);
     }
 }
@@ -358,7 +358,7 @@ pub extern "C" fn dologger_version() -> *const std::os::raw::c_char {
 }
 
 // ==========================================================================
-// Config from string (M2+)
+// Config from string
 // ==========================================================================
 
 #[no_mangle]

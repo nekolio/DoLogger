@@ -7,7 +7,7 @@
 //!
 //! # Detection approach
 //!
-//! Uses prefix-pattern matching (no regex dependency for M4 — keeps the
+//! Uses prefix-pattern matching (no regex dependency — keeps the
 //! core engine lean per the dependency strategy). Upgrade to regex-based
 //! patterns when a suitable lightweight crate is identified.
 //!

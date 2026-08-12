@@ -491,7 +491,7 @@ impl Drop for EmergencyBuffer {
 /// Serialize a Record to raw bytes (simplified format for emergency spill).
 fn record_to_bytes(record: &Record) -> Vec<u8> {
     // Use the record's formatted representation as a compact binary blob.
-    // In production, this would use SIF format; for M3, use a simple framing.
+    // In production, this would use SIF format; for now, use a simple framing.
     let mut buf = Vec::with_capacity(512);
 
     // Header: magic (4B) + id_hi (8B) + id_lo (8B) + lsn (8B) + timestamp (16B) + level (1B) + flags (1B)

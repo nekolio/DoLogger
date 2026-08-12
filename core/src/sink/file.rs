@@ -1,6 +1,6 @@
 //! File Sink — writes formatted log records to files.
 //!
-//! # M2 Implementation
+//! # Implementation
 //!
 //! Basic file sink with buffered writes, supporting:
 //! - Append mode to a specified file path
@@ -8,7 +8,7 @@
 //! - Configurable flush interval
 //! - Basic rotation by size (skeleton)
 //!
-//! # M3+ Enhancements
+//! # Planned Enhancements
 //!
 //! - io_uring/IOCP/kqueue async IO
 //! - Compression (gzip/zstd)

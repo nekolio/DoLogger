@@ -152,7 +152,7 @@ _Static_assert(sizeof(dologger_shm_header_t) == 64,
  * See the SIF (Standard Intermediate Format) specification for the full binary layout.
  */
 
-/** Maximum SIF record size supported (matches M3 simplified SIF). */
+/** Maximum SIF record size supported (matches the simplified SIF). */
 #define DOLOGGER_SHM_MAX_RECORD_SIZE 65536
 
 /** Offset of the length prefix within a slot. */
@@ -161,12 +161,12 @@ _Static_assert(sizeof(dologger_shm_header_t) == 64,
 #define DOLOGGER_SHM_SLOT_DATA_OFFSET 4
 
 /* -------------------------------------------------------------------------
- * SIF record header (simplified for M3)
+ * SIF record header (simplified)
  * ------------------------------------------------------------------------- */
 
 /**
  * Simplified SIF record header as written by DoLogger core.
- * Full SIF specification (FlatBuffers-based) will be provided in M4.
+ * A full FlatBuffers-based SIF specification is planned.
  *
  * Layout (all fields little-endian):
  *   [0..3]   Magic "SIF1"

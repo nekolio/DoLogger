@@ -5,10 +5,10 @@
 //! A Sink is the final stage in the DoLogger pipeline — it receives
 //! formatted log records and writes them to an output destination.
 //!
-//! # M1 Built-in Sinks
+//! # Built-in Sinks
 //!
 //! - **ConsoleSink**: Writes plain text logs to stdout/stderr.
-//! - M2+: File, Callback, Kafka, Syslog, Webhook, SQLite, etc.
+//! - File, Callback, Kafka, Syslog, Webhook, SQLite, and more.
 
 use crate::record::Record;
 use crate::sys::io;
@@ -157,7 +157,7 @@ impl Sink for ConsoleSink {
         }
 
         // All I/O goes through platform-native syscalls, not libc stdio.
-        // M2: direct write/WriteFile; M3: io_uring/IOCP/kqueue.
+        // Backend: direct write/WriteFile today; io_uring/IOCP/kqueue planned.
         if self.use_stderr {
             io::stderr_line(formatted);
         } else {
@@ -169,8 +169,8 @@ impl Sink for ConsoleSink {
     }
 
     fn flush(&mut self) -> SinkResult {
-        // Direct syscalls are unbuffered — flush is a no-op in M2.
-        // M3 with io_uring/IOCP will submit the completion queue here.
+        // Direct syscalls are unbuffered — flush is a no-op.
+        // io_uring/IOCP will submit the completion queue here (planned).
         Ok(())
     }
 
@@ -200,7 +200,7 @@ impl SinkRef {
     }
 
     /// Format a record using the console sink's default format
-    /// (In M2+, this will use the configured Formatter plugin)
+    /// (A future version will use the configured Formatter plugin)
     pub fn format_record(record: &Record) -> String {
         ConsoleSink::format_record(record)
     }

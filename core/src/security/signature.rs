@@ -153,7 +153,7 @@ impl SignatureEngine {
     pub(crate) fn build_signing_payload_static(record: &Record) -> Vec<u8> {
         let mut data = Vec::with_capacity(256);
 
-        // Ring 0: id, timestamp (exclude signature and origin_lsn for simplicity in M2)
+        // Ring 0: id, timestamp (exclude signature and origin_lsn for simplicity)
         data.extend_from_slice(&record.id.hi.to_le_bytes());
         data.extend_from_slice(&record.id.lo.to_le_bytes());
         data.extend_from_slice(&record.timestamp.hi.to_le_bytes());

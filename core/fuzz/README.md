@@ -11,13 +11,8 @@ Coverage-guided fuzz testing for the DoLogger core engine using
 cargo install cargo-fuzz
 ```
 
-A nightly Rust toolchain is required (libFuzzer needs `-Z` compiler flags). The
-workspace root `.rust-toolchain.toml` should already select nightly — verify
-with:
-
-```bash
-rustup show
-```
+A nightly Rust toolchain is required (libFuzzer needs `-Z` compiler flags).
+The `cargo +nightly fuzz ...` commands below select it explicitly.
 
 ### 2. Build the fuzz targets (syntax check only, no fuzzing yet)
 
@@ -26,7 +21,7 @@ cd core/fuzz
 cargo +nightly fuzz build
 ```
 
-If there is no nightly in `rustup`, install it first:
+If you do not have a nightly toolchain installed:
 
 ```bash
 rustup toolchain install nightly

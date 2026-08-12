@@ -70,18 +70,18 @@ impl WatcherBackend {
         #[cfg(target_os = "linux")]
         {
             // inotify is available on all Linux kernels ≥ 2.6.13 (2005).
-            // Full inotify integration is deferred to M5; use polling for now.
-            WatcherBackend::Polling // TODO(M5): upgrade to Inotify via `inotify` crate
+            // Full inotify integration is deferred; use polling for now.
+            WatcherBackend::Polling // TODO: upgrade to Inotify via `inotify` crate
         }
         #[cfg(windows)]
         {
             // ReadDirectoryChangesW is available on all supported Windows versions.
-            // Full integration is deferred to M5; use polling for now.
-            WatcherBackend::Polling // TODO(M5): upgrade to ReadDirectoryChanges
+            // Full integration is deferred; use polling for now.
+            WatcherBackend::Polling // TODO: upgrade to ReadDirectoryChanges
         }
         #[cfg(target_os = "macos")]
         {
-            WatcherBackend::Polling // TODO(M5): upgrade to Fsevents via `fsevent` crate
+            WatcherBackend::Polling // TODO: upgrade to Fsevents via `fsevent` crate
         }
         #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
         {

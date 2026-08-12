@@ -408,7 +408,7 @@ DOLOGGER_API const char *dologger_version(void);
 #define DO_LOG_PHASE_POLICY      0x0400u  /* deprecated, same as PRE_FILTER */
 
 /* =========================================================================
- * Plugin ABI — PluginInfo + ten VTable types (M2)
+ * Plugin ABI — PluginInfo + ten VTable types
  * ======================================================================== */
 
 /** @brief Opaque handle to a log record passed through the plugin pipeline. */

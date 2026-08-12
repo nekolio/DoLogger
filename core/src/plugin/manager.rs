@@ -1,6 +1,6 @@
 //! Plugin manager — discovery, loading, sandbox, and lifecycle.
 //!
-//! # M3 Implementation
+//! # Implementation
 //!
 //! - Scans plugin directories for dynamic libraries (`.so`/`.dylib`/`.dll`)
 //! - Uses `libloading` to load libraries and call `plugin_query`
@@ -370,12 +370,12 @@ impl PluginManager {
         // Extract the VTable pointer
         let vtable = raw_info.vtable;
 
-        // Determine trust level (M3: actual signature verification)
+        // Determine trust level (signature verification is a stub for now)
         let trust_level = if self.dev_mode {
             TrustLevel::Red
         } else {
             // In production, unsigned plugins are rejected unless explicitly allowed.
-            // Full signature verification is gated on M4 key infrastructure.
+            // Full signature verification is gated on key infrastructure that is not provisioned yet.
             TrustLevel::Red
         };
 
@@ -430,7 +430,7 @@ impl PluginManager {
                     .map_err(|_| PluginError::MissingSymbol("plugin_init".into()))?
             };
             // SAFETY: plugin_init is provided by the plugin and expected to be safe.
-            // We pass NULL config for now; M3+ will pass domain-specific config.
+            // We pass NULL config for now; a later version will pass domain-specific config.
             unsafe { init_fn(std::ptr::null()) }
         } else {
             return Err(PluginError::LoadFailed(

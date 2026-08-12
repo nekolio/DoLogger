@@ -1,6 +1,6 @@
 //! Pipeline scheduler for log record processing.
 //!
-//! # M3 Implementation
+//! # Implementation
 //!
 //! A background consumer thread drains the ring buffer and routes
 //! each record through the full multi-stage pipeline:

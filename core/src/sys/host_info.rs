@@ -1,6 +1,6 @@
 //! HostInfoProvider — populates Ring 1 fields with host/process/thread info.
 //!
-//! # M2 Default Implementation
+//! # Default Implementation
 //!
 //! Built-in provider that fills in standard Ring 1 fields:
 //! - host.name, process.id, process.name

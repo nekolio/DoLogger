@@ -251,7 +251,7 @@ impl QuotaManager {
         // so concurrent access is safe.
         let plugins = self.plugins.lock().unwrap();
         // Can't return a reference from a temporary MutexGuard.
-        // For M3, we return None and the caller uses evaluate_all.
+        // For now, we return None and the caller uses evaluate_all.
         let _ = plugins.iter().find(|p| p.config.plugin_name == name);
         None
     }

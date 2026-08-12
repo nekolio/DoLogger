@@ -583,7 +583,7 @@ fn test_all_non_downgradable_items_defined() {
     // Verify the 5 items are declared
     // These are defined in domain.rs as NON_DOWNGRADABLE_ITEMS
     // The constant includes enable_signature which is tested above;
-    // escape_html, worm_enabled, fsync_on_write, require_tls are for M3+
+    // escape_html, worm_enabled, fsync_on_write, require_tls are not wired to config yet
 
     // Verify that a domain trying to remove sinks is NOT considered non-downgradable
     let mut mgr = DomainManager::new();

@@ -59,8 +59,11 @@ impl Default for KafkaSinkConfig {
 /// Statistics for the Kafka sink.
 #[derive(Debug, Clone, Default)]
 pub struct KafkaSinkStats {
+    /// Number of records successfully written to Kafka.
     pub records_sent: u64,
+    /// Number of records that failed to be written to Kafka.
     pub errors: u64,
+    /// Number of bytes written to Kafka.
     pub bytes_sent: u64,
 }
 
@@ -109,10 +112,10 @@ impl KafkaSink {
                 cfg.set("acks", acks);
             }
             if let Some(linger) = self.config.linger_ms {
-                cfg.set("linger.ms", &linger.to_string());
+                cfg.set("linger.ms", linger.to_string());
             }
             if let Some(batch) = self.config.batch_size {
-                cfg.set("batch.size", &batch.to_string());
+                cfg.set("batch.size", batch.to_string());
             }
             if let Some(ref user) = self.config.sasl_username {
                 cfg.set("security.protocol", "SASL_SSL");
@@ -189,6 +192,10 @@ impl Sink for KafkaSink {
                 unsafe fn noop(_: *const ()) {}
                 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_raw, noop, noop, noop);
 
+                // SAFETY: the waker uses a null data pointer with no-op clone/wake
+                // functions that never dereference it, so constructing it from a
+                // null pointer is sound. It is only used to poll the delivery
+                // future once per loop iteration in the busy-wait below.
                 let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
                 let mut cx = Context::from_waker(&waker);
                 let mut pinned: Pin<Box<dyn Future<Output = _>>> = Box::pin(delivery_future);
