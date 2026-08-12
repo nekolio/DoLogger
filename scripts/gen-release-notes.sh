@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# gen-release-notes.sh — assemble a GitHub Release body from CHANGELOG.md,
-# CHANGELOG.zh_CN.md and the commit history.
+# gen-release-notes.sh — assemble a GitHub Release body: the release page IS
+# the changelog. Commit history forms the Changelog section; usage, asset
+# naming conventions and verification notes follow.
 #
 # Usage:
 #   scripts/gen-release-notes.sh <tag> > release-notes.md
@@ -9,23 +10,9 @@
 set -euo pipefail
 
 TAG="${1:?usage: gen-release-notes.sh <tag>}"
-VER="${TAG#v}"
 BODY="$(mktemp)"
 
-# ── 1. Changelog sections (EN + ZH) ────────────────────────────────
-extract_section() {
-    local changelog="$1"
-    [ -f "$changelog" ] || return 0
-    awk -v pat="## [${VER}]" '
-        !started { if (index($0, pat) == 1) { started = 1; print; next } next }
-        started  { if (/^## \[/) exit; print }
-    ' "$changelog"
-}
-
-EN_SECTION="$(extract_section CHANGELOG.md)"
-ZH_SECTION="$(extract_section CHANGELOG.zh_CN.md)"
-
-# ── 2. Commit list since the previous tag ──────────────────────────
+# ── 1. Commit list since the previous tag ──────────────────────────
 PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
 if [ -n "$PREV_TAG" ]; then
     COMMITS="$(git log --no-merges --pretty=format:'- %s (%h)' "${PREV_TAG}..${TAG}" 2>/dev/null | head -100 || true)"
@@ -37,24 +24,7 @@ fi
     echo "# DoLogger ${TAG}"
     echo
 
-    if [ -n "$EN_SECTION" ]; then
-        echo "## 📝 Changelog"
-        echo
-        printf '%s\n' "$EN_SECTION"
-        echo
-    else
-        echo "> No entry for ${VER} found in CHANGELOG.md — please add one before releasing."
-        echo
-    fi
-
-    if [ -n "$ZH_SECTION" ]; then
-        echo "## 📝 更新日志"
-        echo
-        printf '%s\n' "$ZH_SECTION"
-        echo
-    fi
-
-    echo "## 🔄 Commits"
+    echo "## 📝 Changelog / 更新日志"
     echo
     if [ -n "$PREV_TAG" ]; then
         echo "Changes since ${PREV_TAG}:"

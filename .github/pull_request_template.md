@@ -23,7 +23,7 @@ Security issues: do NOT open a PR-first disclosure — see SECURITY.md.
 - [ ] `cargo test --workspace -- --test-threads=4` passes
 - [ ] Tests added / updated for the change
 - [ ] Documentation updated (both `Docs/en_US/` and `Docs/zh_CN/` where applicable)
-- [ ] CHANGELOG.md updated (user-visible changes)
+- [ ] Commit message follows the repo convention (`fix:` / `feat:` / `docs:` / `ci:` — it becomes the release changelog)
 
 ## Verification
 

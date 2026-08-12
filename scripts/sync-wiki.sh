@@ -89,7 +89,7 @@ This wiki is generated automatically from the [DoLogger repository](https://gith
 | English | [en_US](en_US/) |
 | 中文 | [zh_CN](zh_CN/) |
 
-See also: [README](https://github.com/${REPO}#readme) · [CHANGELOG](https://github.com/${REPO}/blob/${BRANCH}/CHANGELOG.md) · [Issues](https://github.com/${REPO}/issues)
+See also: [README](https://github.com/${REPO}#readme) · [Releases](https://github.com/${REPO}/releases) · [Issues](https://github.com/${REPO}/issues)
 EOF
 
 cat > "$WORK/wiki/_Footer.md" <<EOF
