@@ -74,7 +74,9 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: dologctl.exe
-            asset_name: dologctl-windows-x86_64
+            # Windows binaries keep the .exe extension; Linux/macOS
+            # binaries are conventionally extension-less.
+            asset_name: dologctl-windows-x86_64.exe
             lib_name: dologger_core.dll
 
           - os: macOS-latest
@@ -153,10 +155,94 @@ jobs:
           path: release-artifacts/*
           if-no-files-found: warn
 
+  # ── Benchmarks (per-release, live results) ───────────────────────
+  benchmarks:
+    name: Benchmarks (Linux x86_64)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: benchmarks-release
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+      - name: Run benchmarks and assemble results
+        shell: bash
+        run: |
+          strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
+
+          PERF_OUT="$(./target/release/dologctl perf --count 200000 2>&1 | strip_ansi | tail -12 || true)"
+          PCT_OUT="$(cargo bench --bench latency_percentiles -- --test 2>&1 | strip_ansi | grep -A8 'DoLogger P50' | head -12 || true)"
+          CRIT_OUT="$(cargo bench --bench latency -- single_record_submit --sample-size 20 2>&1 | strip_ansi | grep -E 'time:' | head -2 || true)"
+
+          CPU_MODEL="$(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)"
+          MEM_TOTAL="$(free -h | awk '/^Mem:/ {print $2}')"
+
+          cat > benchmark-results.md <<EOF
+          ## 📊 Benchmarks · 跑分结果
+
+          > 每次发布都在 GitHub Actions 的 ubuntu-latest 运行器上**现场实测**。Each release is measured live on the GitHub runner — not copied from static numbers.
+
+          **Environment · 跑分环境**
+
+          | Item · 项目 | Value · 值 |
+          |:-:|:-:|
+          | OS · 系统 | $(uname -sr) |
+          | CPU · 处理器 | ${CPU_MODEL} |
+          | Memory · 内存 | ${MEM_TOTAL} |
+          | Rust · 工具链 | $(rustc --version) |
+          | Build · 构建 | release + LTO |
+
+          ### Submit latency · 提交延迟（\`dologctl perf\`）
+
+          \`\`\`text
+          ${PERF_OUT}
+          \`\`\`
+
+          ### Percentile distribution · 分位数分布
+
+          \`\`\`text
+          ${PCT_OUT}
+          \`\`\`
+
+          ### Criterion single-record submit · 单条记录提交
+
+          \`\`\`text
+          ${CRIT_OUT}
+          \`\`\`
+          EOF
+
+          # The heredoc above is indented for YAML; dedent the output.
+          sed -i 's/^          //' benchmark-results.md
+          cat benchmark-results.md
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.md
+          if-no-files-found: error
+
   # ── Create GitHub Release ────────────────────────────────────────
   create-release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, benchmarks]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -185,14 +271,30 @@ jobs:
           cd release-artifacts
           sha256sum * > checksums-sha256.txt
 
-      # Release notes: changelog sections (EN + ZH) + commit list since the
-      # previous tag + usage + asset naming conventions + verification notes.
+      # Release notes: bilingual changelog (commit list) + usage + naming +
+      # verification, with the benchmark section merged in from the
+      # benchmarks job.
       - name: Generate release notes
         shell: bash
         run: |
           bash scripts/gen-release-notes.sh "${{ github.ref_name }}" > release-notes.md
-          echo "---- release-notes.md ----"
-          cat release-notes.md
+
+      - name: Merge benchmark results into release notes
+        shell: bash
+        run: |
+          python3 - release-notes.md benchmark-results.md <<'PY'
+          import sys
+          notes_path, bench_path = sys.argv[1], sys.argv[2]
+          with open(notes_path, encoding='utf-8') as f:
+              body = f.read()
+          with open(bench_path, encoding='utf-8') as f:
+              section = f.read().strip()
+          body = body.replace('<!--BENCHMARK_SECTION-->', section)
+          with open(notes_path, 'w', encoding='utf-8', newline='\n') as f:
+              f.write(body)
+          PY
+          echo "---- release-notes.md (head) ----"
+          head -30 release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

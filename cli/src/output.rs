@@ -70,6 +70,33 @@ pub enum ColorMode {
 }
 
 // ---------------------------------------------------------------------------
+// Output encoding
+// ---------------------------------------------------------------------------
+
+/// Console text encoding policy (mirrors `dologger_core::sys::io`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum OutputEncoding {
+    /// Dynamic detection: Unicode console API on Windows consoles,
+    /// UTF-8 bytes for pipes/files and non-Windows targets.
+    Auto,
+    /// Always emit UTF-8 bytes (legacy consoles need `chcp 65001`).
+    Utf8,
+    /// Transcode to the console's active codepage (e.g. GBK/936) on
+    /// legacy consoles; redirected output stays UTF-8.
+    Native,
+}
+
+impl From<OutputEncoding> for dologger_core::sys::io::OutputEncoding {
+    fn from(e: OutputEncoding) -> Self {
+        match e {
+            OutputEncoding::Auto => Self::Auto,
+            OutputEncoding::Utf8 => Self::Utf8,
+            OutputEncoding::Native => Self::Native,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // OutputConfig — bundles the parsed flags
 // ---------------------------------------------------------------------------
 
@@ -79,6 +106,7 @@ pub struct OutputConfig {
     pub format: OutputFormat,
     pub color: ColorMode,
     pub quiet: bool,
+    pub encoding: OutputEncoding,
 }
 
 impl Default for OutputConfig {
@@ -87,6 +115,7 @@ impl Default for OutputConfig {
             format: OutputFormat::Text,
             color: ColorMode::Auto,
             quiet: false,
+            encoding: OutputEncoding::Auto,
         }
     }
 }
@@ -116,6 +145,7 @@ impl OutputConfig {
 pub fn init(config: &OutputConfig) {
     set_color_enabled(config.use_color());
     set_quiet(config.quiet);
+    dologger_core::sys::io::set_output_encoding(config.encoding.into());
 }
 
 // ---------------------------------------------------------------------------

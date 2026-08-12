@@ -57,6 +57,11 @@ struct Cli {
     #[arg(short = 'q', long, global = true, default_value_t = false)]
     quiet: bool,
 
+    /// Console text encoding: auto (dynamic detection), utf8, or native
+    /// (transcode to the console codepage on legacy consoles)
+    #[arg(long, global = true, default_value = "auto", value_enum)]
+    encoding: output::OutputEncoding,
+
     /// Display third-party license attributions (use with version/about)
     #[arg(long, global = true, default_value_t = false)]
     licenses: bool,
@@ -124,9 +129,10 @@ enum Commands {
         /// Domain name for test records
         domain: String,
         /// Output SIF file path
-        // Short flag is -f: -o is taken by the global --output format flag.
-        #[arg(short = 'f', long)]
-        output: String,
+        // The field name doubles as clap's arg ID, so it must not collide
+        // with the global `output` format flag; the flag is -f/--output-file.
+        #[arg(short = 'f', long = "output-file")]
+        output_file: String,
         /// Duration in seconds
         #[arg(short, long, default_value = "10")]
         duration: u64,
@@ -279,6 +285,7 @@ fn main() {
         format: cli.output,
         color: cli.color,
         quiet: cli.quiet,
+        encoding: cli.encoding,
     };
     output::init(&cfg);
 
@@ -302,9 +309,9 @@ fn main() {
         }
         Commands::Record {
             domain,
-            output,
+            output_file,
             duration,
-        } => commands::record::cmd_record(&domain, &output, duration, cfg.format),
+        } => commands::record::cmd_record(&domain, &output_file, duration, cfg.format),
         Commands::Replay { input, speed } => {
             commands::record::cmd_replay(&input, &speed, cfg.format)
         }

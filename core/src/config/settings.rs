@@ -686,14 +686,52 @@ impl DologgerConfig {
     ///
     /// Returns `Ok((config, warnings))` or `Err((error_code, message))`.
     pub fn load_from_file(path: &str) -> Result<(Self, Vec<String>), (i32, String)> {
-        let content = std::fs::read_to_string(path).map_err(|e| {
+        let bytes = std::fs::read(path).map_err(|e| {
             (
                 crate::error::DO_LOG_ERR_CONFIG_NOT_FOUND,
                 format!("Cannot read config file '{path}': {e}"),
             )
         })?;
 
+        let content = Self::read_text_auto(&bytes).map_err(|msg| {
+            (
+                crate::error::DO_LOG_ERR_CONFIG_PARSE,
+                format!("Cannot decode config file '{path}': {msg}"),
+            )
+        })?;
+
         Self::parse(&content, Some(PathBuf::from(path)))
+    }
+
+    /// Decode config file bytes with BOM / encoding detection.
+    ///
+    /// Accepts the three encodings commonly found in the wild: UTF-8 (with
+    /// or without BOM — Notepad on Windows writes a BOM), UTF-16 LE
+    /// (PowerShell 5 `Out-File` default) and UTF-16 BE. Anything else is
+    /// treated as UTF-8 and rejected with a clear message.
+    fn read_text_auto(bytes: &[u8]) -> Result<String, String> {
+        if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            return String::from_utf8(bytes[3..].to_vec())
+                .map_err(|_| "file is not valid UTF-8 after its BOM".into());
+        }
+        let (le, offset) = if bytes.starts_with(&[0xFF, 0xFE]) {
+            (true, 2)
+        } else if bytes.starts_with(&[0xFE, 0xFF]) {
+            (false, 2)
+        } else {
+            return String::from_utf8(bytes.to_vec())
+                .map_err(|_| "file is not valid UTF-8 (save it as UTF-8)".into());
+        };
+        let mut units = Vec::with_capacity((bytes.len() - offset) / 2);
+        for c in bytes[offset..].chunks_exact(2) {
+            units.push(if le {
+                u16::from_le_bytes([c[0], c[1]])
+            } else {
+                u16::from_be_bytes([c[0], c[1]])
+            });
+        }
+        String::from_utf16(&units)
+            .map_err(|_| format!("file is not valid UTF-16 {}E", if le { "L" } else { "B" }))
     }
 
     /// Parse configuration from a TOML string.
@@ -805,6 +843,36 @@ impl DologgerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_text_auto_handles_utf8_bom() {
+        let mut bytes = vec![0xEF, 0xBB, 0xBF];
+        bytes.extend_from_slice(b"[dologger]\nlevel = \"INFO\"\n");
+        let text = DologgerConfig::read_text_auto(&bytes).unwrap();
+        assert!(text.starts_with("[dologger]"), "BOM must be stripped");
+        assert!(!text.contains('\u{feff}'));
+    }
+
+    #[test]
+    fn read_text_auto_handles_utf16_le() {
+        // PowerShell 5 Out-File default encoding
+        let mut bytes = vec![0xFF, 0xFE];
+        for u in "[dologger]\nlevel = \"INFO\"\n".encode_utf16() {
+            bytes.extend_from_slice(&u.to_le_bytes());
+        }
+        let text = DologgerConfig::read_text_auto(&bytes).unwrap();
+        assert!(text.starts_with("[dologger]"));
+    }
+
+    #[test]
+    fn read_text_auto_handles_plain_utf8_and_rejects_invalid() {
+        let text = DologgerConfig::read_text_auto(b"[dologger]\nlevel = \"INFO\"\n").unwrap();
+        assert!(text.starts_with("[dologger]"));
+        // UTF-16 LE BOM followed by a lone high surrogate (U+D800) —
+        // invalid UTF-16 must be rejected, not silently mangled.
+        assert!(DologgerConfig::read_text_auto(&[0xFF, 0xFE, 0x00, 0xD8]).is_err());
+        assert!(DologgerConfig::read_text_auto(&[0xC3, 0x28]).is_err()); // invalid UTF-8
+    }
 
     /// Helper: create a GDPR-compliant config.
     fn gdpr_compliant_config() -> DologgerConfig {
