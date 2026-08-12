@@ -258,8 +258,15 @@ jobs:
           # Criterion in bencher format: one clean `test <name> ... bench:`
           # line per benchmark — no ANSI, no truncated report boxes.
           PERF_OUT="$(./target/release/dologctl perf --count 200000 2>&1 | strip_ansi || true)"
+
+          # Start from a clean criterion state: rust-cache restores stale
+          # target/criterion samples from earlier runs, and a release notes
+          # benchmark should only reflect this run. Criterion can also emit a
+          # mid-line `Criterion.rs ERROR: ...` when its sample file races the
+          # cache restore; strip that text so the bencher line survives.
+          rm -rf target/criterion
           CRIT_RAW="$(cargo bench --bench latency --bench throughput -- --output-format bencher 2>&1 | strip_ansi || true)"
-          CRIT_OUT="$(printf '%s\n' "$CRIT_RAW" | grep -E '^test .*bench:' || true)"
+          CRIT_OUT="$(printf '%s\n' "$CRIT_RAW" | sed -z 's/ Criterion\.rs ERROR: [^\n]*\n/ /g' | grep -E '^test .*bench:' || true)"
           if [ -z "$CRIT_OUT" ]; then
             echo "::warning::cargo bench produced no bencher lines — raw output tail:"
             printf '%s\n' "$CRIT_RAW" | tail -30
