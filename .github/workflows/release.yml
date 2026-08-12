@@ -260,6 +260,15 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
+      # Benchmark results are notes content, not release assets — keep them
+      # out of release-artifacts/ (that directory is attached to the release).
+      - name: Download benchmark results
+        uses: actions/download-artifact@v8
+        with:
+          path: bench
+          pattern: benchmark-results
+          merge-multiple: true
+
       - name: List artifacts
         run: |
           echo "Release artifacts:"
@@ -282,7 +291,7 @@ jobs:
       - name: Merge benchmark results into release notes
         shell: bash
         run: |
-          python3 - release-notes.md benchmark-results.md <<'PY'
+          python3 - release-notes.md bench/benchmark-results.md <<'PY'
           import sys
           notes_path, bench_path = sys.argv[1], sys.argv[2]
           with open(notes_path, encoding='utf-8') as f:
