@@ -311,8 +311,14 @@ impl<T> RingBuffer<T> {
 
     /// Returns the approximate number of items currently in the buffer.
     pub fn len(&self) -> usize {
-        let producer = self.producer_sequence.load(Ordering::Acquire);
+        // Load consumer_sequence FIRST — same invariant as try_push: it can
+        // never exceed producer_sequence at any instant, so the subtraction
+        // cannot underflow. The reverse order races (the consumer advances
+        // past a stale producer read) and panics in debug builds. This was
+        // the root cause of the CI hang: a producer panicked inside
+        // fill_level(), leaving its claimed slot unpublished forever.
         let consumer = self.consumer_sequence.load(Ordering::Acquire);
+        let producer = self.producer_sequence.load(Ordering::Acquire);
         (producer - consumer) as usize
     }
 
