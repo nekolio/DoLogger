@@ -266,9 +266,30 @@ cargo check --target aarch64-apple-darwin
 
 ---
 
+## 部分文档
+
+| 指南 | 内容 |
+|:-:|:-:|
+| [架构参考](Docs/zh_CN/ArchitectureReference.md) | 管道、环形缓冲区、审计链、安全模型 |
+| [dologctl 命令参考](Docs/zh_CN/guides/DologctlCommandReference.md) | 每个 CLI 子命令、选项与退出码 |
+| [插件开发快速入门](Docs/zh_CN/PluginDevelopmentQuickStart.md) | C/C++/Go 插件开发 |
+| [插件开发指南](Docs/zh_CN/guides/PluginDevelopmentGuide.md) | Rust 插件开发 |
+| [安全白皮书](Docs/zh_CN/guides/SecurityWhitepaper.md) | 威胁模型与加密设计 |
+| [文档总索引](Docs/README.md) | 全部指南,英文 + 中文 |
+
+---
+
 ## 参与贡献
 
-C/C++/Go 插件开发请参阅 [插件开发快速入门](Docs/en_US/PluginDevelopmentQuickStart.md)，Rust 插件开发请参阅 [插件开发指南](Docs/zh_CN/guides/PluginDevelopmentGuide.md)，完整架构规范请参阅 核心设计企划书（`~/DoLogger/spec/DoLogger核心设计企划书.md`）。
+欢迎参与贡献!Bug 报告与功能建议请使用 [issue 模板](https://github.com/Nekolio/DoLogger/issues/new/choose);Pull Request 须满足 [PR 检查清单](.github/pull_request_template.md)。安全漏洞请按 [SECURITY.md](SECURITY.md) 私下报告,不要以公开 issue 形式提交。
+
+### 贡献者
+
+<a href="https://github.com/Nekolio">
+  <img src="https://images.weserv.nl/?url=https://github.com/Nekolio.png&w=96&h=96&fit=cover&mask=circle" width="96" height="96" alt="@Nekolio" />
+</a>
+
+[@Nekolio](https://github.com/Nekolio) —— 项目作者与维护者
 ---
 
 ## 许可证

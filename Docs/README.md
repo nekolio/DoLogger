@@ -34,8 +34,11 @@ Security engineer / Compliance officer?
 Writing a language adapter?
   └─▶ AdapterDevelopmentGuide.md ──▶ HostIntegrationGuide.md
 
+Operating the dologctl CLI?
+  └─▶ DologctlCommandReference.md ──▶ OperationsAndSecurity.md
+
 Deep dive into the full specification?
-  └─▶ 核心设计企划书（~/DoLogger/spec/）
+  └─▶ ArchitectureReference.md
 ```
 
 ---
@@ -60,6 +63,7 @@ Deep dive into the full specification?
 | [Plugin Development Guide](en_US/guides/PluginDevelopmentGuide.md) | Rust plugin VTable implementation, signing, publishing |
 | [Adapter Development Guide](en_US/guides/AdapterDevelopmentGuide.md) | Creating language adapters (Python, Go, C, C++) |
 | [Extended Plugin Type Guide](en_US/guides/ExtendedPluginTypeGuide.md) | Advanced patterns for all 10 VTable plugin types |
+| [dologctl Command Reference](en_US/guides/DologctlCommandReference.md) | Complete CLI reference — every subcommand, option, exit code |
 
 ### English Documents (en_US) — Operations & Security
 
@@ -96,6 +100,7 @@ Deep dive into the full specification?
 | [插件开发指南](zh_CN/guides/PluginDevelopmentGuide.md) | Rust 插件 VTable 实现、签名、发布流程 |
 | [适配器开发指南](zh_CN/guides/AdapterDevelopmentGuide.md) | 为 Python、Go、C/C++ 创建语言适配器 |
 | [扩展插件类型开发指南](zh_CN/guides/ExtendedPluginTypeGuide.md) | 10 种 VTable 插件类型高级模式 |
+| [dologctl 命令参考](zh_CN/guides/DologctlCommandReference.md) | CLI 完整参考 —— 每个子命令、选项、退出码 |
 
 ### 中文文档 (zh_CN) — 运维与安全
 
@@ -116,7 +121,7 @@ Deep dive into the full specification?
 
 ### 设计规范
 
-核心设计企划书与开发任务清单存放于 **项目目录之外**（`~/DoLogger/spec/`），不被 git 追踪也不在 .gitignore 中。
+[架构参考](zh_CN/ArchitectureReference.md) / [Architecture Reference](en_US/ArchitectureReference.md) 是 DoLogger 架构决策、API 与安全属性的权威设计文档。
 
 ### Project-Level
 
@@ -124,7 +129,7 @@ Deep dive into the full specification?
 |:-:|:-:|
 | [README.md](../README.md) | Project overview, quick start, architecture diagram |
 | [README.zh_CN.md](../README.zh_CN.md) | 中文项目概述 |
-| [CHANGELOG.md](../CHANGELOG.md) | Release history and version changelog |
+| [GitHub Releases](../releases) | Release history — each release page is the changelog |
 | [adapters/README.md](../adapters/README.md) | Language adapter SDKs (Rust, Python, Go) |
 | [compliance/README.md](../compliance/README.md) | GDPR / HIPAA / PCI-DSS compliance templates |
 | [plugins/index/README.md](../plugins/index/README.md) | Plugin index format and publishing guide |
@@ -136,11 +141,10 @@ Deep dive into the full specification?
 
 ## Documentation Standards
 
-All documentation follows the conventions defined in
-附录 E 项目文档与工程规范（`~/DoLogger/spec/DoLogger核心设计企划书.md#附录-e-项目文档与工程规范`）:
+All documentation follows the project documentation standards:
 
-- **E.1**: Document structure, audience classification, cross-references, terminology
-- **E.2**: Code style (C, Rust, Go, Python, TOML), comment conventions, API documentation templates
+- **Structure**: audience classification, cross-references, terminology
+- **Code style**: C, Rust, Go, Python, TOML — comment conventions, API documentation templates
 
 ---
 

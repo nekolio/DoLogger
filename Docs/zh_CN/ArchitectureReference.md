@@ -693,4 +693,4 @@ cargo bench --bench latency_percentiles
 
 ## 完整设计规范
 
-完整的架构决策、API 与安全属性的权威设计文档请参阅：DoLogger 核心设计企划书（`~/DoLogger/spec/DoLogger核心设计企划书.md`）。
+本文档即为 DoLogger 架构决策、API 与安全属性的权威设计参考。

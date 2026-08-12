@@ -224,4 +224,4 @@ dologctl diag collect --output diag-report.tar.gz
 
 ## Complete Specification
 
-For the authoritative design document covering every architecture decision, API, and security property: [DoLogger Core Design Document](~/DoLogger/spec/DoLogger核心设计企划书.md) (Chinese).
+For the authoritative design document covering every architecture decision, API, and security property, see the [Architecture Reference](ArchitectureReference.md).

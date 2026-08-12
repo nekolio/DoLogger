@@ -873,7 +873,7 @@ These are targets, not guarantees. Actual performance depends on hardware, recor
 
 ## Complete Specification
 
-For the authoritative design document covering every architecture decision, API, and security property: [DoLogger Core Design Document](~/DoLogger/spec/DoLogger核心设计企划书.md) (Chinese).
+For the authoritative design document covering every architecture decision, API, and security property, see the [Architecture Reference](ArchitectureReference.md).
 
 For detailed deployment, monitoring, and recovery procedures: [Operations Manual](guides/OperationsManual.md).
 

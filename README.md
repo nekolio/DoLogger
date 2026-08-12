@@ -270,9 +270,30 @@ cargo check --target aarch64-apple-darwin
 
 ---
 
+## Some Documentations
+
+| Guide | Content |
+|:-:|:-:|
+| [Architecture Reference](Docs/en_US/ArchitectureReference.md) | Pipeline, ring buffer, audit chain, security model |
+| [dologctl Command Reference](Docs/en_US/guides/DologctlCommandReference.md) | Every CLI subcommand, option, and exit code |
+| [Plugin Development QuickStart](Docs/en_US/PluginDevelopmentQuickStart.md) | C/C++/Go plugin development |
+| [Plugin Development Guide](Docs/en_US/guides/PluginDevelopmentGuide.md) | Rust plugin development |
+| [Security Whitepaper](Docs/en_US/guides/SecurityWhitepaper.md) | Threat model & cryptographic design |
+| [Documentation Index](Docs/README.md) | All guides, English + 中文 |
+
+---
+
 ## Contributing
 
-See [Plugin Development QuickStart](Docs/en_US/PluginDevelopmentQuickStart.md) for C/C++/Go plugins, [Plugin Development Guide](Docs/en_US/guides/PluginDevelopmentGuide.md) for Rust plugins, and the Design Specification (`~/DoLogger/spec/DoLogger核心设计企划书.md`) for the complete architecture.
+Contributions are welcome! Bug reports and feature requests use the [issue templates](https://github.com/Nekolio/DoLogger/issues/new/choose); pull requests must satisfy the [PR checklist](.github/pull_request_template.md). Security vulnerabilities are handled privately — see [SECURITY.md](SECURITY.md), do not file them as public issues.
+
+### Contributors
+
+<a href="https://github.com/Nekolio">
+  <img src="https://images.weserv.nl/?url=https://github.com/Nekolio.png&w=96&h=96&fit=cover&mask=circle" width="96" height="96" alt="@Nekolio" />
+</a>
+
+[@Nekolio](https://github.com/Nekolio) — project author & maintainer
 
 ---
 

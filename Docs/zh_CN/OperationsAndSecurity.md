@@ -872,7 +872,7 @@ batch_size = 512                     # 覆盖默认 256
 
 ## 完整规范
 
-关于每个架构决策、API 和安全属性的权威设计文档：[DoLogger 核心设计企划书](~/DoLogger/spec/DoLogger核心设计企划书.md)。
+关于每个架构决策、API 和安全属性的权威设计文档，请参阅 [架构参考](ArchitectureReference.md)。
 
 详细的部署、监控和恢复流程：[运维手册](guides/OperationsManual.md)。
 

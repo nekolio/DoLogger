@@ -731,6 +731,6 @@ dologctl diag collect --output diag-report.tar.gz
 
 ## 完整规范
 
-关于每个架构决策、API 和安全属性的权威设计文档：[DoLogger 核心设计企划书](~/DoLogger/spec/DoLogger核心设计企划书.md)。
+关于每个架构决策、API 和安全属性的权威设计文档，请参阅 [架构参考](ArchitectureReference.md)。
 
 完整 C ABI 参考（包括每个函数签名、结构体定义和错误码）：[宿主集成指南](guides/HostIntegrationGuide.md)。

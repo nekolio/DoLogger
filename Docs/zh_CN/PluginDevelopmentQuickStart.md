@@ -485,4 +485,4 @@ find build/plugins -name "*.so" -o -name "*.dll" -o -name "*.dylib"
 
 ---
 
-*完整的架构规范请参见 [DoLogger 核心设计企划书](~/DoLogger/spec/DoLogger核心设计企划书.md)。*
+*完整的架构规范请参见 [架构参考](ArchitectureReference.md)。*

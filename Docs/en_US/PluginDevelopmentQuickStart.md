@@ -488,4 +488,4 @@ find build/plugins -name "*.so" -o -name "*.dll" -o -name "*.dylib"
 
 ---
 
-*For the complete architecture specification, see [DoLogger Core Design Document](~/DoLogger/spec/DoLogger核心设计企划书.md).*
+*For the complete architecture specification, see the [Architecture Reference](ArchitectureReference.md).*

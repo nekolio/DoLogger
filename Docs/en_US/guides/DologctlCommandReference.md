@@ -1,0 +1,388 @@
+# DoLogger dologctl Command Reference
+
+> 🌐 **语言 / Language**: [English](DologctlCommandReference.md) | [中文：dologctl 命令参考](../../zh_CN/guides/DologctlCommandReference.md)
+
+> **Version**: v0.1.0 | **Last Updated**: 2026-08-13 | **Target Audience**: Operators, Integrators, Plugin Developers
+>
+> **Purpose**: The complete reference for the `dologctl` command-line tool. Every subcommand, option, exit code, and representative example, with output-format guidance for both human and machine consumers.
+
+## Command Overview
+
+```mermaid
+flowchart TD
+    C["dologctl"]
+    C --> A["Configuration<br/>init · run · config validate"]
+    C --> B["Plugins<br/>install · list · remove · verify · scan"]
+    C --> C2["Verification<br/>verify-log · verify-anchor · recovery-report"]
+    C --> D["Recording<br/>record · replay · record-stop"]
+    C --> E["Shared Memory<br/>shm status · shm clear"]
+    C --> F["Diagnostics<br/>perf · version · about · completions"]
+```
+
+## Invocation
+
+```text
+dologctl [GLOBAL OPTIONS] <COMMAND> [OPTIONS] [ARGUMENTS]
+```
+
+Global options may appear **anywhere** on the command line (before or after the subcommand):
+
+| Option | Values | Default | Description |
+|:-:|:-:|:-:|:-:|
+| `-o, --output` | `text`, `json` | `text` | Output format. `json` emits machine-readable JSON on stdout for every command that supports structured output. |
+| `--color` | `auto`, `always`, `never` | `auto` | ANSI colour behaviour. `auto` enables colour on a TTY only. |
+| `-q, --quiet` | — | off | Suppress non-error output. Verification commands exit silently on success. |
+| `--licenses` | — | off | With `version` / `about`: print third-party license attributions instead of the banner. |
+
+### Exit Codes
+
+`dologctl` follows the ripgrep / git / cargo convention of a small, stable exit-code set:
+
+| Code | Name | Meaning |
+|:-:|:-:|:-:|
+| `0` | `EXIT_SUCCESS` | Command completed successfully |
+| `1` | `EXIT_ERR` | Generic error (I/O failure, invalid argument, plugin operation failed) |
+| `2` | `EXIT_VERIFY_FAILED` | Verification failed — the data did **not** pass integrity validation |
+| `3` | `EXIT_CONFIG_ERR` | Configuration error — missing file, invalid TOML, or an invariant broken in `--strict` mode |
+
+> [!NOTE]
+> Scripts should treat exit code `2` as "the log is untrustworthy" rather than "the command crashed". It is a verification result, not an operational error.
+
+---
+
+## Configuration
+
+### dologctl init
+
+Generate a configuration file from a template in the current directory.
+
+```text
+dologctl init [--template dev|prod|audit]
+```
+
+| Option | Values | Default | Description |
+|:-:|:-:|:-:|:-:|
+| `-t, --template` | `dev`, `prod`, `audit` | `dev` | Template to generate |
+
+| Template | Profile | Signature | Intended Use |
+|:-:|:-:|:-:|:-:|
+| `dev` | `dev` | off | Local development, maximum verbosity |
+| `prod` | `prod-performance` | off | Production throughput, batch batching |
+| `audit` | `prod-audit` | **on** | Compliance workloads with signed audit chain |
+
+Examples:
+
+```bash
+dologctl init                        # dev template
+dologctl init --template audit       # audit template with signing enabled
+```
+
+The command writes `dologger.toml` and **refuses to overwrite** an existing file (exit `1`).
+
+### dologctl config validate
+
+Validate a configuration file without starting the engine.
+
+```text
+dologctl config validate [--strict] [--config <path>]
+```
+
+| Option | Description |
+|:-:|:-:|
+| `-c, --config <path>` | Configuration file to validate (default lookup: `./dologger.toml`) |
+| `--strict` | Enforce non-downgradable security invariants (signature, WORM, fsync, TLS, Ring 2 signing) — violations fail with exit `3` |
+
+Examples:
+
+```bash
+dologctl config validate                        # default file, lenient
+dologctl config validate --strict               # security invariants enforced
+dologctl config validate -c /etc/dologger.toml --strict
+```
+
+### dologctl run
+
+Start the DoLogger engine (foreground).
+
+```text
+dologctl run [--dry-run] [--config <path>] [--trace]
+```
+
+| Option | Description |
+|:-:|:-:|
+| `-c, --config <path>` | Configuration file to load |
+| `--dry-run` | Validate the configuration and exit without starting the engine |
+| `--trace` | Enable per-record pipeline stage timing (diagnostic overhead — dev only) |
+
+Examples:
+
+```bash
+dologctl run --config dologger.toml
+dologctl run --dry-run                      # same as config validate
+dologctl run --trace                        # per-record pipeline timings
+```
+
+---
+
+## Plugins
+
+### dologctl plugin install
+
+Install a plugin from a path or URL.
+
+```text
+dologctl plugin install <source>
+```
+
+```bash
+dologctl plugin install ./target/release/fmt_json.dll
+dologctl plugin install https://plugins.example.com/fmt_json-v1.2.0.zip
+```
+
+Installed plugins are verified (ABI version, trust colour, symbol resolution) before they can be loaded. See [Plugin Development Guide](PluginDevelopmentGuide.md) for the trust model.
+
+### dologctl plugin list
+
+List installed plugins with trust colours and versions.
+
+```text
+dologctl plugin list
+```
+
+```bash
+dologctl plugin list
+dologctl plugin list --output json        # machine-readable inventory
+```
+
+### dologctl plugin remove
+
+Uninstall a plugin by name.
+
+```text
+dologctl plugin remove <name>
+```
+
+```bash
+dologctl plugin remove fmt_json
+```
+
+### dologctl plugin verify
+
+Verify plugin integrity: ABI version match, signature/trust colour, and symbol resolution.
+
+```text
+dologctl plugin verify [name]
+```
+
+```bash
+dologctl plugin verify                     # verify all installed plugins
+dologctl plugin verify fmt_json            # verify one
+```
+
+Exit `0` = all verified; exit `2` = verification failed (tampered or incompatible plugin).
+
+### dologctl plugin scan
+
+Scan installed plugins for suspicious symbols (e.g. raw socket, `system()`, unbounded `memcpy`) and report a risk summary per plugin.
+
+```text
+dologctl plugin scan
+```
+
+---
+
+## Verification
+
+### dologctl verify-log
+
+Verify a log file's audit chain offline: Ed25519 signatures, LSN continuity, and `prev_hash` linkage.
+
+```text
+dologctl verify-log <path> [--pubkey <hex>]
+```
+
+| Option | Description |
+|:-:|:-:|
+| `--pubkey <hex>` | Public key (64 hex chars) for signature verification. Omitted = structural verification only. |
+
+```bash
+dologctl verify-log audit.worm --pubkey "$(cat pubkey.hex)"
+dologctl verify-log audit.worm --output json    # machine-readable verdict
+```
+
+Exit `0` = chain intact; exit `2` = tampering or discontinuity detected.
+
+### dologctl verify-anchor
+
+Verify an external anchoring JSON file (periodic root-hash anchors to immutable storage).
+
+```text
+dologctl verify-anchor <path> [--pubkey <hex>]
+```
+
+```bash
+dologctl verify-anchor anchors/2026-08-13.json --pubkey "$(cat pubkey.hex)"
+```
+
+### dologctl recovery-report
+
+Scan a directory of `*.worm` files and report LSN continuity across crash-restart boundaries.
+
+```text
+dologctl recovery-report [worm_dir]
+```
+
+```bash
+dologctl recovery-report ./logs          # default: current directory
+```
+
+---
+
+## Recording & Replay
+
+### dologctl record
+
+Generate synthetic SIF test records (pipeline integration testing).
+
+```text
+dologctl record <domain> --output <file> [--duration <secs>]
+```
+
+| Option | Description |
+|:-:|:-:|
+| `-o, --output <file>` | Output SIF file path |
+| `-d, --duration <secs>` | Recording duration in seconds (default `10`) |
+
+```bash
+dologctl record app -o capture.sif -d 30
+```
+
+### dologctl replay
+
+Replay records from a SIF file through the pipeline.
+
+```text
+dologctl replay <input> [--speed max|1]
+```
+
+| Option | Values | Default | Description |
+|:-:|:-:|:-:|:-:|
+| `-s, --speed` | `max`, `1` | `max` | `max` = full speed; `1` = real-time stall matching original timestamps |
+
+```bash
+dologctl replay capture.sif
+dologctl replay capture.sif --speed 1
+```
+
+### dologctl record-stop
+
+Check (and stop) a recording session for a domain.
+
+```text
+dologctl record-stop <domain>
+```
+
+```bash
+dologctl record-stop app
+```
+
+---
+
+## Shared Memory
+
+### dologctl shm status
+
+Display metadata of a shared memory ring buffer region (header, slots, producer liveness flags).
+
+```text
+dologctl shm status <path>
+```
+
+```bash
+dologctl shm status /dologger_test_full_5271.shm
+dologctl shm status /dologger_test_full_5271.shm --output json
+```
+
+### dologctl shm clear
+
+Clean up an orphaned shared memory region.
+
+```text
+dologctl shm clear <path> [--force]
+```
+
+| Option | Description |
+|:-:|:-:|
+| `--force` | Remove even if the producer is alive |
+
+```bash
+dologctl shm clear /dologger_test_full_5271.shm
+dologctl shm clear /dologger_test_full_5271.shm --force   # dangerous — use with care
+```
+
+---
+
+## Diagnostics
+
+### dologctl perf
+
+Run a local performance benchmark (single-thread push latency).
+
+```text
+dologctl perf [--count <n>] [--message-size <bytes>]
+```
+
+| Option | Default | Description |
+|:-:|:-:|:-:|
+| `--count <n>` | `100000` | Number of records to push |
+| `--message-size <bytes>` | `80` | Message size in bytes (max `255` — inline record capacity) |
+
+```bash
+dologctl perf
+dologctl perf --count 1000000 --message-size 255
+```
+
+### dologctl version / about
+
+Print the project banner with version and system details.
+
+```text
+dologctl version
+dologctl about
+dologctl version --licenses          # third-party license attributions
+```
+
+### dologctl completions
+
+Generate a shell completion script on stdout.
+
+```text
+dologctl completions <shell>
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `powershell`, `elvish`.
+
+```bash
+source <(dologctl completions bash)
+source <(dologctl completions zsh)
+dologctl completions fish | source
+dologctl completions powershell | Out-String | Invoke-Expression
+```
+
+> [!TIP]
+> Persist completions in your shell profile so every new terminal has them:
+> `dologctl completions bash > ~/.dologctl-complete.bash && echo 'source ~/.dologctl-complete.bash' >> ~/.bashrc`
+
+---
+
+## Scripting Guidance
+
+- **JSON output**: pass `--output json` and parse with `jq` / `ConvertFrom-Json`. `--color never` avoids ANSI escapes in logs.
+- **Verification in CI**: rely on exit code `2` semantics — `dologctl verify-log` + `if [ $? -eq 2 ]` gates deploys on chain integrity.
+- **Config drift detection**: `dologctl config validate --strict` in a pre-commit or pre-deploy hook catches security-invariant regressions before they ship.
+
+## Related Documents
+
+- [Architecture Reference](../ArchitectureReference.md) — engine internals behind each command
+- [Operations & Security](../OperationsAndSecurity.md) — operational playbooks using these commands
+- [Integration Guide](../IntegrationGuide.md) — embedding the engine in applications
