@@ -27,8 +27,8 @@ jobs:
           # libcurl4-openssl-dev is required by the librdkafka source build
           sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
@@ -59,6 +59,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # ── Linux ───────────────────────────────────────────────
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: dologctl
@@ -71,6 +72,25 @@ jobs:
             asset_name: dologctl-linux-aarch64
             lib_name: libdologger_core.so
 
+          - os: ubuntu-latest
+            target: i686-unknown-linux-gnu
+            artifact: dologctl
+            asset_name: dologctl-linux-i686
+            lib_name: libdologger_core.so
+
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            artifact: dologctl
+            asset_name: dologctl-linux-armv7
+            lib_name: libdologger_core.so
+
+          - os: ubuntu-latest
+            target: riscv64gc-unknown-linux-gnu
+            artifact: dologctl
+            asset_name: dologctl-linux-riscv64
+            lib_name: libdologger_core.so
+
+          # ── Windows ─────────────────────────────────────────────
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: dologctl.exe
@@ -79,10 +99,29 @@ jobs:
             asset_name: dologctl-windows-x86_64.exe
             lib_name: dologger_core.dll
 
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            artifact: dologctl.exe
+            asset_name: dologctl-windows-aarch64.exe
+            lib_name: dologger_core.dll
+
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            artifact: dologctl.exe
+            asset_name: dologctl-windows-i686.exe
+            lib_name: dologger_core.dll
+
+          # ── macOS ───────────────────────────────────────────────
           - os: macOS-latest
             target: aarch64-apple-darwin
             artifact: dologctl
             asset_name: dologctl-macos-aarch64
+            lib_name: libdologger_core.dylib
+
+          - os: macOS-latest
+            target: x86_64-apple-darwin
+            artifact: dologctl
+            asset_name: dologctl-macos-x86_64
             lib_name: libdologger_core.dylib
 
     steps:
@@ -96,13 +135,19 @@ jobs:
           # libcurl4-openssl-dev is required by the librdkafka source build
           sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
-      - name: Install cross-compilation dependencies (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+      # Cross toolchains for every non-native Linux target. Native
+      # x86_64 builds need none of these; Windows/macOS don't use them.
+      - name: Install cross-compilation toolchains (Linux)
+        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
         run: |
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            gcc-multilib g++-multilib \
+            gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf \
+            gcc-riscv64-linux-gnu g++-riscv64-linux-gnu
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -112,23 +157,36 @@ jobs:
           shared-key: ${{ runner.os }}-${{ matrix.target }}-release
 
       # librdkafka (sink-kafka) is only buildable natively on Linux x86_64 —
-      # it cannot cross-compile for aarch64 and is unavailable on macOS/Windows.
+      # it cannot cross-compile for the other Linux targets and is
+      # unavailable on macOS/Windows.
       - name: Build release (Linux x86_64 — all features incl. Kafka)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           cargo build --release --workspace --target ${{ matrix.target }} --all-features
 
-      - name: Build release (other targets — sqlite/webhook/otel, without kafka)
+      # Other targets build with sqlite/webhook (pure-Rust or cc-based
+      # dependencies that cross-compile cleanly). The per-target linkers
+      # below are only consulted when cargo actually builds that target.
+      - name: Build release (other targets — sqlite/webhook, without kafka)
         if: matrix.target != 'x86_64-unknown-linux-gnu'
         shell: bash
         env:
-          # Cross toolchain for the Linux aarch64 target. Without these,
-          # cargo falls back to the host `cc` and the link fails with
-          # "objects incompatible with elf64-x86-64".
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+          CARGO_TARGET_I686_UNKNOWN_LINUX_GNU_LINKER: i686-linux-gnu-gcc
+          CC_i686_unknown_linux_gnu: i686-linux-gnu-gcc
+          CXX_i686_unknown_linux_gnu: i686-linux-gnu-g++
+          AR_i686_unknown_linux_gnu: i686-linux-gnu-ar
+          CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+          CC_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-gcc
+          CXX_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-g++
+          AR_armv7_unknown_linux_gnueabihf: arm-linux-gnueabihf-ar
+          CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER: riscv64-linux-gnu-gcc
+          CC_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-gcc
+          CXX_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-g++
+          AR_riscv64gc_unknown_linux_gnu: riscv64-linux-gnu-ar
         run: |
           cargo build --release --workspace --target ${{ matrix.target }} \
             --features dologger-core/sink-sqlite,dologger-core/sink-webhook
@@ -168,10 +226,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          components: rustfmt, clippy
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
@@ -186,44 +242,65 @@ jobs:
         run: |
           strip_ansi() { sed 's/\x1b\[[0-9;]*m//g'; }
 
-          PERF_OUT="$(./target/release/dologctl perf --count 200000 2>&1 | strip_ansi | tail -12 || true)"
-          PCT_OUT="$(cargo bench --bench latency_percentiles -- --test 2>&1 | strip_ansi | grep -A8 'DoLogger P50' | head -12 || true)"
-          CRIT_OUT="$(cargo bench --bench latency -- single_record_submit --sample-size 20 2>&1 | strip_ansi | grep -E 'time:' | head -2 || true)"
+          # dologctl perf: full output (throughput + P50/P99/P99.9).
+          # Criterion in bencher format: one clean `test <name> ... bench:`
+          # line per benchmark — no ANSI, no truncated report boxes.
+          PERF_OUT="$(./target/release/dologctl perf --count 200000 2>&1 | strip_ansi || true)"
+          CRIT_OUT="$(cargo bench --bench latency --bench throughput -- --output-format bencher 2>&1 | strip_ansi | grep -E '^test .*bench:' || true)"
 
           CPU_MODEL="$(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)"
           MEM_TOTAL="$(free -h | awk '/^Mem:/ {print $2}')"
+          OS_VER="$(uname -sr)"
+          RUST_VER="$(rustc --version)"
 
           cat > benchmark-results.md <<EOF
-          ## 📊 Benchmarks · 跑分结果
+          <!--BENCH_EN-->
+          **Benchmarks**
 
-          > 每次发布都在 GitHub Actions 的 ubuntu-latest 运行器上**现场实测**。Each release is measured live on the GitHub runner — not copied from static numbers.
+          Measured on the GitHub Actions runner (\`ubuntu-latest\`) from this exact build: the runner compiles the code and then benchmarks that binary on the same machine.
 
-          **Environment · 跑分环境**
-
-          | Item · 项目 | Value · 值 |
+          | Item | Value |
           |:-:|:-:|
-          | OS · 系统 | $(uname -sr) |
-          | CPU · 处理器 | ${CPU_MODEL} |
-          | Memory · 内存 | ${MEM_TOTAL} |
-          | Rust · 工具链 | $(rustc --version) |
-          | Build · 构建 | release + LTO |
+          | OS | ${OS_VER} |
+          | CPU | ${CPU_MODEL} |
+          | Memory | ${MEM_TOTAL} |
+          | Rust | ${RUST_VER} |
+          | Build | release + LTO |
 
-          ### Submit latency · 提交延迟（\`dologctl perf\`）
+          **Submit latency and throughput** — \`dologctl perf --count 200000\`:
 
           \`\`\`text
-          ${PERF_OUT}
+          ${PERF_OUT:-<dologctl perf failed on this runner>}
           \`\`\`
 
-          ### Percentile distribution · 分位数分布
+          **Single-record latency (Criterion)** — \`cargo bench --bench latency --bench throughput\`:
 
           \`\`\`text
-          ${PCT_OUT}
+          ${CRIT_OUT:-<criterion benchmarks failed on this runner>}
+          \`\`\`
+          <!--BENCH_ZH-->
+          **跑分结果**
+
+          以下数据由 GitHub Actions 运行器（\`ubuntu-latest\`）在本次发布构建上现场测得：运行器先编译代码，再在同一台机器上对产物跑分。
+
+          | 项目 | 值 |
+          |:-:|:-:|
+          | 系统 | ${OS_VER} |
+          | CPU | ${CPU_MODEL} |
+          | 内存 | ${MEM_TOTAL} |
+          | Rust | ${RUST_VER} |
+          | 构建 | release + LTO |
+
+          **提交延迟与吞吐** —— \`dologctl perf --count 200000\`：
+
+          \`\`\`text
+          ${PERF_OUT:-<本次运行器上 dologctl perf 失败>}
           \`\`\`
 
-          ### Criterion single-record submit · 单条记录提交
+          **单条记录延迟（Criterion）** —— \`cargo bench --bench latency --bench throughput\`：
 
           \`\`\`text
-          ${CRIT_OUT}
+          ${CRIT_OUT:-<本次运行器上 criterion 跑分失败>}
           \`\`\`
           EOF
 
@@ -280,8 +357,9 @@ jobs:
           sha256sum * > checksums-sha256.txt
 
       # Release notes: bilingual changelog (commit list) + usage + naming +
-      # verification, with the benchmark section merged in from the
-      # benchmarks job.
+      # verification, with the benchmark sections merged in from the
+      # benchmarks job (English block → <!--BENCH_EN-->, Chinese block →
+      # <!--BENCH_ZH-->).
       - name: Generate release notes
         shell: bash
         run: |
@@ -296,8 +374,11 @@ jobs:
           with open(notes_path, encoding='utf-8') as f:
               body = f.read()
           with open(bench_path, encoding='utf-8') as f:
-              section = f.read().strip()
-          body = body.replace('<!--BENCHMARK_SECTION-->', section)
+              section = f.read()
+          en = section.split('<!--BENCH_EN-->', 1)[1].split('<!--BENCH_ZH-->', 1)[0]
+          zh = section.split('<!--BENCH_ZH-->', 1)[1]
+          body = body.replace('<!--BENCH_EN-->', en.strip())
+          body = body.replace('<!--BENCH_ZH-->', zh.strip())
           with open(notes_path, 'w', encoding='utf-8', newline='\n') as f:
               f.write(body)
           PY

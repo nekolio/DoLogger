@@ -122,7 +122,7 @@ title_of() {
         ArchitectureReference)    echo "Architecture Reference" ;;
         OperationsAndSecurity)    echo "Operations & Security" ;;
         PluginDevelopmentQuickStart) echo "Plugin Development QuickStart" ;;
-        OfficialPluginRoadmap)    echo "Official Plugin Roadmap" ;;
+        OfficialPluginRoadmap)    echo "Official Plugins" ;;
         AdapterDevelopmentGuide)  echo "Adapter Development Guide" ;;
         DologctlCommandReference) echo "dologctl Command Reference" ;;
         ExtendedPluginTypeGuide)  echo "Extended Plugin Type Guide" ;;
@@ -147,7 +147,7 @@ zh_title_of() {
         ArchitectureReference)    echo "架构参考" ;;
         OperationsAndSecurity)    echo "运维与安全" ;;
         PluginDevelopmentQuickStart) echo "插件开发快速入门" ;;
-        OfficialPluginRoadmap)    echo "官方插件路线图" ;;
+        OfficialPluginRoadmap)    echo "官方插件" ;;
         AdapterDevelopmentGuide)  echo "适配器开发指南" ;;
         DologctlCommandReference) echo "dologctl 命令参考" ;;
         ExtendedPluginTypeGuide)  echo "扩展插件类型开发指南" ;;
@@ -230,7 +230,7 @@ cat > "$WORK/wiki/Home.md" <<EOF
 | [Operations Manual](en_US-guides-OperationsManual) |
 | [Performance Tuning Guide](en_US-guides-PerformanceTuningGuide) |
 | [Performance Benchmark Guide](en_US-guides-PerformanceBenchmarkGuide) |
-| [Official Plugin Roadmap](en_US-OfficialPluginRoadmap) |
+| [Official Plugins](en_US-OfficialPluginRoadmap) |
 
 ## 📎 Appendix
 
@@ -281,7 +281,7 @@ cat > "$WORK/wiki/Chinese-Home.md" <<EOF
 | [运维手册](zh_CN-guides-OperationsManual) |
 | [性能调优指南](zh_CN-guides-PerformanceTuningGuide) |
 | [性能基准测试指南](zh_CN-guides-PerformanceBenchmarkGuide) |
-| [官方插件路线图](zh_CN-OfficialPluginRoadmap) |
+| [官方插件](zh_CN-OfficialPluginRoadmap) |
 
 ## 📎 附录
 

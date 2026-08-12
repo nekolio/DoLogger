@@ -30,8 +30,8 @@ jobs:
           # libcurl4-openssl-dev is required by the librdkafka source build
           sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
@@ -91,8 +91,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 

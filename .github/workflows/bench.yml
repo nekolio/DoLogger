@@ -23,8 +23,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@1.97.1
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
