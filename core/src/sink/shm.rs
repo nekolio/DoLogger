@@ -164,7 +164,7 @@ mod shm_platform {
             libc::shm_open(
                 name_c.as_ptr(),
                 libc::O_CREAT | libc::O_EXCL | libc::O_RDWR,
-                permissions as libc::mode_t,
+                permissions as libc::mode_t as libc::c_uint,
             )
         };
         if fd < 0 {

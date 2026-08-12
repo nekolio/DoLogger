@@ -41,8 +41,8 @@ jobs:
       - name: Cargo check (all targets)
         run: cargo check --workspace --all-targets
 
-      - name: Cargo test (all targets)
-        run: cargo test --workspace --all-targets -- --test-threads=4
+      - name: Cargo test (lib + integration + doc)
+        run: cargo test --workspace -- --test-threads=4
 
       # filter_level plugin uses global statics — must run single-threaded
       - name: Cargo test (filter_level — serial)
