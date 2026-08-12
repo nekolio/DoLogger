@@ -83,12 +83,20 @@ pub struct EmergencyStats {
     pub current_bytes: u64,
 }
 
+/// Per-instance spill-file id counter. Spill files are named by
+/// `<pid>_<id>` so two instances in the same process (or parallel tests)
+/// never open — and truncate — the same file, which Windows rejects with
+/// "Access is denied" when another handle holds it open.
+static NEXT_SPILL_ID: AtomicU64 = AtomicU64::new(0);
+
 /// Emergency spill buffer for sustained backpressure scenarios.
 ///
 /// When activated, writes records to a memory-mapped file to avoid
 /// blocking the hot path. On recovery, drains all spilled records
 /// back into the main pipeline.
 pub struct EmergencyBuffer {
+    /// Unique spill-file id for this instance (see `NEXT_SPILL_ID`)
+    spill_id: u64,
     /// Whether the emergency buffer is currently active
     active: AtomicBool,
     /// Maximum bytes before dropping
@@ -123,6 +131,7 @@ impl EmergencyBuffer {
     /// Create a new emergency buffer (initially inactive).
     pub fn new() -> Self {
         Self {
+            spill_id: NEXT_SPILL_ID.fetch_add(1, Ordering::Relaxed),
             active: AtomicBool::new(false),
             max_bytes: DEFAULT_EMERGENCY_MAX_BYTES,
             max_records: DEFAULT_EMERGENCY_MAX_RECORDS,
@@ -175,6 +184,7 @@ impl EmergencyBuffer {
     /// Create with custom capacity limits.
     pub fn with_limits(max_bytes: u64, max_records: u64) -> Self {
         Self {
+            spill_id: NEXT_SPILL_ID.fetch_add(1, Ordering::Relaxed),
             active: AtomicBool::new(false),
             max_bytes,
             max_records,
@@ -206,7 +216,11 @@ impl EmergencyBuffer {
         fs::create_dir_all(&temp_dir)
             .map_err(|e| format!("Emergency buffer: cannot create temp dir: {e}"))?;
 
-        let file_path = temp_dir.join(format!("dologger_emergency_{}.buf", std::process::id()));
+        let file_path = temp_dir.join(format!(
+            "dologger_emergency_{}_{}.buf",
+            std::process::id(),
+            self.spill_id
+        ));
 
         let file = OpenOptions::new()
             .create(true)
