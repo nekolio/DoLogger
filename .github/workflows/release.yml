@@ -103,16 +103,19 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-${{ matrix.target }}-release
 
-      - name: Build release (Linux — all features)
-        if: runner.os == 'Linux'
+      # librdkafka (sink-kafka) is only buildable natively on Linux x86_64 —
+      # it cannot cross-compile for aarch64 and is unavailable on macOS/Windows.
+      - name: Build release (Linux x86_64 — all features incl. Kafka)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           cargo build --release --workspace --target ${{ matrix.target }} --all-features
 
-      - name: Build release (macOS / Windows — without kafka)
-        if: runner.os != 'Linux'
+      - name: Build release (other targets — sqlite/webhook/otel, without kafka)
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        shell: bash
         run: |
           cargo build --release --workspace --target ${{ matrix.target }} \
-            --features sink-sqlite,sink-webhook,sink-otel
+            --features dologger-core/sink-sqlite,dologger-core/sink-webhook
 
       - name: Prepare CLI binary artifact
         shell: bash

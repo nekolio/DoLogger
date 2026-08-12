@@ -262,7 +262,7 @@ cargo check --target aarch64-apple-darwin
 ```
 
 > [!WARNING]
-> `sink-kafka` 需要 librdkafka(通过 Conan 或系统包管理器安装)。CI 仅在 Linux 上构建该特性;macOS 和 Windows 的发布构建不包含它。
+> `sink-kafka` 需要 librdkafka(通过 Conan 或系统包管理器安装)。CI 与发布构建仅在 Linux x86_64 上包含该特性;macOS、Windows 和 Linux aarch64 构建不包含它。
 
 ---
 
