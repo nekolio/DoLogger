@@ -26,7 +26,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libssl-dev libsasl2-dev
+          # libcurl4-openssl-dev is required by the librdkafka source build
+          sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@1.97.1
@@ -55,7 +56,8 @@ jobs:
         run: cargo fmt --all -- --check
 
       # ── Feature flag testing ──────────────────────────────────────────
-      # Test the sink-kafka feature on Linux only (requires cmake/libssl).
+      # Test the sink-kafka feature on Linux only (librdkafka source build
+      # needs cmake, libssl, libsasl2 and libcurl — installed above).
 
       - name: Cargo test with sink-kafka feature (Linux)
         if: runner.os == 'Linux'

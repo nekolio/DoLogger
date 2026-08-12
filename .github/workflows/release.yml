@@ -24,7 +24,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libssl-dev libsasl2-dev
+          # libcurl4-openssl-dev is required by the librdkafka source build
+          sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@1.97.1
@@ -84,7 +85,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake libssl-dev libsasl2-dev
+          # libcurl4-openssl-dev is required by the librdkafka source build
+          sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
       - name: Install cross-compilation dependencies (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
