@@ -388,11 +388,50 @@ jobs:
           sed -i 's/^          //' benchmark-results.md
           cat benchmark-results.md
 
+          # Machine-readable copy for the site (scripts/build-site.sh
+          # downloads this release asset server-side — browsers cannot fetch
+          # release assets due to CORS). Same numbers as the markdown:
+          # perf --output json is the CLI's own JSON emitter; criterion is
+          # parsed from CRIT_OUT with the same bencher regex bench.yml uses.
+          PERF_JSON="$(./target/release/dologctl perf --count 200000 --output json 2>/dev/null || echo '{}')"
+          CRIT_JSON="$(CRIT_OUT="$CRIT_OUT" python3 - <<'PY'
+          import json, os, re
+          lines = os.environ.get('CRIT_OUT', '').splitlines()
+          crit = {}
+          for line in lines:
+              m = re.match(r'^test\s+(\S+)\s+\.\.\.\s+bench:\s+([\d,\.]+)\s+(\S+)', line)
+              if m:
+                  crit[m.group(1)] = {
+                      'value': float(m.group(2).replace(',', '')),
+                      'unit': m.group(3).replace('/iter', ''),
+                  }
+          print(json.dumps(crit, ensure_ascii=False))
+          PY
+          )"
+          cat > benchmark-results.json <<EOF
+          {
+            "tag": "${GITHUB_REF_NAME}",
+            "os": "${OS_VER}",
+            "cpu": "${CPU_MODEL}",
+            "memory": "${MEM_TOTAL}",
+            "rust": "${RUST_VER}",
+            "build": "release + LTO",
+            "perf": ${PERF_JSON},
+            "criterion": ${CRIT_JSON}
+          }
+          EOF
+          sed -i 's/^          //' benchmark-results.json
+          python3 -m json.tool benchmark-results.json > /dev/null \
+            && echo "benchmark-results.json OK" || echo "::warning::invalid benchmark-results.json"
+          cat benchmark-results.json
+
       - name: Upload benchmark results
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
-          path: benchmark-results.md
+          path: |
+            benchmark-results.md
+            benchmark-results.json
           if-no-files-found: error
 
   # ── Create GitHub Release ────────────────────────────────────────
@@ -424,6 +463,14 @@ jobs:
           path: bench
           pattern: benchmark-results
           merge-multiple: true
+
+      # The machine-readable benchmark-results.json DOES ship as a release
+      # asset: scripts/build-site.sh downloads it server-side when the site
+      # is built (browsers cannot fetch release assets — CORS). Copied in
+      # before checksums so it is covered by checksums-sha256.txt too.
+      - name: Add benchmark JSON to release assets
+        run: |
+          cp bench/benchmark-results.json release-artifacts/benchmark-results.json
 
       - name: List artifacts
         run: |
@@ -477,3 +524,18 @@ jobs:
           # After 1.0.0, only -rc/-alpha/-beta/-pre suffixes trigger pre-release.
           prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-rc') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-pre') }}
           generate_release_notes: false
+
+      # Site refresh chain (acyclic — cannot loop):
+      #   tag push → release.yml → this dispatch → pages.yml → deploy
+      # repository_dispatch is the one event a GITHUB_TOKEN API call CAN
+      # trigger (documented); pages.yml itself never pushes. Fired only
+      # after the release exists (if: success()) so the site's data layer
+      # bakes the new release + its benchmark-results.json, never a stale
+      # tag (benchmarks run 20+ min, so pages.yml must NOT trigger on tags).
+      - name: Refresh GitHub Pages site
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api repos/${{ github.repository }}/dispatches \
+          -f event_type=pages-update \
+          -f "client_payload[tag]=${{ github.ref_name }}"
