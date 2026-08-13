@@ -5,8 +5,9 @@ import { createI18n } from 'vue-i18n'
 
 const zh = {
   'theme-label': '主题', 'lang-label': '语言',
-  'download': '下载', 'more-versions': '更多版本', 'docs': '文档', 'star': 'Star',
-  'other-platforms': '全部平台与校验和',
+  'download': '下载', 'docs': '文档', 'star': 'Star',
+  'panel-title': '全部平台 · 校验和 · 版本', 'panel-assets': '平台资产', 'panel-versions': '版本',
+  'view-all-releases': '查看全部发布 →',
   'tag-zero-copy': '零拷贝', 'tag-audit': 'Ed25519 审计', 'tag-plugin': '插件化', 'tag-sinks': '11 种输出',
   'project-overview': '项目概览',
   'card-perf': '性能', 'card-sec': '安全', 'card-sinks': '输出 Sinks', 'card-arch': '架构', 'card-rel': '发布', 'card-comm': '社区',
@@ -27,13 +28,14 @@ const zh = {
   'comm-empty': '暂无贡献者数据。',
   'comm-stars': 'Stars', 'comm-forks': 'Forks', 'comm-license': '许可证',
   'comm-ci': 'CI', 'comm-commit': '次提交',
-  'demo-waiting': '⏳ 等待输出...'
+  'demo-speed': '速率', 'demo-ms': 'ms/行'
 }
 
 const en: Record<string, string> = {
   'theme-label': 'Theme', 'lang-label': 'Language',
-  'download': 'Download', 'more-versions': 'More versions', 'docs': 'Docs', 'star': 'Star',
-  'other-platforms': 'All platforms & checksums',
+  'download': 'Download', 'docs': 'Docs', 'star': 'Star',
+  'panel-title': 'All platforms · checksums · versions', 'panel-assets': 'Platform assets', 'panel-versions': 'Versions',
+  'view-all-releases': 'All releases →',
   'tag-zero-copy': 'Zero-copy', 'tag-audit': 'Ed25519 Audit', 'tag-plugin': 'Pluginable', 'tag-sinks': '11 Sinks',
   'project-overview': 'Project Overview',
   'card-perf': 'Performance', 'card-sec': 'Security', 'card-sinks': 'Output Sinks', 'card-arch': 'Architecture', 'card-rel': 'Releases', 'card-comm': 'Community',
@@ -54,7 +56,7 @@ const en: Record<string, string> = {
   'comm-empty': 'No contributor data.',
   'comm-stars': 'Stars', 'comm-forks': 'Forks', 'comm-license': 'License',
   'comm-ci': 'CI', 'comm-commit': 'commits',
-  'demo-waiting': '⏳ Waiting for output...'
+  'demo-speed': 'rate', 'demo-ms': 'ms/line'
 }
 
 const messages = { zh, en }

@@ -23,7 +23,10 @@ const docsUrl = computed(() =>
   locale.value === 'zh' ? WIKI_URL + '/Chinese-Home' : WIKI_URL + '/Home'
 )
 
-/* "All platforms & checksums" list — real asset names from the release. */
+/* ── merged "all platforms · checksums · versions" panel ──────────── */
+const open = ref(REDUCED_MOTION) // reduced-motion users get the list pre-opened
+
+/* Real asset names from the release, tagged by kind. */
 function classifyAsset(name: string): string {
   if (name.indexOf('dologctl') === 0) return 'CLI'
   if (name.indexOf('libdologger_core') === 0 || name.indexOf('dologger_core-') === 0) return 'LIB'
@@ -36,6 +39,13 @@ const assetList = computed(() => {
     : []
   return assets.map(a => ({ name: a.name, url: a.browser_download_url, kind: classifyAsset(a.name) }))
 })
+
+/* Version list for the same panel (from the API/baked data). */
+const releases = computed(() => siteData.value?.releases ?? [])
+function fmtDate(iso: string): string {
+  const d = new Date(iso)
+  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+}
 
 /* ── scroll-hint typewriter ───────────────────────────────────────── */
 const hintText = ref('')
@@ -113,10 +123,11 @@ onBeforeUnmount(stopHintTyping)
           <svg class="icon"><use href="./assets/icons.svg#icon-download"></use></svg>
           {{ t('download') }} <span>{{ osLabel }}</span>
         </a>
-        <a :href="RELEASES_URL" class="btn btn-outline">
-          <svg class="icon"><use href="./assets/icons.svg#icon-ellipsis"></use></svg>
-          {{ t('more-versions') }}
-        </a>
+        <button class="btn btn-outline" type="button" @click="open = !open">
+          <svg class="icon"><use href="./assets/icons.svg#icon-layers"></use></svg>
+          {{ t('panel-title') }}
+          <svg class="icon chev" :class="{ open }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
+        </button>
         <a :href="docsUrl" class="btn btn-outline">
           <svg class="icon"><use href="./assets/icons.svg#icon-book"></use></svg>
           {{ t('docs') }}
@@ -127,17 +138,42 @@ onBeforeUnmount(stopHintTyping)
         </a>
       </div>
 
-      <details class="other-platforms">
-        <summary>
-          <svg class="icon"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
-          {{ t('other-platforms') }}
-        </summary>
-        <ul>
-          <li v-for="a in assetList" :key="a.name">
-            <span class="tag-kind">{{ a.kind }}</span><a :href="a.url">{{ a.name }}</a>
-          </li>
-        </ul>
-      </details>
+      <div class="panel" :class="{ open }" :aria-hidden="!open">
+        <!-- the curved energy line that draws itself when the panel opens -->
+        <svg class="panel-curve" viewBox="0 0 400 26" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="panel-grad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#7FD5FF" />
+              <stop offset="0.5" stop-color="#C792EA" />
+              <stop offset="1" stop-color="#F472D0" />
+            </linearGradient>
+          </defs>
+          <path class="curve-base" d="M 0 26 C 110 2, 260 24, 400 8" pathLength="1" />
+          <path class="curve-flow" d="M 0 26 C 110 2, 260 24, 400 8" pathLength="1" />
+        </svg>
+
+        <div class="panel-inner">
+          <div class="panel-col">
+            <h4>{{ t('panel-assets') }}</h4>
+            <ul class="asset-list">
+              <li v-for="a in assetList" :key="a.name">
+                <span class="tag-kind">{{ a.kind }}</span><a :href="a.url">{{ a.name }}</a>
+              </li>
+            </ul>
+          </div>
+          <div class="panel-col">
+            <h4>{{ t('panel-versions') }}</h4>
+            <ul class="version-list">
+              <li v-for="r in releases.slice(0, 5)" :key="r.tag_name">
+                <a :href="r.html_url || RELEASES_URL">{{ r.tag_name }}</a>
+                <span v-if="r.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
+                <span class="date">{{ fmtDate(r.published_at) }}</span>
+              </li>
+              <li class="view-all"><a :href="RELEASES_URL">{{ t('view-all-releases') }}</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="scroll-hint" @click="scrollToDemo">

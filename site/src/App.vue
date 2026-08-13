@@ -4,7 +4,12 @@ import { useI18n } from 'vue-i18n'
 import PageHero from './components/PageHero.vue'
 import PageDemo from './components/PageDemo.vue'
 import PageOverview from './components/PageOverview.vue'
+import PageNav from './components/PageNav.vue'
+import CyberCursor from './components/CyberCursor.vue'
 import { loadSiteData } from './data'
+import { usePageNav } from './composables/usePageNav'
+
+const { active: pageIndex, count: pageCount, goTo } = usePageNav()
 
 const { locale, t } = useI18n()
 
@@ -68,5 +73,8 @@ onMounted(() => {
     <PageHero />
     <PageDemo />
     <PageOverview />
+
+    <PageNav :count="pageCount" :active="pageIndex" @go="goTo" />
+    <CyberCursor />
   </div>
 </template>
