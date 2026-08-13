@@ -78,8 +78,10 @@ Slicing-by-8 software fallback.
 ### Prebuilt binaries
 
 Every [GitHub Release](https://github.com/Nekolio/DoLogger/releases) attaches
-`dologctl-<os>-<arch>` binaries (`.exe` on Windows) plus per-arch core
-libraries. Verify each download against the attached `checksums-sha256.txt`:
+`dologctl-<version>-<os>-<arch>` binaries (`.exe` on Windows) plus per-arch
+core libraries (v0.1.0's assets predate versioned names and follow
+`dologctl-<os>-<arch>`). Verify each download against the attached
+`checksums-sha256.txt`:
 
 ```bash
 curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/dologctl-linux-x86_64

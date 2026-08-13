@@ -566,7 +566,7 @@ export const snippets: Record<string, Snippet> = {
   rust: makeSnippet(
     'rust', 'main.rs', RUST_SRC,
     'println!("user {} deleted',
-    '            logger.lock().await.audit(&format!("user {uid} deleted record #7")); // Ed25519-signed + WORM',
+    '                            logger.lock().await.audit(&format!("user {uid} deleted record #7")); // Ed25519-signed + WORM',
     'stdout only', 'DoLogger AUDIT'
   ),
   go: makeSnippet(

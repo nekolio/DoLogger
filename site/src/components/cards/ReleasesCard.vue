@@ -18,7 +18,7 @@ function fmtDate(iso: string): string {
 <template>
   <div>
     <ul v-if="releases.length">
-      <li v-for="r in releases.slice(0, 5)" :key="r.tag_name" class="release-row">
+      <li v-for="(r, i) in releases.slice(0, 5)" :key="r.tag_name" class="release-row" :style="{ '--i': i }">
         <a :href="r.html_url || RELEASES_URL">{{ r.tag_name || r.name || '?' }}</a>
         <span v-if="r.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
         <span class="date">{{ fmtDate(r.published_at) }}</span>

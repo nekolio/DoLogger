@@ -77,8 +77,9 @@ CRC32C 通过 SSE 4.2(`_mm_crc32_u64`)硬件加速,并提供 Slicing-by-8
 ### 预编译二进制
 
 每个 [GitHub Release](https://github.com/Nekolio/DoLogger/releases) 都
-附带 `dologctl-<os>-<arch>` 二进制(Windows 上为 `.exe`)及对应架构的
-核心库。请用随附的 `checksums-sha256.txt` 校验每个下载文件:
+附带 `dologctl-<版本>-<os>-<arch>` 二进制(Windows 上为 `.exe`)及对应
+架构的核心库(v0.1.0 的资产早于带版本命名,沿用 `dologctl-<os>-<arch>` 格式)。
+请用随附的 `checksums-sha256.txt` 校验每个下载文件:
 
 ```bash
 curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/dologctl-linux-x86_64

@@ -48,7 +48,7 @@ function onLeave(e: MouseEvent) {
           <div class="card-body card-body-scroll"><PerformanceCard /></div>
         </div>
         <div class="card" @mousemove="onMove" @mouseleave="onLeave">
-          <h3><svg class="icon"><use href="./assets/icons.svg#icon-shield"></use></svg> {{ t('card-sec') }}</h3>
+          <h3><svg class="icon pulse-shield"><use href="./assets/icons.svg#icon-shield"></use></svg> {{ t('card-sec') }}</h3>
           <div class="card-body card-body-scroll"><SecurityCard /></div>
         </div>
         <div class="card" @mousemove="onMove" @mouseleave="onLeave">

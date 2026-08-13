@@ -4,10 +4,11 @@
  * Narrative: the code panel shows a real-looking service whose only
  * audit trail is stdout (println! / fmt.Printf / print / fprintf). The
  * engine scans the file, focuses the offending line, deletes it, types
- * the DoLogger replacement — and the terminal underneath switches from
- * the old plain-text stream (slow, ERROR/WARN, grey) to the DoLogger
- * stream (real `[ns] [LEVEL] [component]` format, colored, all-INFO,
- * ~6× faster).
+ * the DoLogger replacement — and the terminal underneath appends the
+ * DoLogger stream to the surviving old output (a production hot-switch:
+ * old lines stay, new lines take over). The old stream is slow with red
+ * ERROR / amber WARN lines; the DoLogger stream runs the real
+ * `[ns] [LEVEL] [component]` format, colored, all-healthy, ~6× faster.
  *
  * Memory safety: the terminal holds at most MAX_TERMINAL_LINES rows
  * (oldest spliced off), every timeout is tracked and cleared on unmount,
@@ -107,15 +108,31 @@ function appendTermRow(row: TermRow) {
   if (out) out.scrollTop = out.scrollHeight
 }
 
+/* Live timestamps — nothing in the terminal is pre-baked. The before
+ * stream gets a wall clock (HH:MM:SS.mmm), the after stream gets the
+ * real DoLogger format's monotonic ns counter, generated at push time
+ * so the demo reads like an actual running process. */
+let afterNsBase = performance.now()
+function stamp(s: 'before' | 'after'): string {
+  if (s === 'after') {
+    const ns = Math.max(0, Math.round((performance.now() - afterNsBase) * 1e6))
+    return `[${String(ns).padStart(9, '0')}] `
+  }
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')} `
+}
+
 function startTerminalLoop(ms: number) {
   stopTerminalLoop()
   wantedSpeed = ms
   side.value = ms === SPEED.after ? 'after' : 'before'
   speed.value = ms
   terminalOn = true
+  if (ms === SPEED.after) afterNsBase = performance.now() // migration = fresh boot
   terminalTimer = window.setInterval(() => {
     const pool = termPool[side.value]
-    appendTermRow({ n: termN++, side: side.value, cls: pool[termIdx].cls, text: pool[termIdx].text })
+    appendTermRow({ n: termN++, side: side.value, cls: pool[termIdx].cls, text: stamp(side.value) + pool[termIdx].text })
     termIdx = (termIdx + 1) % pool.length
   }, ms)
 }
@@ -351,9 +368,9 @@ function finishEdit(lang: string) {
   if (textEl) textEl.innerHTML = tokenize(s.replaceLine, s.lexer)
   hideCursor()
   applyStyles(state)
-  // the migration is done: terminal switches to the DoLogger stream,
-  // format changes and the scroll speed jumps (240 → 40 ms/line)
-  clearTerminal()
+  // the migration is done: like a production hot-switch, the old output
+  // SURVIVES and the DoLogger stream appends beneath it — format changes,
+  // severity colors flip, and the scroll speed jumps (240 → 40 ms/line)
   startTerminalLoop(SPEED.after)
   scheduleLoop(lang)
 }

@@ -11,7 +11,7 @@ const sinks = [
 <template>
   <div>
     <div class="sink-tags">
-      <span v-for="name in sinks" :key="name">{{ name }}</span>
+      <span v-for="(name, i) in sinks" :key="name" :style="{ '--i': i }">{{ name }}</span>
     </div>
     <div class="sinks-note">{{ t('sinks-note') }}</div>
   </div>
@@ -20,7 +20,7 @@ const sinks = [
 <style scoped>
 .sinks-note {
   margin-top: 0.8rem;
-  font-size: 0.8rem;
+  font-size: 0.75rem; /* meta size — matches the other cards' notes */
   opacity: 0.6;
 }
 </style>

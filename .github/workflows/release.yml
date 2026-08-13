@@ -70,41 +70,47 @@ jobs:
           # all building libdologger_core.so would otherwise overwrite each
           # other (only the last one would survive in the release).
           #
+          # Asset names embed the tag (`dologctl-v0.2.0-linux-x86_64`):
+          # github.ref_name is the pushed tag, so every version's assets
+          # carry its version and the site can match them by suffix.
+          # (v0.1.0's published assets predate this and stay unversioned —
+          # the site's matcher accepts both schemes.)
+          #
           # ── Linux ───────────────────────────────────────────────
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: dologctl
-            asset_name: dologctl-linux-x86_64
+            asset_name: dologctl-${{ github.ref_name }}-linux-x86_64
             lib_name: libdologger_core.so
-            lib_asset_name: libdologger_core-linux-x86_64.so
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-x86_64.so
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact: dologctl
-            asset_name: dologctl-linux-aarch64
+            asset_name: dologctl-${{ github.ref_name }}-linux-aarch64
             lib_name: libdologger_core.so
-            lib_asset_name: libdologger_core-linux-aarch64.so
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-aarch64.so
 
           - os: ubuntu-latest
             target: i686-unknown-linux-gnu
             artifact: dologctl
-            asset_name: dologctl-linux-i686
+            asset_name: dologctl-${{ github.ref_name }}-linux-i686
             lib_name: libdologger_core.so
-            lib_asset_name: libdologger_core-linux-i686.so
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-i686.so
 
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             artifact: dologctl
-            asset_name: dologctl-linux-armv7
+            asset_name: dologctl-${{ github.ref_name }}-linux-armv7
             lib_name: libdologger_core.so
-            lib_asset_name: libdologger_core-linux-armv7.so
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-armv7.so
 
           - os: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             artifact: dologctl
-            asset_name: dologctl-linux-riscv64
+            asset_name: dologctl-${{ github.ref_name }}-linux-riscv64
             lib_name: libdologger_core.so
-            lib_asset_name: libdologger_core-linux-riscv64.so
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-riscv64.so
 
           # ── Windows ─────────────────────────────────────────────
           - os: windows-latest
@@ -112,38 +118,38 @@ jobs:
             artifact: dologctl.exe
             # Windows binaries keep the .exe extension; Linux/macOS
             # binaries are conventionally extension-less.
-            asset_name: dologctl-windows-x86_64.exe
+            asset_name: dologctl-${{ github.ref_name }}-windows-x86_64.exe
             lib_name: dologger_core.dll
-            lib_asset_name: dologger_core-windows-x86_64.dll
+            lib_asset_name: dologger_core-${{ github.ref_name }}-windows-x86_64.dll
 
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact: dologctl.exe
-            asset_name: dologctl-windows-aarch64.exe
+            asset_name: dologctl-${{ github.ref_name }}-windows-aarch64.exe
             lib_name: dologger_core.dll
-            lib_asset_name: dologger_core-windows-aarch64.dll
+            lib_asset_name: dologger_core-${{ github.ref_name }}-windows-aarch64.dll
 
           - os: windows-latest
             target: i686-pc-windows-msvc
             artifact: dologctl.exe
-            asset_name: dologctl-windows-i686.exe
+            asset_name: dologctl-${{ github.ref_name }}-windows-i686.exe
             lib_name: dologger_core.dll
-            lib_asset_name: dologger_core-windows-i686.dll
+            lib_asset_name: dologger_core-${{ github.ref_name }}-windows-i686.dll
 
           # ── macOS ───────────────────────────────────────────────
           - os: macOS-latest
             target: aarch64-apple-darwin
             artifact: dologctl
-            asset_name: dologctl-macos-aarch64
+            asset_name: dologctl-${{ github.ref_name }}-macos-aarch64
             lib_name: libdologger_core.dylib
-            lib_asset_name: libdologger_core-macos-aarch64.dylib
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-macos-aarch64.dylib
 
           - os: macOS-latest
             target: x86_64-apple-darwin
             artifact: dologctl
-            asset_name: dologctl-macos-x86_64
+            asset_name: dologctl-${{ github.ref_name }}-macos-x86_64
             lib_name: libdologger_core.dylib
-            lib_asset_name: libdologger_core-macos-x86_64.dylib
+            lib_asset_name: libdologger_core-${{ github.ref_name }}-macos-x86_64.dylib
 
     steps:
       - name: Checkout repository

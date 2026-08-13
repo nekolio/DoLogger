@@ -134,16 +134,24 @@ const FALLBACK_CONTRIBUTORS: Contributor[] = [
 
 /* ------------------------------------------------------------------ */
 
+/* A stalled API request must not stall the whole page: every external
+ * fetch gets a hard timeout so the chain (API → cache → baked JSON →
+ * hardcoded fallback) always terminates. */
+const FETCH_TIMEOUT_MS = 8000
+function fetchT(url: string, init?: RequestInit): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+}
+
 async function apiGet<T>(path: string): Promise<T | null> {
   try {
-    const r = await fetch(BASE + path, { headers: { Accept: 'application/vnd.github+json' } })
+    const r = await fetchT(BASE + path, { headers: { Accept: 'application/vnd.github+json' } })
     return r.ok ? (r.json() as Promise<T>) : null
   } catch { return null }
 }
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
-    const r = await fetch(url, { cache: 'no-cache' })
+    const r = await fetchT(url, { cache: 'no-cache' })
     return r.ok ? (r.json() as Promise<T>) : null
   } catch { return null }
 }
@@ -166,7 +174,8 @@ async function withCache<T>(key: string, apiFn: () => Promise<T | null>, bakedUr
   const cached = cacheRead<{ t: number; d: T }>(key)
   if (cached && isFresh(cached)) return cached.d
   const fresh = await apiFn()
-  if (fresh) { cacheWrite(key, fresh); return fresh }
+  // empty arrays cache badly — a fresh publish would stay invisible
+  if (fresh && (!Array.isArray(fresh) || fresh.length > 0)) { cacheWrite(key, fresh); return fresh }
   if (cached) return cached.d // stale but usable
   const baked = bakedUrl ? await fetchJson<T>(bakedUrl) : null
   if (baked && (Array.isArray(baked) ? baked.length > 0 : true)) return baked
@@ -275,30 +284,73 @@ async function detectPlatform(): Promise<Platform> {
 }
 
 /* ------------------------------------------------------------------
- * Download link. Always resolved from the release's real asset list
- * (never a constructed /latest/download/ URL — prereleases 404 there).
- * ---------------------------------------------------------------- */
-const ASSET_MAP: Record<Platform['os'], Record<string, string>> = {
-  linux: {
-    x86_64: 'dologctl-linux-x86_64', aarch64: 'dologctl-linux-aarch64',
-    i686: 'dologctl-linux-i686', armv7: 'dologctl-linux-armv7', riscv64: 'dologctl-linux-riscv64'
-  },
-  windows: {
-    x86_64: 'dologctl-windows-x86_64.exe', aarch64: 'dologctl-windows-aarch64.exe',
-    i686: 'dologctl-windows-i686.exe'
-  },
-  macos: {
-    x86_64: 'dologctl-macos-x86_64', aarch64: 'dologctl-macos-aarch64'
+ * Asset matching. Names are matched by PREFIX + SUFFIX, never by exact
+ * string, so both naming schemes resolve:
+ *   legacy:    dologctl-linux-x86_64
+ *   versioned: dologctl-v0.2.0-linux-x86_64  (release.yml, v0.2.0+)
+ * ------------------------------------------------------------------ */
+const CLI_PREFIX = 'dologctl'
+const LIB_PREFIXES = ['libdologger_core', 'dologger_core']
+const OS_ORDER: Platform['os'][] = ['linux', 'windows', 'macos']
+const ARCH_ORDER = ['x86_64', 'aarch64', 'i686', 'armv7', 'riscv64']
+const ARCH_RE = /(?:x86_64|aarch64|i686|armv7|riscv64)/
+const ASSET_TAIL = new RegExp('-((?:linux|windows|macos))-(' + ARCH_RE.source + ')(?:\\.exe|\\.so|\\.dll|\\.dylib)?$')
+
+/** The CLI asset for this platform in a given release (either naming scheme). */
+export function assetFor(release: Release, os: Platform['os'], arch: string): ReleaseAsset | null {
+  const assets = (release.assets && release.assets.length)
+    ? release.assets
+    : FALLBACK_RELEASES[0].assets
+  const want = '-' + os + '-' + arch + (os === 'windows' ? '.exe' : '')
+  const hit = assets.find(function (a) { return a.name.startsWith(CLI_PREFIX) && a.name.endsWith(want) })
+  return hit || null
+}
+
+export interface AssetRow { os: Platform['os']; cli?: ReleaseAsset; lib?: ReleaseAsset }
+export interface ArchGroup { arch: string; rows: AssetRow[] }
+
+/** Group a release's assets by architecture → OS (both naming schemes). */
+export function groupAssets(release: Release): ArchGroup[] {
+  const assets = (release.assets && release.assets.length)
+    ? release.assets
+    : FALLBACK_RELEASES[0].assets
+  const byArch = new Map<string, Map<Platform['os'], AssetRow>>()
+
+  for (const a of assets) {
+    const isCli = a.name.startsWith(CLI_PREFIX)
+    const isLib = LIB_PREFIXES.some(function (p) { return a.name.startsWith(p) })
+    if (!isCli && !isLib) continue
+    const m = a.name.match(ASSET_TAIL)
+    if (!m) continue
+    const os = m[1] as Platform['os']
+    const arch = m[2]
+    let osMap = byArch.get(arch)
+    if (!osMap) { osMap = new Map(); byArch.set(arch, osMap) }
+    const row = osMap.get(os) || { os }
+    if (isCli) row.cli = a
+    else row.lib = a
+    osMap.set(os, row)
   }
+
+  const groups: ArchGroup[] = []
+  for (const arch of ARCH_ORDER) {
+    const osMap = byArch.get(arch)
+    if (!osMap) continue
+    const rows = OS_ORDER.filter(function (os) { return osMap.has(os) })
+      .map(function (os) { return osMap.get(os) as AssetRow })
+    groups.push({ arch, rows })
+  }
+  // any arch outside the fixed order (future-proof)
+  for (const [arch, osMap] of byArch) {
+    if (ARCH_ORDER.indexOf(arch) >= 0) continue
+    groups.push({ arch, rows: Array.from(osMap.values()) })
+  }
+  return groups
 }
 
 function resolveDownload(releases: Release[] | null, os: Platform['os'], arch: string): string {
   const latest = releases && releases.length ? releases[0] : FALLBACK_RELEASES[0]
-  const assets = (latest.assets && latest.assets.length)
-    ? latest.assets
-    : FALLBACK_RELEASES[0].assets
-  const want = ASSET_MAP[os]?.[arch]
-  const hit = assets.find(function (a) { return a.name === want })
+  const hit = assetFor(latest, os, arch)
   if (hit && hit.browser_download_url) return hit.browser_download_url
   return latest.html_url || 'https://github.com/Nekolio/DoLogger/releases'
 }
@@ -332,4 +384,27 @@ export function useSiteData(): Ref<SiteData | null> {
 export async function loadSiteData(): Promise<SiteData> {
   if (!siteData.value) siteData.value = await init()
   return siteData.value
+}
+
+/* ------------------------------------------------------------------
+ * Version selection — which release the page currently targets. The
+ * hero's download button, os label, and the grouped asset panel all
+ * derive from this; default is the latest release. Module-level ref so
+ * every component follows the choice reactively.
+ * ---------------------------------------------------------------- */
+const selectedTag = ref<string | null>(null)
+
+export function useSelectedTag(): Ref<string | null> {
+  return selectedTag
+}
+
+export function selectRelease(tag: string): void {
+  selectedTag.value = tag
+}
+
+/** The release currently targeted (selected, else latest). */
+export function pickRelease(releases: Release[] | null): Release {
+  const rels = releases && releases.length ? releases : FALLBACK_RELEASES
+  if (!selectedTag.value) return rels[0]
+  return rels.find(function (r) { return r.tag_name === selectedTag.value }) || rels[0]
 }

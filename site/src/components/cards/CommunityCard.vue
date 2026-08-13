@@ -14,7 +14,7 @@ const repo = computed(() => siteData.value?.repo)
 <template>
   <div>
     <ul v-if="contributors.length">
-      <li v-for="c in contributors.slice(0, 8)" :key="c.login" class="contrib-row">
+      <li v-for="(c, i) in contributors.slice(0, 8)" :key="c.login" class="contrib-row" :style="{ '--i': i }">
         <img v-if="c.avatar_url" class="avatar" :src="c.avatar_url" :alt="c.login" loading="lazy" />
         <span v-else class="icon"><svg class="icon"><use href="./assets/icons.svg#icon-github"></use></svg></span>
         <a :href="c.html_url || REPO_URL">@{{ c.login || '?' }}</a>

@@ -12,7 +12,7 @@ const stages = ['pre-filter', 'filter', 'field provider', 'assembly', 'process',
     <div class="arch-flow">
       <template v-for="(stage, i) in stages" :key="stage">
         <span v-if="i > 0" class="sep">→</span>
-        <span>{{ stage }}</span>
+        <span :style="{ '--i': i }">{{ stage }}</span>
       </template>
     </div>
     <a class="card-link" :href="WIKI_URL + '/en_US-ArchitectureReference'">{{ t('arch-link') }}</a>
@@ -21,7 +21,7 @@ const stages = ['pre-filter', 'filter', 'field provider', 'assembly', 'process',
 
 <style scoped>
 .arch-hot {
-  font-size: 0.8rem;
+  font-size: 0.85rem; /* body size — matches .card ul li */
   line-height: 1.6;
   margin-bottom: 0.5rem;
 }
