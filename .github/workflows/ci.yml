@@ -9,6 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# A new push to the same branch/PR supersedes any still-running CI run for
+# it — stale runs only burn runner minutes on already-superseded commits.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── Tests (runs in parallel with lint) ───────────────────────────
   test:

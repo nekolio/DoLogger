@@ -9,6 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# A manual dispatch should not pile up behind (or alongside) the weekly
+# scheduled audit; only the newest run proceeds.
+concurrency:
+  group: security-audit
+  cancel-in-progress: true
+
 jobs:
   cargo-audit:
     name: Cargo Audit (vulnerability scan)

@@ -8,6 +8,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Only the newest benchmark run per PR matters — a force-push or new
+# commit cancels the previous run instead of queueing behind it.
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   benchmark:
     name: Benchmark Comparison

@@ -1,3 +1,5 @@
+name: Deploy GitHub Pages
+
 # Deploy GitHub Pages — DoLogger landing site (site/).
 #
 # ── Why this workflow can never loop (the site rebuilds without pushing) ──
@@ -50,7 +52,9 @@ jobs:
           enablement: true
 
       # Bun builds the Vite app and runs the vue-tsc type check (script
-      # "build" = "vue-tsc --noEmit && vite build").
+      # "build" = "vue-tsc --noEmit && vite build"). The action caches the
+      # bun executable itself; `bun install` for this tiny site (2 deps)
+      # takes ~1s, so no further caching is worth it.
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
