@@ -3,12 +3,15 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteData } from '../../data'
 
+const props = defineProps<{ expanded?: boolean }>()
 const { t } = useI18n()
 const siteData = useSiteData()
 
 const RELEASES_URL = 'https://github.com/Nekolio/DoLogger/releases'
 
 const releases = computed(() => siteData.value?.releases ?? [])
+/* collapsed: the latest few; expanded: the full list */
+const visible = computed(() => props.expanded ? releases.value : releases.value.slice(0, 3))
 function fmtDate(iso: string): string {
   const d = new Date(iso)
   return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
@@ -18,13 +21,17 @@ function fmtDate(iso: string): string {
 <template>
   <div>
     <ul v-if="releases.length">
-      <li v-for="(r, i) in releases.slice(0, 5)" :key="r.tag_name" class="release-row" :style="{ '--i': i }">
+      <li v-for="(r, i) in visible" :key="r.tag_name" class="release-row" :style="{ '--i': i }">
         <a :href="r.html_url || RELEASES_URL">{{ r.tag_name || r.name || '?' }}</a>
         <span v-if="r.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
         <span class="date">{{ fmtDate(r.published_at) }}</span>
       </li>
     </ul>
     <div v-else>{{ t('rel-empty') }}</div>
+
+    <div v-if="expanded" class="card-detail">
+      <div class="card-caption">{{ t('rel-detail-rule') }}</div>
+    </div>
     <a class="card-link" :href="RELEASES_URL">{{ t('rel-all') }}</a>
   </div>
 </template>

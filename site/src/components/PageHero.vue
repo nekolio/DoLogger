@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useSiteData, selectRelease, pickRelease, assetFor, groupAssets, type Platform } from '../data'
+import { useSiteData, selectRelease, pickRelease, assetFor, type Platform } from '../data'
+import FilterPopup from './FilterPopup.vue'
 
 const { t, locale } = useI18n()
 const siteData = useSiteData()
@@ -11,14 +12,18 @@ const WIKI_URL = REPO_URL + '/wiki'
 const RELEASES_URL = REPO_URL + '/releases'
 const OS_KEYS: Record<string, string> = { windows: 'os-windows', macos: 'os-macos', linux: 'os-linux' }
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const open = ref(REDUCED_MOTION) // reduced-motion users get the panel pre-opened
 
 /* Everything derives from the SELECTED release (default: latest), so
-   picking v0.2.0 in the dropdown flips the download button, the os
-   label, and the grouped asset panel all at once. */
+   picking a single version in the filter popup flips the download
+   button and the os label at once. */
 const releases = computed(() => siteData.value?.releases ?? [])
 const selectedRelease = computed(() => pickRelease(releases.value.length ? releases.value : null))
 const platform = computed<Platform>(() => siteData.value?.platform ?? { os: 'linux', arch: 'x86_64' })
-const version = computed(() => selectedRelease.value.tag_name || 'v0.1.0')
+/* The hero badge shows the latest NON-prerelease release; while every
+   release is still a prerelease (as now) it falls back to the latest
+   and marks it. Independent of the popup's version filter. */
+const badgeRelease = computed(() => releases.value.find(r => !r.prerelease) ?? releases.value[0] ?? null)
 const downloadUrl = computed(() => {
   const hit = assetFor(selectedRelease.value, platform.value.os, platform.value.arch)
   return (hit && hit.browser_download_url) || selectedRelease.value.html_url || RELEASES_URL
@@ -27,23 +32,16 @@ const osLabel = computed(() => {
   const osKey = OS_KEYS[platform.value.os] || 'os-linux'
   return t(osKey) + ' (' + platform.value.arch + ')'
 })
-const assetGroups = computed(() => groupAssets(selectedRelease.value))
-const checksumsUrl = computed(() => selectedRelease.value.assets?.find(a => a.name === 'checksums-sha256.txt')?.browser_download_url ?? '')
-const benchUrl = computed(() => selectedRelease.value.assets?.find(a => a.name === 'benchmark-results.json')?.browser_download_url ?? '')
 const docsUrl = computed(() =>
   locale.value === 'zh' ? WIKI_URL + '/Chinese-Home' : WIKI_URL + '/Home'
 )
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
-}
-
-/* ── version dropdown (custom, keyboard-accessible) ───────────────── */
-const open = ref(REDUCED_MOTION) // reduced-motion users get the panel pre-opened
-const vOpen = ref(false)
-const vIndex = ref(0)
-const versionSelEl = ref<HTMLElement | null>(null)
+/* ── filter popup (trigger bar in the panel) ─────────────────────── */
+const fOpen = ref(false)
+const filterAnchorEl = ref<HTMLElement | null>(null)
+const popupRef = ref<InstanceType<typeof FilterPopup> | null>(null)
+const filterSummary = computed(() => popupRef.value?.summary ?? '')
+watch(open, (v) => { if (!v) fOpen.value = false }) // closing the panel drops the popup
 
 /* ── panel height cap, measured at runtime ─────────────────────────
  * The open panel must never push the hero past the fold, but the
@@ -67,39 +65,6 @@ function measurePanelAvail() {
     document.documentElement.style.setProperty('--panel-avail', avail + 'px')
   })
 }
-
-function toggleVersionMenu() { vOpen.value = !vOpen.value }
-function chooseVersion(tag: string) {
-  selectRelease(tag)
-  vOpen.value = false
-}
-function onVersionKey(e: KeyboardEvent) {
-  const rels = releases.value
-  if (!rels.length) return
-  if ((e.key === 'Enter' || e.key === ' ') && !vOpen.value) {
-    vOpen.value = true
-    vIndex.value = Math.max(0, rels.findIndex(r => r.tag_name === selectedRelease.value.tag_name))
-    e.preventDefault()
-  } else if (e.key === 'Escape') {
-    vOpen.value = false
-  } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault()
-    if (!vOpen.value) {
-      vOpen.value = true
-      vIndex.value = Math.max(0, rels.findIndex(r => r.tag_name === selectedRelease.value.tag_name))
-      return
-    }
-    vIndex.value = (vIndex.value + (e.key === 'ArrowDown' ? 1 : -1) + rels.length) % rels.length
-  } else if (e.key === 'Enter' && vOpen.value) {
-    chooseVersion(rels[vIndex.value].tag_name)
-  }
-}
-function onClickOutside(e: MouseEvent) {
-  const el = versionSelEl.value
-  if (el && !(e.target instanceof Node && el.contains(e.target))) vOpen.value = false
-}
-onMounted(() => document.addEventListener('mousedown', onClickOutside))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onClickOutside))
 
 /* ── scroll-hint typewriter ───────────────────────────────────────── */
 const hintText = ref('')
@@ -172,9 +137,10 @@ onBeforeUnmount(() => {
              alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" />
       </div>
 
-      <div class="badge">
+      <div class="badge" v-if="badgeRelease">
         <svg class="icon"><use href="./assets/icons.svg#icon-rocket"></use></svg>
-        <span>{{ version }}</span>
+        <span>{{ badgeRelease.tag_name }}</span>
+        <span v-if="badgeRelease.prerelease" class="badge-pre">{{ t('rel-prerelease') }}</span>
       </div>
 
       <div class="tags">
@@ -204,68 +170,24 @@ onBeforeUnmount(() => {
         </a>
       </div>
 
+      <!-- the panel now hosts only the filter trigger — the popup holds
+           the filters AND the live-filtered asset list, positioned
+           against the viewport so it never stretches this panel -->
       <div class="panel" :class="{ open }" :aria-hidden="!open">
-        <!-- the curved energy line that draws itself when the panel opens -->
-        <svg class="panel-curve" viewBox="0 0 400 26" preserveAspectRatio="none" aria-hidden="true">
-          <defs>
-            <linearGradient id="panel-grad" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stop-color="#7FD5FF" />
-              <stop offset="0.5" stop-color="#C792EA" />
-              <stop offset="1" stop-color="#F472D0" />
-            </linearGradient>
-          </defs>
-          <path class="curve-base" d="M 0 26 C 110 2, 260 24, 400 8" pathLength="1" />
-          <path class="curve-flow" d="M 0 26 C 110 2, 260 24, 400 8" pathLength="1" />
-        </svg>
-
-        <div class="panel-inner">
-          <!-- version picker: selecting a tag re-targets every link below -->
-          <div class="version-select" ref="versionSelEl">
-            <button type="button" class="vs-button" :aria-expanded="vOpen" aria-haspopup="listbox"
-                    @click="toggleVersionMenu" @keydown="onVersionKey">
-              <svg class="icon"><use href="./assets/icons.svg#icon-tag"></use></svg>
-              <span class="vs-label">{{ t('panel-select-version') }}</span>
-              <b class="vs-current">{{ version }}</b>
-              <svg class="icon chev" :class="{ open: vOpen }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
-            </button>
-            <ul v-if="vOpen" class="vs-menu" role="listbox" :aria-label="t('panel-select-version')">
-              <li v-for="(r, i) in releases" :key="r.tag_name" role="option"
-                  :aria-selected="r.tag_name === selectedRelease.tag_name"
-                  :class="{ selected: r.tag_name === selectedRelease.tag_name, focused: i === vIndex }"
-                  @click="chooseVersion(r.tag_name)" @mouseenter="vIndex = i">
-                <span class="vs-tag">{{ r.tag_name }}</span>
-                <span v-if="r.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
-                <span class="vs-date">{{ fmtDate(r.published_at) }}</span>
-              </li>
-            </ul>
-          </div>
-
-          <!-- assets grouped by architecture → OS (both naming schemes) -->
-          <div class="asset-groups">
-            <div v-for="g in assetGroups" :key="g.arch" class="arch-group">
-              <h4 class="arch-head">{{ g.arch }}</h4>
-              <div v-for="row in g.rows" :key="row.os" class="os-row">
-                <span class="os-name">{{ t(OS_KEYS[row.os]) }}</span>
-                <span v-if="row.cli" class="tag-kind">CLI</span>
-                <a v-if="row.cli" :href="row.cli.browser_download_url" :title="row.cli.name">{{ row.cli.name }}</a>
-                <span v-if="row.lib" class="tag-kind lib">LIB</span>
-                <a v-if="row.lib" :href="row.lib.browser_download_url" :title="row.lib.name">{{ row.lib.name }}</a>
-              </div>
-            </div>
-            <div class="panel-extra">
-              <a v-if="checksumsUrl" :href="checksumsUrl">
-                <svg class="icon"><use href="./assets/icons.svg#icon-shield"></use></svg>
-                {{ t('panel-checksums') }}
-              </a>
-              <a v-if="benchUrl" :href="benchUrl">
-                <svg class="icon"><use href="./assets/icons.svg#icon-gauge"></use></svg>
-                {{ t('panel-bench') }}
-              </a>
-            </div>
-          </div>
+        <div class="panel-filter" ref="filterAnchorEl">
+          <button type="button" class="vs-button" :aria-expanded="fOpen" aria-haspopup="dialog"
+                  @click="fOpen = !fOpen">
+            <svg class="icon"><use href="./assets/icons.svg#icon-tag"></use></svg>
+            <span class="vs-label">{{ t('panel-filter-title') }}</span>
+            <b class="vs-current">{{ filterSummary }}</b>
+            <svg class="icon chev" :class="{ open: fOpen }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
+          </button>
         </div>
       </div>
     </div>
+
+    <FilterPopup :open="fOpen" :releases="releases" :anchor-el="filterAnchorEl"
+                 ref="popupRef" @close="fOpen = false" />
 
     <div class="scroll-hint" @click="scrollToDemo">
       <svg class="icon"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>

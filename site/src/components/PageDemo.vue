@@ -108,16 +108,12 @@ function appendTermRow(row: TermRow) {
   if (out) out.scrollTop = out.scrollHeight
 }
 
-/* Live timestamps — nothing in the terminal is pre-baked. The before
- * stream gets a wall clock (HH:MM:SS.mmm), the after stream gets the
- * real DoLogger format's monotonic ns counter, generated at push time
- * so the demo reads like an actual running process. */
-let afterNsBase = performance.now()
-function stamp(s: 'before' | 'after'): string {
-  if (s === 'after') {
-    const ns = Math.max(0, Math.round((performance.now() - afterNsBase) * 1e6))
-    return `[${String(ns).padStart(9, '0')}] `
-  }
+/* Live timestamps — nothing in the terminal is pre-baked. Both streams
+ * get the same wall clock (HH:MM:SS.mmm) generated at push time, so the
+ * demo reads like an actual running process. The after stream's
+ * human-readable format comes from a DoLogger plugin (timestamps are
+ * pluggable — see the boot canon line about the timestamp plugin). */
+function stamp(): string {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')} `
@@ -129,10 +125,9 @@ function startTerminalLoop(ms: number) {
   side.value = ms === SPEED.after ? 'after' : 'before'
   speed.value = ms
   terminalOn = true
-  if (ms === SPEED.after) afterNsBase = performance.now() // migration = fresh boot
   terminalTimer = window.setInterval(() => {
     const pool = termPool[side.value]
-    appendTermRow({ n: termN++, side: side.value, cls: pool[termIdx].cls, text: stamp(side.value) + pool[termIdx].text })
+    appendTermRow({ n: termN++, side: side.value, cls: pool[termIdx].cls, text: stamp() + pool[termIdx].text })
     termIdx = (termIdx + 1) % pool.length
   }, ms)
 }
@@ -403,7 +398,7 @@ function staticRender() {
   hideCursor()
   clearTerminal()
   AFTER_LOGS.forEach(log => {
-    appendTermRow({ n: termN++, side: 'after', cls: log.cls, text: log.text })
+    appendTermRow({ n: termN++, side: 'after', cls: log.cls, text: stamp() + log.text })
   })
 }
 

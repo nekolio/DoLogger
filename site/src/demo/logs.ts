@@ -1,9 +1,11 @@
 /* demo/logs.ts — the two terminal streams on page 2.
  *
  * Timestamps are NOT stored here: PageDemo stamps every line at push
- * time so the terminal reads like a live process — the before stream
- * gets a wall clock (HH:MM:SS.mmm), the after stream gets the real
- * DoLogger format's monotonic ns counter `[ns]`, generated live.
+ * time so the terminal reads like a live process. Both streams get the
+ * same live wall clock (HH:MM:SS.mmm). The after stream's human-
+ * readable format is provided by a DoLogger plugin — dologger's
+ * timestamp rendering is pluggable, which is exactly the point of the
+ * `timestamp` plugin line in the boot canon below.
  *
  * BEFORE: the pre-migration stream. Style A — plain timestamped lines,
  * slow, and full of the failure modes the demo is about: dropped
@@ -12,10 +14,11 @@
  * ERROR lines glow red, WARN lines amber.
  *
  * AFTER: the DoLogger stream. Real format `[ns] [LEVEL] [component]`
- * from core/src/sys/internal_log.rs, colored levels, fast, and every
- * line is a DoLogger strength: the boot canon, plugin sandboxing and
- * trust levels, the Ed25519 audit chain, 7-stage pipeline + priority
- * levels, measured perf, the sink fan-out, and the shutdown `ok` line.
+ * from core/src/sys/internal_log.rs (wall-clock stamping shown via the
+ * timestamp plugin), colored levels, fast, and every line is a DoLogger
+ * strength: the boot canon, plugin sandboxing and trust levels, the
+ * Ed25519 audit chain, 7-stage pipeline + priority levels, measured
+ * perf, the sink fan-out, and the shutdown `ok` line.
  */
 
 export interface DemoLog {
@@ -44,6 +47,7 @@ export const AFTER_LOGS: DemoLog[] = [
   { side: 'after', cls: 'info',   text: '[INFO]  [core]     DoLogger v0.2.0 — ring buffer + Treiber pool, zero heap on submit' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   sandbox armed: seccomp-bpf · AppContainer · Sandbox' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   4 plugins loaded · trust BLUE · api v3' },
+  { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   timestamp: plugin attached — human-readable wall-clock format' },
   { side: 'after', cls: 'info',   text: '[INFO]  [audit]    Ed25519 chain armed — genesis prev_hash 0000…, every record signed' },
   { side: 'after', cls: 'info',   text: '[INFO]  [pipeline] 7-stage pipeline online · 7 priority levels, domain inheritance' },
   { side: 'after', cls: 'info',   text: '[INFO]  [perf]     p50 102 ns · 9.78M rec/s — lock-free hot path, zero heap allocation' },

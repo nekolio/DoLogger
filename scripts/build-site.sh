@@ -42,6 +42,8 @@ if [[ -n "${GITHUB_TOKEN:-}" ]]; then
   echo "> baking live data (GITHUB_TOKEN set)"
   gh api "repos/$REPO/releases?per_page=5" > "$OUT/data/releases.json" 2>/dev/null \
     || echo '[]' > "$OUT/data/releases.json"
+  gh api "repos/$REPO/contributors?per_page=12" > "$OUT/data/contributors.json" 2>/dev/null \
+    || echo '[]' > "$OUT/data/contributors.json"
   TAG="$(gh api "repos/$REPO/releases?per_page=5" --jq '.[0].tag_name' 2>/dev/null || true)"
   if [[ -n "$TAG" ]]; then
     BENCH_URL="$(gh api "repos/$REPO/releases/tags/$TAG" \
@@ -58,6 +60,7 @@ else
   echo "> no GITHUB_TOKEN — fallback data files (local build)"
   echo '[]' > "$OUT/data/releases.json"
   echo '{"fallback":true}' > "$OUT/data/benchmarks.json"
+  echo '[]' > "$OUT/data/contributors.json"
 fi
 
 echo "site built -> $OUT"

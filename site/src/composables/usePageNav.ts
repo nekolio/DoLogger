@@ -6,9 +6,11 @@
  *   - after the cooldown, one wheel gesture in either direction moves
  *     exactly one page;
  *   - it can never get stuck: at the first/last page the boundary absorbs
- *     the gesture, and any scrollable area under the cursor (page-3 card
- *     bodies) scrolls natively first — the page switch only fires when
- *     that area cannot scroll further;
+ *     the gesture, and any wheel-locked zone under the cursor
+ *     ([data-wheel-lock]: terminal, code panel, expanded page-3 grid)
+ *     scrolls natively first — the page switch only fires when that zone
+ *     hits its edge. Hard zones ([data-wheel-lock-hard]: the filter
+ *     popup) never trigger a page switch while the pointer is over them;
  *   - touch devices and narrow screens never hijack the wheel — they get
  *     plain native scrolling (no snap) instead.
  *
@@ -51,14 +53,16 @@ export function usePageNav() {
     const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0
     if (dir === 0) return
 
-    /* A scrollable card body under the cursor scrolls first — the page
-       switch fires only once that area hits its edge (can't get stuck). */
+    /* A wheel-locked zone under the cursor scrolls first — the page
+       switch fires only once that zone hits its edge (can't get stuck).
+       Hard zones (the filter popup) never flip the page at all. */
     const target = e.target instanceof Element ? e.target : null
-    const scroller = target?.closest<HTMLElement>('.card-body-scroll')
-    if (scroller) {
-      const canDown = scroller.scrollTop + scroller.clientHeight < scroller.scrollHeight - 1
-      const canUp = scroller.scrollTop > 1
+    const lockEl = target?.closest<HTMLElement>('[data-wheel-lock]')
+    if (lockEl) {
+      const canDown = lockEl.scrollTop + lockEl.clientHeight < lockEl.scrollHeight - 1
+      const canUp = lockEl.scrollTop > 1
       if ((dir > 0 && canDown) || (dir < 0 && canUp)) return // native scroll, no switch
+      if (lockEl.hasAttribute('data-wheel-lock-hard')) return // hard stop: never navigate away
     }
 
     const next = active.value + dir

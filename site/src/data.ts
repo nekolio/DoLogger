@@ -156,11 +156,12 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   } catch { return null }
 }
 
-function cacheRead<T>(key: string): T | null {
+function cacheRead<T>(key: string): { t: number; d: T } | null {
   try {
     const raw = localStorage.getItem(key)
     if (!raw) return null
-    return (JSON.parse(raw) as { d: T }).d
+    const parsed = JSON.parse(raw) as { t: number; d: T }
+    return typeof parsed?.t === 'number' && 'd' in parsed ? parsed : null
   } catch { return null }
 }
 function cacheWrite(key: string, data: unknown): void {
@@ -171,7 +172,7 @@ function isFresh(entry: { t: number } | null): boolean {
 }
 
 async function withCache<T>(key: string, apiFn: () => Promise<T | null>, bakedUrl: string | null, fallback: T): Promise<T> {
-  const cached = cacheRead<{ t: number; d: T }>(key)
+  const cached = cacheRead<T>(key) // the {t, d} wrapper, written by cacheWrite below
   if (cached && isFresh(cached)) return cached.d
   const fresh = await apiFn()
   // empty arrays cache badly — a fresh publish would stay invisible
@@ -197,7 +198,7 @@ function getRepo(): Promise<Repo> {
 function getContributors(): Promise<Contributor[]> {
   return withCache<Contributor[]>('dologger:contributors',
     () => apiGet<Contributor[]>('/repos/' + REPO + '/contributors?per_page=12'),
-    null, FALLBACK_CONTRIBUTORS)
+    './data/contributors.json', FALLBACK_CONTRIBUTORS)
 }
 
 interface BakedPerf { latency_ns?: { p50?: number; signed?: number }; throughput_rec_per_sec?: number }
@@ -291,8 +292,8 @@ async function detectPlatform(): Promise<Platform> {
  * ------------------------------------------------------------------ */
 const CLI_PREFIX = 'dologctl'
 const LIB_PREFIXES = ['libdologger_core', 'dologger_core']
-const OS_ORDER: Platform['os'][] = ['linux', 'windows', 'macos']
-const ARCH_ORDER = ['x86_64', 'aarch64', 'i686', 'armv7', 'riscv64']
+export const OS_ORDER: Platform['os'][] = ['linux', 'windows', 'macos']
+export const ARCH_ORDER = ['x86_64', 'aarch64', 'i686', 'armv7', 'riscv64']
 const ARCH_RE = /(?:x86_64|aarch64|i686|armv7|riscv64)/
 const ASSET_TAIL = new RegExp('-((?:linux|windows|macos))-(' + ARCH_RE.source + ')(?:\\.exe|\\.so|\\.dll|\\.dylib)?$')
 
@@ -398,7 +399,7 @@ export function useSelectedTag(): Ref<string | null> {
   return selectedTag
 }
 
-export function selectRelease(tag: string): void {
+export function selectRelease(tag: string | null): void {
   selectedTag.value = tag
 }
 

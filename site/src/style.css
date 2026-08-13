@@ -21,6 +21,17 @@
   --highlight-border: #7fd5ff;
   --card-glow: rgba(127, 213, 255, 0.10);
 
+  /* card typography tokens (page 3) — every card body/meta/link uses
+     these, so the cards read as one family */
+  --card-body: 0.8rem;
+  --card-meta: 0.75rem;
+  --badge-size: 0.62rem;
+
+  /* shared non-linear easings */
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-inout: cubic-bezier(0.4, 0, 0.2, 1);
+
   /* syntax highlighting (tokenizer emits tok-* classes) */
   --color-kw: #c792ea;
   --color-str: #86c97f;
@@ -43,11 +54,6 @@
   --lv-error: #ff5370;
   --lv-audit: #7fd5ff;
   --lv-plugin: #8a9bff;
-
-  /* cyber cursor */
-  --cur-dot: #7fd5ff;
-  --cur-ring: #c792ea;
-  --cur-trail: #f472d0;
 }
 
 [data-theme="light"] {
@@ -87,10 +93,6 @@
   --lv-error: #b3342c;
   --lv-audit: #0f6f9c;
   --lv-plugin: #5b4fa6;
-
-  --cur-dot: #0b6bbf;
-  --cur-ring: #7a5cc0;
-  --cur-trail: #b8489f;
 }
 
 .tok-kw      { color: var(--color-kw);   font-weight: 500; }
@@ -156,27 +158,12 @@ html, body {
   margin: 0 auto 0.9rem;
   border: 1px solid var(--border);
   border-radius: 12px;
-  /* clip (not hidden) so the corner brackets and curve accents may
-     hang outside the frame without creating scrollbars */
-  overflow: clip;
-  overflow-clip-margin: 26px;
+  /* the frame follows hero.svg's own rounded-rect design language —
+     no square corner brackets on top (they clashed with it) */
+  overflow: hidden;
   box-shadow: var(--shadow);
   background: #0b0e14; /* the terminal screen stays dark in both themes */
 }
-/* cyberpunk corner brackets on the hero frame */
-.hero-frame::before,
-.hero-frame::after {
-  content: '';
-  position: absolute;
-  width: 22px;
-  height: 22px;
-  border: 2px solid var(--accent);
-  opacity: 0.7;
-  pointer-events: none;
-  z-index: 3;
-}
-.hero-frame::before { top: -6px; left: -6px; border-right: none; border-bottom: none; }
-.hero-frame::after { bottom: -6px; right: -6px; border-left: none; border-top: none; }
 .hero-frame .hero {
   display: block;
   width: 100%;
@@ -194,6 +181,17 @@ html, body {
   margin-bottom: 1.2rem;
   letter-spacing: 1px;
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+}
+/* pre-release marker on the hero badge — shows the latest release
+   is not (yet) a stable release */
+.badge .badge-pre {
+  padding: 0.02rem 0.45rem;
+  border-radius: 20px;
+  border: 1px solid var(--lv-plugin);
+  background: rgba(138, 155, 255, 0.12);
+  color: var(--lv-plugin);
+  font-size: 0.62rem;
+  letter-spacing: 0.5px;
 }
 .tags {
   display: flex;
@@ -287,35 +285,21 @@ html, body {
 .btn .chev { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .btn .chev.open { transform: rotate(180deg); }
 
-/* ── merged "all platforms · checksums · versions" panel ────────── */
+/* ── filter panel: one rounded bar hosting the asset-browser trigger.
+   The popup itself is teleported to body — this panel never grows or
+   stretches, whatever the popup does. ───────────────────────────── */
 .panel {
-  position: relative;
   margin: 0.9rem auto 0;
   width: 100%;
   max-width: 880px;
   max-height: 0;
   opacity: 0;
-  /* clip (not hidden) so the energy curve can hang above the panel */
-  overflow: clip;
-  overflow-clip-margin: 24px;
+  overflow: hidden;
   text-align: left;
+  border-radius: 16px;
   transition: max-height 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.08),
               opacity 0.4s ease 0.1s;
 }
-/* cyberpunk corner brackets on the panel */
-.panel::before,
-.panel::after {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--accent);
-  opacity: 0.55;
-  pointer-events: none;
-  z-index: 5;
-}
-.panel::before { top: -4px; left: -4px; border-right: none; border-bottom: none; }
-.panel::after { bottom: -4px; right: -4px; border-left: none; border-top: none; }
 .panel.open {
   /* three-way cap: fixed max, half-viewport, and — the one that
      actually matters on short screens — the room below the actions
@@ -326,35 +310,24 @@ html, body {
   transition: max-height 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.08),
               opacity 0.35s ease;
 }
-/* inner scroll container — capped to the viewport so the panel can
-   never push past the page edge (`.page` clips at overflow:hidden) */
-.panel-inner {
-  max-height: min(58svh, 460px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
-  padding: 0.8rem 1rem 0.9rem;
+.panel-filter {
+  padding: 0.5rem;
   background: var(--bg-card);
   backdrop-filter: blur(6px);
   border: 1px solid var(--border);
-  border-radius: 12px;
-}
-.panel h4 {
-  color: var(--accent);
-  font-weight: 400;
-  font-size: 0.78rem;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  margin-bottom: 0.35rem;
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  border-bottom: 1px dashed var(--border);
-  padding-bottom: 0.3rem;
+  border-radius: 16px;
 }
 
-/* ── version selector (custom dropdown, keyboard-accessible) ────── */
-.version-select { position: relative; margin-bottom: 0.7rem; }
+/* ── filter trigger bar (the only content the panel ever holds) ─── */
+.panel-filter .vs-button {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.panel-filter .vs-button:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
 .vs-button {
   display: flex;
   align-items: center;
@@ -384,44 +357,149 @@ html, body {
 }
 .vs-button .chev { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .vs-button .chev.open { transform: rotate(180deg); }
-.vs-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 30;
-  list-style: none;
-  margin: 0;
-  padding: 0.3rem;
+/* ── the filter popup (teleported to body, fixed against the trigger).
+   Non-linear pop-in, hard wheel-lock, capped to the space below (or
+   above) the anchor — it can never touch the page bottom. ────────── */
+.fpopup {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  max-height: var(--pop-max-h, 70svh);
   background: var(--bg-card);
+  backdrop-filter: blur(14px);
   border: 1px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  border-radius: 14px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 24px var(--accent-glow);
+  overflow: hidden;
+  text-align: left;
 }
-.vs-menu li {
+.fpop-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem 0.8rem 0.55rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+.fgroup { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.fg-label {
+  flex: none;
+  width: 88px;
+  color: var(--text-dim);
+  font-size: 0.68rem;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.chip {
+  padding: 0.18rem 0.6rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease,
+              box-shadow 0.18s ease;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.chip.on {
+  border-color: var(--accent);
+  background: linear-gradient(90deg, rgba(127, 213, 255, 0.16), rgba(244, 114, 208, 0.1));
+  color: var(--text);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+.chip-hint { margin-left: auto; font-size: 0.66rem; color: var(--text-dim); }
+.fpop-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+  border-top: 1px dashed var(--border);
+  padding: 0.65rem 0.8rem 0.7rem;
+}
+.ver-group { display: flex; flex-direction: column; gap: 0.5rem; }
+.ver-head {
   display: flex;
   align-items: baseline;
-  gap: 0.6rem;
-  padding: 0.45rem 0.6rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  cursor: pointer;
+  gap: 0.5rem;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 0.3rem;
 }
-.vs-menu li:hover, .vs-menu li.focused { background: rgba(199, 146, 234, 0.14); }
-.vs-menu li.selected {
-  background: linear-gradient(90deg, rgba(127, 213, 255, 0.16), rgba(244, 114, 208, 0.1));
-}
-.vs-menu .vs-tag {
-  color: var(--text);
+.ver-head b {
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
 }
-.vs-menu li.selected .vs-tag { color: var(--accent); }
-.vs-menu .prerelease-badge { margin-left: 0.2rem; }
-.vs-menu .vs-date { margin-left: auto; color: var(--text-dim); font-size: 0.72rem; }
+.vs-date { margin-left: auto; color: var(--text-dim); font-size: 0.72rem; }
+.fpopup .prerelease-badge {
+  font-size: 0.62rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--lv-plugin);
+  color: var(--lv-plugin);
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.fpop-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.4rem;
+  padding: 0.5rem 0.8rem;
+  border-top: 1px dashed var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+.fpop-foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+.fpop-foot a:hover { text-decoration: underline; }
+.fpop-foot .icon { width: 14px; height: 14px; }
+.fpop-empty {
+  padding: 1.4rem 0.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+}
+/* non-linear pop-in — the old panel-curve SVG is gone; the motion
+   the popup gets is pure easing (req 4) */
+.fpop-enter-active {
+  transition: transform 0.28s var(--ease-pop), opacity 0.2s ease;
+}
+.fpop-leave-active {
+  transition: transform 0.18s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.15s ease;
+}
+.fpop-enter-from { opacity: 0; transform: translateY(-8px) scale(0.96); }
+.fpop-enter-to { opacity: 1; transform: translateY(0) scale(1); }
+.fpop-leave-to { opacity: 0; transform: translateY(-6px) scale(0.97); }
+.fpopup.up.fpop-enter-from { transform: translateY(8px) scale(0.96); }
+.fpopup.up.fpop-leave-to { transform: translateY(6px) scale(0.97); }
+@media (prefers-reduced-motion: reduce) {
+  .fpop-enter-active, .fpop-leave-active { transition: none; }
+  .fpop-enter-from, .fpop-enter-to, .fpop-leave-to { transform: none; }
+}
 
-/* ── assets grouped by architecture → OS ────────────────────────── */
-.asset-groups { display: flex; flex-direction: column; gap: 0.6rem; }
-.arch-head { margin-bottom: 0.2rem; }
+/* ── assets grouped by architecture → OS (popup results) ────────── */
+.arch-head {
+  margin: 0 0 0.2rem;
+  color: var(--accent);
+  font-weight: 400;
+  font-size: 0.72rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
 .os-row {
   display: grid;
   grid-template-columns: 88px 36px minmax(0, 1fr);
@@ -442,68 +520,10 @@ html, body {
   text-overflow: ellipsis;
 }
 .os-row a:hover { color: var(--accent); text-decoration: underline; }
-.panel-extra {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 1.4rem;
-  margin-top: 0.3rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed var(--border);
-}
-.panel-extra a {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--accent);
-  font-size: 0.8rem;
-  text-decoration: none;
-}
-.panel-extra a:hover { text-decoration: underline; }
-.panel-extra .icon { width: 14px; height: 14px; }
-
-/* the curved energy line above the panel: a base curve that draws
-   itself on open, plus a bright dash that flows along it */
-.panel-curve {
-  position: absolute;
-  top: -18px;
-  left: 0;
-  width: 100%;
-  height: 22px;
-  overflow: visible;
-  pointer-events: none;
-}
-.panel-curve path {
-  fill: none;
-  stroke-linecap: round;
-}
-.panel-curve .curve-base {
-  stroke: url(#panel-grad);
-  stroke-width: 1.6;
-  opacity: 0.45;
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-}
-.panel-curve .curve-flow {
-  stroke: url(#panel-grad);
-  stroke-width: 2.4;
-  opacity: 0.9;
-  stroke-dasharray: 0.09 0.91;
-  stroke-dashoffset: 1;
-  filter: drop-shadow(0 0 4px var(--accent-glow));
-}
-.panel.open .panel-curve .curve-base {
-  stroke-dashoffset: 0;
-  transition: stroke-dashoffset 1.1s ease 0.15s;
-}
-.panel.open .panel-curve .curve-flow {
-  stroke-dashoffset: 0.05;
-  transition: stroke-dashoffset 1.4s cubic-bezier(0.4, 0, 0.2, 1) 0.35s;
-}
 @media (prefers-reduced-motion: reduce) {
   /* keep the bounded max-height (the panel must never overflow the
      viewport); only drop the open/close transition */
   .panel { max-height: min(70svh, 560px, var(--panel-avail, calc(100svh - 34rem))); opacity: 1; transition: none; }
-  .panel-curve { display: none; }
 }
 
 /* Top controls */
@@ -589,6 +609,18 @@ html, body {
   align-items: flex-end;
   gap: 0.7rem;
   z-index: 90;
+  transition: opacity 0.7s var(--ease-inout), transform 0.7s var(--ease-inout);
+}
+/* idles out (non-linear fade + slide) after ~1.8s without interaction */
+.page-nav.idle {
+  opacity: 0;
+  transform: translateY(-50%) translateX(6px);
+  pointer-events: none;
+}
+.page-nav:focus-within {
+  opacity: 1;
+  transform: translateY(-50%);
+  pointer-events: auto;
 }
 .page-nav button {
   display: flex;
@@ -599,10 +631,14 @@ html, body {
   background: transparent;
   cursor: pointer;
 }
-/* the diamond silhouette with clipped corners (cyberpunk notch) */
-.page-nav .chip {
-  width: 13px;
-  height: 13px;
+/* small dot — quietly there until the pill expands. Deliberately NOT
+   classed .chip: a lower-specificity padding/border declaration on the
+   same element makes Chromium drop the declared width entirely (measured
+   ~21px instead of 8px), so the dot uses its own class. */
+.page-nav .dot {
+  width: 8px;
+  height: 8px;
+  min-width: 0;
   flex: none;
   border: 1.5px solid var(--accent);
   background: transparent;
@@ -613,8 +649,8 @@ html, body {
   max-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  font-size: 0.72rem;
-  color: var(--text-dim);
+  font-size: 0.65rem;
+  color: color-mix(in srgb, var(--text-dim) 70%, transparent);
   text-transform: uppercase;
   letter-spacing: 1.5px;
   opacity: 0;
@@ -626,19 +662,21 @@ html, body {
   max-width: 150px;
   opacity: 1;
 }
-.page-nav button.active .chip {
+.page-nav button.active .dot {
   background: linear-gradient(135deg, #7fd5ff, #c792ea, #f472d0);
   border-color: transparent;
   box-shadow: 0 0 12px var(--accent-glow);
   transform: scale(1.35);
 }
+@media (prefers-reduced-motion: reduce) {
+  .page-nav { transition: none; }
+}
 
 /* ================================================================
-   Cyber cursor (fine pointers only; disabled for touch/reduced-motion)
+   Cyber cursor effects layer (fine pointers only; disabled for
+   touch/reduced-motion). The NATIVE pointer stays — this layer only
+   adds glow, comet trail, twin rings, a snap frame and a click ripple.
    ================================================================ */
-@media (hover: hover) and (pointer: fine) {
-  html.cyber-cursor, html.cyber-cursor * { cursor: none !important; }
-}
 /* cursor toggle OFF (or unsupported device): the layer is gone entirely */
 html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 .cyber-cursor-layer {
@@ -648,142 +686,111 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   pointer-events: none;
   overflow: hidden;
 }
-/* diamond dot — sits exactly at the cursor, shifts magenta on hot */
-.cyber-cursor-layer .cursor-dot {
+/* soft bloom around the cursor — the main glow */
+.cyber-cursor-layer .cursor-glow {
   position: fixed;
   left: 0;
   top: 0;
-  width: 5px;
-  height: 5px;
-  margin: -2.5px 0 0 -2.5px;
-  background: var(--cur-dot);
-  box-shadow: 0 0 6px var(--cur-dot);
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  background: radial-gradient(circle, rgba(127, 213, 255, 0.14) 0%, rgba(199, 146, 234, 0.06) 45%, transparent 70%);
+  mix-blend-mode: screen;
   transform: translate(-100px, -100px);
-  transition: background 0.2s, box-shadow 0.2s, opacity 0.2s;
 }
-.cyber-cursor-layer .cursor-dot.hot {
-  background: var(--cur-trail);
-  box-shadow: 0 0 8px var(--cur-trail);
-}
-/* notched-diamond ring with corner-bracket ticks + arrowhead */
-.cyber-cursor-layer .cursor-ring {
+/* comet trail — the last 24 positions as a brand-ramp polyline */
+.cyber-cursor-layer .cursor-comet {
   position: fixed;
   left: 0;
   top: 0;
-  width: 34px;
-  height: 34px;
-  margin: -17px 0 0 -17px;
+  width: 100%;
+  height: 100%;
+}
+.cyber-cursor-layer .cursor-comet polyline {
+  fill: none;
+  stroke: url(#cursor-grad);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+}
+.cyber-cursor-layer .cursor-comet .head {
+  stroke-width: 3;
+  opacity: 1;
+  filter: drop-shadow(0 0 4px rgba(199, 146, 234, 0.9));
+}
+/* twin rings: outer lags far (slow lerp), inner chases close */
+.cyber-cursor-layer .cursor-ring-o,
+.cyber-cursor-layer .cursor-ring-i {
+  position: fixed;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
   transform: translate(-100px, -100px);
-  transition: width 0.2s ease, height 0.2s ease, margin 0.2s ease;
+  transition: border-color 0.2s, box-shadow 0.2s, scale 0.15s ease;
 }
-.cyber-cursor-layer .cursor-ring .dia {
-  position: absolute;
-  inset: 4px;
-  border: 1.5px solid var(--cur-ring);
-  clip-path: polygon(25% 0, 75% 0, 100% 25%, 100% 75%, 75% 100%, 25% 100%, 0 75%, 0 25%);
-  box-shadow: inset 0 0 8px rgba(138, 155, 255, 0.25);
-  transition: border-color 0.2s, box-shadow 0.2s;
+.cyber-cursor-layer .cursor-ring-o {
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border: 1.5px solid rgba(127, 213, 255, 0.55);
+  box-shadow: 0 0 10px rgba(127, 213, 255, 0.25);
 }
-.cyber-cursor-layer .cursor-ring i.br {
-  position: absolute;
+.cyber-cursor-layer .cursor-ring-i {
   width: 8px;
   height: 8px;
-  border: 1.5px solid var(--cur-trail);
-  opacity: 0.9;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin: -4px 0 0 -4px;
+  background: #8A9BFF;
+  box-shadow: 0 0 8px #8A9BFF;
 }
-.cyber-cursor-layer .cursor-ring i.br.tl { top: -1px; left: -1px; border-right: none; border-bottom: none; }
-.cyber-cursor-layer .cursor-ring i.br.tr { top: -1px; right: -1px; border-left: none; border-bottom: none; }
-.cyber-cursor-layer .cursor-ring i.br.bl { bottom: -1px; left: -1px; border-right: none; border-top: none; }
-.cyber-cursor-layer .cursor-ring i.br.br { bottom: -1px; right: -1px; border-left: none; border-top: none; }
-.cyber-cursor-layer .cursor-arrow {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 14px;
-  height: 14px;
-  margin: -7px 0 0 -7px;
-  fill: var(--cur-trail);
-  opacity: 0;
-  transform: scale(0.4) rotate(45deg);
-  transition: opacity 0.15s, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
-  filter: drop-shadow(0 0 4px var(--cur-trail));
-}
-/* hover over a clickable: the ring opens up — brackets slide outward
-   and the CP2077-style arrowhead pops in (clearly "clickable") */
-.cyber-cursor-layer .cursor-ring.hot {
-  width: 40px;
-  height: 40px;
-  margin: -20px 0 0 -20px;
-}
-.cyber-cursor-layer .cursor-ring.hot .dia { border-color: var(--cur-trail); box-shadow: 0 0 12px var(--cur-trail), inset 0 0 8px rgba(244, 114, 208, 0.3); }
-.cyber-cursor-layer .cursor-ring.hot .br.tl { transform: translate(-2px, -2px); }
-.cyber-cursor-layer .cursor-ring.hot .br.tr { transform: translate(2px, -2px); }
-.cyber-cursor-layer .cursor-ring.hot .br.bl { transform: translate(-2px, 2px); }
-.cyber-cursor-layer .cursor-ring.hot .br.br { transform: translate(2px, 2px); }
-.cyber-cursor-layer .cursor-ring.hot .cursor-arrow { opacity: 1; transform: scale(1) rotate(45deg); }
-/* mousedown: the ring collapses with a bright flash */
-.cyber-cursor-layer .cursor-ring.pressed .dia {
-  border-color: var(--cur-dot);
-  box-shadow: 0 0 16px var(--cur-dot), inset 0 0 10px var(--cur-dot);
-}
-.cyber-cursor-layer .cursor-ring.pressed { width: 22px; height: 22px; margin: -11px 0 0 -11px; }
-.cyber-cursor-layer .cursor-ring.pressed .cursor-arrow { opacity: 0; }
-/* over text/terminal: the whole pointer swaps to an I-beam */
-.cyber-cursor-layer .cursor-ibeam {
+/* snap frame — lerps onto the hovered click target */
+.cyber-cursor-layer .cursor-snap {
   position: fixed;
   left: 0;
   top: 0;
-  width: 2px;
-  height: 20px;
-  margin: -10px 0 0 -1px;
-  background: var(--cur-dot);
-  box-shadow: 0 0 6px var(--cur-dot);
+  width: 0;
+  height: 0;
+  border: 1.5px solid rgba(244, 114, 208, 0.85);
+  border-radius: 6px;
+  box-shadow: 0 0 12px rgba(244, 114, 208, 0.35), inset 0 0 8px rgba(244, 114, 208, 0.12);
   opacity: 0;
-  transition: opacity 0.15s;
 }
-.cyber-cursor-layer .cursor-ibeam .cap {
-  position: absolute;
-  left: -3px;
-  width: 8px;
-  height: 1.5px;
-  background: var(--cur-trail);
-}
-.cyber-cursor-layer .cursor-ibeam .cap.top { top: -1px; }
-.cyber-cursor-layer .cursor-ibeam .cap.bottom { bottom: -1px; }
-.cyber-cursor-layer.ibeam .cursor-dot,
-.cyber-cursor-layer.ibeam .cursor-ring { opacity: 0; }
-.cyber-cursor-layer.ibeam .cursor-ibeam { opacity: 1; }
-/* particle burst on press (fixed 8-shard pool, one shot) */
-.cyber-cursor-layer .cursor-burst { position: fixed; left: 0; top: 0; }
-.cyber-cursor-layer .cursor-burst i {
-  position: absolute;
-  left: -1.5px;
-  top: -1.5px;
-  width: 3px;
-  height: 3px;
-  background: var(--cur-trail);
-  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-  box-shadow: 0 0 4px var(--cur-trail);
-  animation: cursor-burst-fly 0.45s ease-out forwards;
-  animation-delay: var(--bd, 0s);
-}
-.cyber-cursor-layer .cursor-trail i {
+/* click ripple — one pooled ring retriggered on mousedown */
+.cyber-cursor-layer .cursor-ripple {
   position: fixed;
   left: 0;
   top: 0;
-  background: var(--cur-trail);
+  width: 48px;
+  height: 48px;
+}
+.cyber-cursor-layer .cursor-ripple i {
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(199, 146, 234, 0.9);
   border-radius: 50%;
-  box-shadow: 0 0 4px var(--cur-trail);
+  opacity: 0;
 }
-@keyframes cursor-burst-fly {
-  from { transform: translate(0, 0) scale(1); opacity: 1; }
-  to { transform: translate(var(--bx, 0px), var(--by, 0px)) scale(0.15); opacity: 0; }
+.cyber-cursor-layer .cursor-ripple.go i { animation: cursor-ripple 0.4s var(--ease-out) forwards; }
+@keyframes cursor-ripple {
+  from { opacity: 0.85; transform: scale(0.3); }
+  to { opacity: 0; transform: scale(2.6); }
 }
+/* state recolors — shape never swaps; the native pointer stays put */
+.cyber-cursor-layer.hot .cursor-glow {
+  background: radial-gradient(circle, rgba(244, 114, 208, 0.18) 0%, rgba(199, 146, 234, 0.08) 45%, transparent 70%);
+}
+.cyber-cursor-layer.hot .cursor-ring-o { border-color: rgba(244, 114, 208, 0.75); box-shadow: 0 0 14px rgba(244, 114, 208, 0.4); }
+.cyber-cursor-layer.hot .cursor-ring-i { background: #F472D0; box-shadow: 0 0 10px #F472D0; }
+.cyber-cursor-layer.text .cursor-glow {
+  background: radial-gradient(circle, rgba(127, 213, 255, 0.18) 0%, transparent 70%);
+}
+.cyber-cursor-layer.text .cursor-ring-o { border-color: rgba(127, 213, 255, 0.8); }
+.cyber-cursor-layer.pressed .cursor-ring-o { scale: 0.75; border-color: #F472D0; }
+.cyber-cursor-layer.pressed .cursor-ring-i { scale: 1.8; }
 @media (prefers-reduced-motion: reduce) {
-  .cyber-cursor-layer .cursor-ring { transition: none; }
-  .cyber-cursor-layer .cursor-burst i { animation: none; opacity: 0; }
+  .cyber-cursor-layer .cursor-ring-o,
+  .cyber-cursor-layer .cursor-ring-i { transition: none; }
+  .cyber-cursor-layer .cursor-ripple.go i { animation: none; opacity: 0; }
 }
 
 /* ================================================================
@@ -945,6 +952,12 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
    Page 3 — Overview (uniform cards, Steam-style tilt)
    ================================================================ */
 #page3 { justify-content: flex-start; padding-top: 3rem; overflow: hidden; height: 100svh; }
+/* while a card is expanded the page may scroll (the card grows past
+   the fold); PageOverview soft-locks the wheel over it meanwhile */
+html.card-expanded #page3 { overflow-y: auto; scrollbar-gutter: stable; }
+html.card-expanded #page3 .container { height: auto; min-height: 100%; }
+/* the right wheel nav hides while a card is expanded */
+html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
 #page3 .container {
   max-width: 1100px;
   width: 100%;
@@ -967,12 +980,33 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 .grid {
   flex: 1;
   min-height: 0;
+  position: relative;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(2, minmax(0, 1fr)); /* every card is the same size */
   gap: 1.5rem;
 }
+/* an expanded card takes the full first row; the other cards reflow
+   under it (FLIP-animated in PageOverview) instead of being squeezed */
+.grid.has-expanded { grid-template-rows: none; }
+/* dimmed frosted surface behind the cards while one is expanded */
+.grid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(4px);
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.45s var(--ease-out);
+}
+.grid.has-expanded::after { opacity: 1; }
+
 .card {
+  --mx: 50%;
+  --my: 50%;
+  --edge: 0;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -980,27 +1014,40 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   cursor: default;
   position: relative;
   overflow: hidden;
-  transform-style: preserve-3d;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  will-change: transform;
-  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s;
+  z-index: 0;
+  transition: box-shadow 0.3s, scale 0.45s var(--ease-out), filter 0.45s var(--ease-out);
 }
 .card:hover { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 20px var(--card-glow); }
-.card::before {
-  content: '';
+/* spotlight — a soft bloom at the cursor, focusing sharply toward the
+   card's rim (--edge is boosted non-linearly by PageOverview, so the
+   edges light up while the center stays mellow) */
+.card-spot {
   position: absolute;
-  top: 0; left: 0;
-  width: 100%;
-  height: 100%;
-  background: radial-gradient(circle at var(--mx, 50%) var(--my, 50%), var(--card-glow), transparent 60%);
+  inset: 0;
+  border-radius: 16px;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.3s;
-  border-radius: 16px;
+  transition: opacity 0.3s ease;
+  background:
+    radial-gradient(circle at var(--mx) var(--my), rgba(127, 213, 255, calc(0.1 + 0.35 * var(--edge))) 0 60px, transparent 140px),
+    radial-gradient(circle at var(--mx) var(--my), rgba(199, 146, 234, calc(0.05 + 0.25 * var(--edge))) 0 120px, transparent 240px);
+  mix-blend-mode: screen;
 }
-.card:hover::before { opacity: 1; }
+.card:hover .card-spot { opacity: 1; }
+/* expanded: full row, above the backdrop. The frosted surface
+   (.settled) applies only after the FLIP motion ends — backdrop-filter
+   re-samples every frame, so animating through it is blur churn. */
+.card.expanded { grid-column: 1 / -1; z-index: 2; overflow: visible; max-height: none; }
+.card.expanded.settled {
+  background: rgba(13, 17, 25, 0.82);
+  backdrop-filter: blur(12px);
+  border-color: var(--accent);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 24px var(--card-glow);
+}
+.grid.has-expanded .card:not(.expanded) { scale: 0.98; filter: brightness(0.75); }
 .card h3 {
   color: var(--accent);
   font-weight: 400;
@@ -1010,28 +1057,27 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
-  transform: translateZ(26px); /* content pops forward under the tilt */
 }
 .card ul { list-style: none; padding: 0; }
 .card ul li {
   padding: 0.25rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  font-size: 0.85rem;
+  font-size: var(--card-body);
 }
 .card ul li:last-child { border: none; }
 
-/* body scrolls internally when a card's content is longer than its
-   uniform height (thin accent scrollbar, drag or wheel) */
+/* collapsed cards fade their tail out instead of showing a scrollbar —
+   the overflow becomes readable by expanding the card */
 .card-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  font-size: 0.85rem;
-  transform: translateZ(26px);
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
+  min-width: 0;
+  overflow-x: hidden;
+  mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
   padding-right: 2px;
 }
+.card.expanded .card-body { mask-image: none; -webkit-mask-image: none; }
 .card-body .sink-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1042,12 +1088,12 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   border: 1px solid rgba(127, 213, 255, 0.1);
   padding: 0.1rem 0.6rem;
   border-radius: 12px;
-  font-size: 0.75rem;
+  font-size: var(--card-meta);
   color: var(--text-dim);
   transition: border-color 0.2s ease, color 0.2s ease;
 }
 .card-body .env-label {
-  font-size: 0.75rem; /* meta size, same across every card */
+  font-size: var(--card-meta); /* meta size, same across every card */
   color: var(--text-dim);
   margin: 0.4rem 0 0.2rem;
 }
@@ -1062,7 +1108,7 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   gap: 1rem;
   padding: 0.2rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  font-size: 0.85rem; /* body size — matches .card ul li */
+  font-size: var(--card-body); /* body size — matches .card ul li */
 }
 .perf-row .k { color: var(--text-dim); }
 .perf-row .v {
@@ -1075,7 +1121,7 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: var(--card-meta);
   margin-top: 0.3rem;
 }
 .crit-table td { padding: 0.18rem 0.3rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
@@ -1106,13 +1152,17 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   stroke-linecap: round;
   filter: drop-shadow(0 0 6px rgba(199, 146, 234, 0.5));
 }
-.gauge-needle { transform-origin: 100px 100px; }
+.gauge-needle {
+  transform-origin: 100px 100px;
+  transform: rotate(var(--gauge-angle, 0deg)); /* final state; the sweep animation overrides it */
+}
 .gauge-needle line {
   stroke: var(--accent);
   stroke-width: 2;
   stroke-linecap: round;
   filter: drop-shadow(0 0 3px var(--accent-glow));
 }
+.gauge-needle.pegged line { stroke: var(--lv-plugin); }
 .gauge-needle circle { fill: var(--accent); }
 .gauge-num {
   fill: var(--text);
@@ -1125,11 +1175,16 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   display: inline-block;
   margin-top: 0.5rem;
   color: var(--accent);
-  font-size: 0.78rem;
+  font-size: var(--card-meta);
   text-decoration: none;
 }
 .card-link:hover { text-decoration: underline; }
 
+.arch-hot {
+  font-size: var(--card-body); /* body size — matches .card ul li */
+  line-height: 1.6;
+  margin-bottom: 0.5rem;
+}
 .arch-flow {
   margin: 0.5rem 0;
   display: flex;
@@ -1142,10 +1197,16 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   border: 1px solid rgba(127, 213, 255, 0.15);
   padding: 0.15rem 0.6rem;
   border-radius: 10px;
-  font-size: 0.75rem;
+  font-size: var(--card-meta);
   color: var(--text);
 }
 .arch-flow .sep { background: none; border: none; color: var(--text-dim); padding: 0; }
+
+.sinks-note {
+  margin-top: 0.8rem;
+  font-size: var(--card-meta); /* meta size — matches the other cards' notes */
+  color: var(--text-dim);
+}
 
 .release-row {
   display: flex;
@@ -1153,13 +1214,13 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   gap: 0.6rem;
   padding: 0.25rem 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-  font-size: 0.85rem; /* body size — matches .card ul li */
+  font-size: var(--card-body); /* body size — matches .card ul li */
 }
 .release-row a { color: var(--text); text-decoration: none; }
 .release-row a:hover { color: var(--accent); }
-.release-row .date { color: var(--text-dim); font-size: 0.75rem; margin-left: auto; }
+.release-row .date { color: var(--text-dim); font-size: var(--card-meta); margin-left: auto; }
 .prerelease-badge {
-  font-size: 0.62rem;
+  font-size: var(--badge-size);
   padding: 0 0.4rem;
   border: 1px solid var(--accent);
   color: var(--accent);
@@ -1172,28 +1233,95 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   align-items: center;
   gap: 0.5rem;
   padding: 0.2rem 0;
-  font-size: 0.85rem;
+  font-size: var(--card-body);
 }
 .contrib-row .avatar { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); flex-shrink: 0; }
 .contrib-row a { color: var(--text); text-decoration: none; }
 .contrib-row a:hover { color: var(--accent); }
-.contrib-row .cnt { margin-left: auto; color: var(--text-dim); font-size: 0.75rem; }
+.contrib-row .cnt { margin-left: auto; color: var(--text-dim); font-size: var(--card-meta); }
 .repo-stats {
   display: flex;
   flex-wrap: wrap;
   gap: 1rem;
   margin-top: 0.5rem;
-  font-size: 0.8rem;
+  font-size: var(--card-meta);
 }
 .repo-stats .stat { color: var(--text-dim); }
 .repo-stats .stat b { color: var(--accent); font-weight: 500; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
 .repo-stats .stat a { color: var(--text-dim); text-decoration: none; }
 .repo-stats .stat a:hover { color: var(--accent); }
 
+/* ── expanded-card detail blocks (revealed with the card) ────────── */
+.card-detail {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.card-caption {
+  font-size: var(--card-meta);
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+.card-detail img { max-width: 100%; height: auto; display: block; }
+.arch-img {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+}
+/* perf mini bar chart */
+.perf-bars { width: 100%; max-width: 320px; height: auto; display: block; }
+.perf-bar { fill: url(#perf-bar-grad); filter: drop-shadow(0 0 4px rgba(199, 146, 234, 0.5)); }
+.perf-bar-label { fill: var(--text-dim); font-size: 9px; }
+.perf-bar-val {
+  fill: var(--accent);
+  font-size: 9px;
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+}
+/* security chain + trust chips */
+.sec-chain { width: 100%; max-width: 320px; height: auto; display: block; }
+.chain-box { fill: rgba(13, 17, 25, 0.7); stroke: rgba(127, 213, 255, 0.35); stroke-width: 1; }
+.chain-lsn { fill: var(--accent); font-size: 12px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.chain-hash { fill: var(--text-dim); font-size: 8px; letter-spacing: 1px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.chain-link { stroke: url(#chain-grad); stroke-width: 2; fill: none; }
+.chain-arrowhead { fill: #C792EA; }
+.trust-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.trust-chip {
+  padding: 0.08rem 0.55rem;
+  border-radius: 20px;
+  border: 1px solid currentColor;
+  font-size: var(--badge-size);
+  letter-spacing: 0.5px;
+}
+.trust-chip.blue { color: #7FD5FF; background: rgba(127, 213, 255, 0.1); }
+.trust-chip.violet { color: #C792EA; background: rgba(199, 146, 234, 0.1); }
+.trust-chip.magenta { color: #F472D0; background: rgba(244, 114, 208, 0.1); }
+.trust-caption { color: var(--text-dim); font-size: var(--card-meta); }
+/* sinks fan-out */
+.sink-fan { width: 100%; max-width: 320px; height: auto; display: block; }
+.fan-core { fill: rgba(127, 213, 255, 0.12); stroke: url(#fan-grad); stroke-width: 2; }
+.fan-core-label { fill: var(--accent); font-size: 9px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.fan-line { stroke: url(#fan-grad); stroke-width: 1; opacity: 0.55; }
+.fan-node { fill: rgba(13, 17, 25, 0.7); stroke: rgba(199, 146, 234, 0.4); stroke-width: 1; }
+.fan-node-label { fill: var(--text); font-size: 8px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+
+/* reveal of the detail block — non-linear, staggered in behind the
+   card's own FLIP settle */
+@media (prefers-reduced-motion: no-preference) {
+  .card-detail { animation: card-detail-in 0.45s var(--ease-out) 0.1s both; }
+}
+@keyframes card-detail-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ── page-3 micro-animations (all gated on motion preference) ────── */
 @media (prefers-reduced-motion: no-preference) {
-  .gauge-needle { animation: gauge-sweep 1.4s cubic-bezier(0.22, 1, 0.36, 1) 0.3s both; }
-  .gauge-num { animation: gauge-glitch 0.8s steps(2, end) 1.2s; }
+  /* needle: pegs past the value with an overshoot, settles back */
+  .gauge-needle { animation: gauge-pegged 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both; }
+  .gauge-needle.pegged { animation: gauge-pegged 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both, gauge-flash 0.8s ease 1.1s infinite; }
   .pulse-shield { animation: shield-pulse 2.4s ease-in-out infinite; }
   .card-body .sink-tags span,
   .arch-flow span:not(.sep),
@@ -1209,15 +1337,17 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .card-body .sink-tags span:hover { animation: sink-ping 0.35s ease; border-color: var(--accent); color: var(--accent); }
 }
-@keyframes gauge-sweep {
-  from { transform: rotate(-90deg); }
-  to { transform: rotate(var(--gauge-angle, 0deg)); }
+@keyframes gauge-pegged {
+  0% { transform: rotate(-90deg); }
+  62% { transform: rotate(calc(var(--gauge-angle, 0deg) + 16deg)); }
+  82% { transform: rotate(calc(var(--gauge-angle, 0deg) - 5deg)); }
+  100% { transform: rotate(var(--gauge-angle, 0deg)); }
 }
-@keyframes gauge-glitch {
-  0%, 100% { transform: translate(0, 0); }
-  20% { transform: translate(-1px, 0) skewX(-6deg); }
-  40% { transform: translate(1px, 0); }
-  60% { transform: translate(-0.5px, 0) skewX(4deg); }
+/* 爆表 — the needle clips past the top of the scale with a glow pulse */
+@keyframes gauge-flash {
+  0% { filter: drop-shadow(0 0 2px var(--accent-glow)); }
+  50% { filter: drop-shadow(0 0 14px var(--lv-plugin)) brightness(1.4); }
+  100% { filter: drop-shadow(0 0 2px var(--accent-glow)); }
 }
 @keyframes shield-pulse {
   0%, 100% { opacity: 0.75; }
@@ -1269,18 +1399,6 @@ body::after {
     transparent 1px 3px
   );
 }
-/* glitch flicker on hover over cards and buttons (clip-jump only —
-   no transform, so it never fights the card tilt) */
-@media (prefers-reduced-motion: no-preference) {
-  .card:hover, .btn:hover { animation: crt-glitch 0.35s steps(2, end) 1; }
-}
-@keyframes crt-glitch {
-  0%, 100% { clip-path: inset(0 0 0 0); filter: none; }
-  25% { clip-path: inset(4% 0 9% 0); filter: hue-rotate(12deg); }
-  50% { clip-path: inset(11% 0 3% 0); filter: hue-rotate(-8deg); }
-  75% { clip-path: inset(2% 0 12% 0); filter: hue-rotate(6deg); }
-}
-
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
@@ -1339,15 +1457,12 @@ body::after {
   .page-nav { display: none; }
 }
 
-/* touch / reduced motion: no tilt, no custom cursor, no snap */
+/* touch / reduced motion: no custom cursor */
 @media (hover: none) {
-  .card { transform: none !important; }
-  .card h3, .card .card-body { transform: none; }
+  .cyber-cursor-layer { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cursor-block, .scroll-hint .cursor { animation: none; }
   .card, .btn { transition: none; }
-  .card { transform: none !important; }
-  .card h3, .card .card-body { transform: none; }
   .cyber-cursor-layer { display: none; }
 }

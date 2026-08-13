@@ -3,18 +3,21 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteData } from '../../data'
 
+const props = defineProps<{ expanded?: boolean }>()
 const { t } = useI18n()
 const siteData = useSiteData()
 
 const REPO_URL = 'https://github.com/Nekolio/DoLogger'
 const contributors = computed(() => siteData.value?.contributors ?? [])
 const repo = computed(() => siteData.value?.repo)
+/* collapsed: the top 4; expanded: everyone */
+const visible = computed(() => props.expanded ? contributors.value.slice(0, 12) : contributors.value.slice(0, 4))
 </script>
 
 <template>
   <div>
     <ul v-if="contributors.length">
-      <li v-for="(c, i) in contributors.slice(0, 8)" :key="c.login" class="contrib-row" :style="{ '--i': i }">
+      <li v-for="(c, i) in visible" :key="c.login" class="contrib-row" :style="{ '--i': i }">
         <img v-if="c.avatar_url" class="avatar" :src="c.avatar_url" :alt="c.login" loading="lazy" />
         <span v-else class="icon"><svg class="icon"><use href="./assets/icons.svg#icon-github"></use></svg></span>
         <a :href="c.html_url || REPO_URL">@{{ c.login || '?' }}</a>
@@ -27,6 +30,10 @@ const repo = computed(() => siteData.value?.repo)
       <span class="stat">{{ t('comm-forks') }}: <b>{{ repo?.forks_count != null ? repo.forks_count : '—' }}</b></span>
       <span class="stat">{{ t('comm-license') }}: <b>Apache-2.0 OR MIT</b></span>
       <span class="stat">{{ t('comm-ci') }}: <a :href="REPO_URL + '/actions'">GitHub Actions</a></span>
+    </div>
+
+    <div v-if="expanded" class="card-detail">
+      <div class="card-caption">{{ t('comm-detail-title') }}</div>
     </div>
   </div>
 </template>
