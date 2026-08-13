@@ -290,24 +290,27 @@ jobs:
 
           # Localized copies for the Chinese block. The CLI and criterion
           # print fixed English labels; translating them here in shell keeps
-          # the source output untouched. Match longer strings first so e.g.
-          # `single_record_submit_with_sign` is handled before its prefix
-          # `single_record_submit`.
+          # the source output untouched. Each pattern consumes the label AND
+          # its original padding, and the replacement re-pads for the Chinese
+          # label's display width (CJK chars count 2 columns) so the value
+          # columns keep their original alignment. Criterion's own output is
+          # not column-aligned across lines, so those four lines are padded
+          # to one common value column instead.
           PERF_ZH="$(printf '%s\n' "$PERF_OUT" | sed \
             -e 's/DoLogger Performance Benchmark/DoLogger 性能跑分/' \
-            -e 's/^  Records:/  记录数:/' \
-            -e 's/^  Message size:/  消息大小:/' \
+            -e 's/^  Records:       /  记录数:        /' \
+            -e 's/^  Message size:  /  消息大小:      /' \
             -e 's/ bytes/ 字节/' \
-            -e 's/^  Ring buffer:/  环形缓冲:/' \
+            -e 's/^  Ring buffer:   /  环形缓冲:      /' \
             -e 's/ slots (\([0-9]*\) KiB)/ 槽位（\1 KiB）/' \
             -e 's/Warming up (\([0-9 ]*\) records)\.\.\./预热中（\1 条记录）.../' \
-            -e 's/^  Warm-up P50:/  预热 P50:/' \
+            -e 's/  Warm-up P50: /  预热 P50:  /' \
             -e 's/Benchmarking (\([0-9]*\) records)\.\.\./跑分中（\1 条记录）.../' \
             -e 's/^Results$/结果/' \
-            -e 's/^  Total time:/  总耗时:/' \
-            -e 's/^  Records pushed:/  已压入记录:/' \
+            -e 's/^  Total time:       /  总耗时:        /' \
+            -e 's/^  Records pushed:   /  已压入记录:      /' \
             -e 's/rec\/s/条\/秒/' \
-            -e 's/^  Throughput:/  吞吐:/' \
+            -e 's/^  Throughput:       /  吞吐:           /' \
             -e 's/Submit Latency (push → ring buffer)/提交延迟（压入 → 环形缓冲）/' \
             -e 's/\([0-9.]*\) ns/\1 纳秒/g' \
             -e 's/\([0-9.]*\) µs/\1 微秒/g' \
@@ -317,12 +320,10 @@ jobs:
             -e 's/ Max:/ 最大:/' \
             -e 's/ Avg:/ 平均:/')"
           CRIT_ZH="$(printf '%s\n' "$CRIT_OUT" | sed \
-            -e 's/^test /测试 /' \
-            -e 's/single_record_submit_with_sign/单条记录提交（带签名）/' \
-            -e 's/single_record_submit/单条记录提交/' \
-            -e 's/ring_buffer_push_1k/环形缓冲压入 1K/' \
-            -e 's/ring_buffer_push_batch_256/环形缓冲批量压入 256/' \
-            -e 's/ bench:/ 耗时:/' \
+            -e 's/^test single_record_submit ... bench:/测试 单条记录提交 ... 耗时:             /' \
+            -e 's/^test single_record_submit_with_sign ... bench:/测试 单条记录提交（带签名） ... 耗时:   /' \
+            -e 's/^test ring_buffer_push_1k ... bench:/测试 环形缓冲压入 1K ... 耗时:          /' \
+            -e 's/^test ring_buffer_push_batch_256 ... bench:/测试 环形缓冲批量压入 256 ... 耗时:     /' \
             -e 's/ ns\/iter/ 纳秒\/次/' \
             -e 's/(+\/-/（±/' \
             -e 's/)$/）/')"
