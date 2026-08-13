@@ -1,0 +1,335 @@
+/* DoLogger site — dynamic data layer (Vue module, TypeScript).
+ *
+ * Fetches version / release / benchmark data from the GitHub API with a
+ * localStorage cache, and falls back to build-time JSON baked by
+ * scripts/build-site.sh, then to the v0.1.0 manifest below. The page
+ * picks up a new release with no code change.
+ *
+ * Resolution order per dataset:
+ *   fresh cache → GitHub API → stale cache → baked JSON → hardcoded fallback
+ *
+ * Note: /releases/latest is NOT used — every v0.x tag is marked a
+ * prerelease by release.yml, and /releases/latest 404s for prereleases.
+ */
+import { ref, type Ref } from 'vue'
+
+const REPO = 'Nekolio/DoLogger'
+const BASE = 'https://api.github.com'
+const CACHE_TTL = 15 * 60 * 1000 // ms
+
+/* ------------------------------------------------------------------
+ * Types
+ * ---------------------------------------------------------------- */
+export interface ReleaseAsset {
+  name: string
+  browser_download_url: string
+}
+export interface Release {
+  tag_name: string
+  name: string
+  prerelease: boolean
+  html_url: string
+  published_at: string
+  assets: ReleaseAsset[]
+}
+export interface BenchmarkEnv {
+  label: string
+  p50?: string | null
+  throughput?: string | null
+  signed?: string | null
+}
+export interface CriterionRow {
+  name: string
+  value: string
+  note?: string
+}
+export interface Benchmarks {
+  fallback: boolean
+  tag?: string | null
+  environments: BenchmarkEnv[]
+  criterion: CriterionRow[]
+}
+export interface Repo {
+  stargazers_count: number | null
+  forks_count: number | null
+  html_url: string
+}
+export interface Contributor {
+  login: string
+  contributions: number | null
+  html_url: string
+  avatar_url?: string | null
+}
+export type Platform = { os: 'windows' | 'macos' | 'linux'; arch: string }
+export interface SiteData {
+  releases: Release[]
+  latest: Release
+  repo: Repo
+  contributors: Contributor[]
+  benchmarks: Benchmarks
+  platform: Platform
+  downloadUrl: string
+}
+
+/* ------------------------------------------------------------------
+ * v0.1.0 fallback — the REAL release manifest (asset names match the
+ * release.yml build matrix). Used offline / rate-limited / pre-release.
+ * ---------------------------------------------------------------- */
+export const ASSET_NAMES = [
+  'dologctl-linux-x86_64', 'dologctl-linux-aarch64', 'dologctl-linux-i686',
+  'dologctl-linux-armv7', 'dologctl-linux-riscv64',
+  'dologctl-windows-x86_64.exe', 'dologctl-windows-aarch64.exe', 'dologctl-windows-i686.exe',
+  'dologctl-macos-aarch64', 'dologctl-macos-x86_64',
+  'libdologger_core-linux-x86_64.so', 'libdologger_core-linux-aarch64.so',
+  'libdologger_core-linux-i686.so', 'libdologger_core-linux-armv7.so',
+  'libdologger_core-linux-riscv64.so',
+  'dologger_core-windows-x86_64.dll', 'dologger_core-windows-aarch64.dll', 'dologger_core-windows-i686.dll',
+  'libdologger_core-macos-aarch64.dylib', 'libdologger_core-macos-x86_64.dylib',
+  'benchmark-results.json'
+]
+
+export const FALLBACK_RELEASES: Release[] = [{
+  tag_name: 'v0.1.0',
+  name: 'DoLogger v0.1.0',
+  prerelease: true,
+  html_url: 'https://github.com/Nekolio/DoLogger/releases/tag/v0.1.0',
+  published_at: '2026-08-13T00:00:00Z',
+  assets: ASSET_NAMES.map(function (name) {
+    return {
+      name: name,
+      browser_download_url: 'https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/' + name
+    }
+  })
+}]
+
+/* README "Performance Snapshot" — measured on the same code (release + LTO). */
+export const FALLBACK_BENCHMARKS: Benchmarks = {
+  fallback: true,
+  tag: 'v0.1.0',
+  environments: [
+    {
+      label: 'GitHub runner — AMD EPYC 7763',
+      p50: '120 ns', throughput: '5.06M rec/s', signed: '19.8 µs'
+    },
+    {
+      label: 'Local — Windows 11 LTSC, Intel i5-12400F',
+      p50: '102 ns', throughput: '9.78M rec/s', signed: '16.96 µs'
+    }
+  ],
+  criterion: [
+    { name: 'single_record_submit', value: '102 ns', note: '~9.78M rec/s' },
+    { name: 'ring_buffer_push_1k', value: '121 µs', note: '~8.26M rec/s' },
+    { name: 'ring_buffer_push_batch_256', value: '19.2 µs', note: '~13.3M rec/s' }
+  ]
+}
+
+const FALLBACK_REPO: Repo = {
+  stargazers_count: null, forks_count: null,
+  html_url: 'https://github.com/Nekolio/DoLogger'
+}
+
+const FALLBACK_CONTRIBUTORS: Contributor[] = [
+  { login: 'Nekolio', contributions: null, html_url: 'https://github.com/Nekolio' }
+]
+
+/* ------------------------------------------------------------------ */
+
+async function apiGet<T>(path: string): Promise<T | null> {
+  try {
+    const r = await fetch(BASE + path, { headers: { Accept: 'application/vnd.github+json' } })
+    return r.ok ? (r.json() as Promise<T>) : null
+  } catch { return null }
+}
+
+async function fetchJson<T>(url: string): Promise<T | null> {
+  try {
+    const r = await fetch(url, { cache: 'no-cache' })
+    return r.ok ? (r.json() as Promise<T>) : null
+  } catch { return null }
+}
+
+function cacheRead<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    return (JSON.parse(raw) as { d: T }).d
+  } catch { return null }
+}
+function cacheWrite(key: string, data: unknown): void {
+  try { localStorage.setItem(key, JSON.stringify({ t: Date.now(), d: data })) } catch { /* private mode */ }
+}
+function isFresh(entry: { t: number } | null): boolean {
+  return !!entry && (Date.now() - entry.t) < CACHE_TTL
+}
+
+async function withCache<T>(key: string, apiFn: () => Promise<T | null>, bakedUrl: string | null, fallback: T): Promise<T> {
+  const cached = cacheRead<{ t: number; d: T }>(key)
+  if (cached && isFresh(cached)) return cached.d
+  const fresh = await apiFn()
+  if (fresh) { cacheWrite(key, fresh); return fresh }
+  if (cached) return cached.d // stale but usable
+  const baked = bakedUrl ? await fetchJson<T>(bakedUrl) : null
+  if (baked && (Array.isArray(baked) ? baked.length > 0 : true)) return baked
+  return fallback
+}
+
+/* ------------------------------------------------------------------ */
+
+function getReleases(): Promise<Release[]> {
+  return withCache<Release[]>('dologger:releases',
+    () => apiGet<Release[]>('/repos/' + REPO + '/releases?per_page=5'),
+    './data/releases.json', FALLBACK_RELEASES)
+}
+function getRepo(): Promise<Repo> {
+  return withCache<Repo>('dologger:repo',
+    () => apiGet<Repo>('/repos/' + REPO),
+    null, FALLBACK_REPO)
+}
+function getContributors(): Promise<Contributor[]> {
+  return withCache<Contributor[]>('dologger:contributors',
+    () => apiGet<Contributor[]>('/repos/' + REPO + '/contributors?per_page=12'),
+    null, FALLBACK_CONTRIBUTORS)
+}
+
+interface BakedPerf { latency_ns?: { p50?: number; signed?: number }; throughput_rec_per_sec?: number }
+interface BakedBenchmarks {
+  fallback?: boolean
+  tag?: string
+  cpu?: string
+  perf?: BakedPerf
+  criterion?: Record<string, { value: number; unit: string }>
+}
+
+/* benchmark-results.json is baked into the artifact at build time by
+ * scripts/build-site.sh (server-side — the browser cannot fetch release
+ * assets reliably). Normalize the release.yml schema into the same shape
+ * as the fallback. */
+async function getBenchmarks(): Promise<Benchmarks> {
+  const baked = await fetchJson<BakedBenchmarks>('./data/benchmarks.json')
+  if (baked && !baked.fallback) return normalizeBakedBenchmarks(baked)
+  return FALLBACK_BENCHMARKS
+}
+
+function normalizeBakedBenchmarks(b: BakedBenchmarks): Benchmarks {
+  const env: BenchmarkEnv[] = b.perf && b.perf.latency_ns
+    ? [{
+        label: 'GitHub runner — ' + (b.cpu || '') + ', ' + (b.tag || ''),
+        p50: fmtLatency(b.perf.latency_ns.p50),
+        throughput: fmtRate(b.perf.throughput_rec_per_sec),
+        signed: b.perf.latency_ns.signed != null ? fmtLatency(b.perf.latency_ns.signed) : null
+      }]
+    : []
+  const crit: CriterionRow[] = []
+  if (b.criterion) {
+    for (const name in b.criterion) {
+      const c = b.criterion[name]
+      crit.push({ name: name, value: fmtLatency(c.value, c.unit) ?? '' })
+    }
+  }
+  return { fallback: false, tag: b.tag || null, environments: env, criterion: crit }
+}
+
+function fmtLatency(v: number | undefined, unit?: string): string | null {
+  if (typeof v !== 'number') return null
+  const us = unit === 'µs' || unit === 'us' ? v : v / 1000
+  if (us >= 1000) return (us / 1000).toFixed(2) + ' ms'
+  if (us >= 1) return (Math.round(us * 100) / 100) + ' µs'
+  return Math.round(v) + ' ns'
+}
+function fmtRate(v: number | undefined): string | null {
+  if (typeof v !== 'number') return null
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M rec/s'
+  if (v >= 1e3) return Math.round(v / 1e3) + 'K rec/s'
+  return Math.round(v) + ' rec/s'
+}
+
+/* ------------------------------------------------------------------
+ * Platform detection. arch comes from (in order): Client Hints
+ * (Chrome/Edge), UA (Firefox), WebGL renderer (Safari on Apple Silicon
+ * still claims MacIntel — a maxTouchPoints check detects iPads, not
+ * Apple Silicon, so it is not used).
+ * ---------------------------------------------------------------- */
+interface NavUAData { getHighEntropyValues(hints: string[]): Promise<{ architecture?: string }> }
+
+async function detectPlatform(): Promise<Platform> {
+  const ua = navigator.userAgent
+  const os: Platform['os'] = ua.includes('Windows') ? 'windows'
+    : /Mac OS X|Macintosh/.test(ua) ? 'macos'
+    : 'linux'
+  let arch = 'x86_64'
+  try {
+    const hints = await (navigator as Navigator & { userAgentData?: NavUAData }).userAgentData
+      ?.getHighEntropyValues(['architecture'])
+    if (/arm|aarch64/i.test(hints?.architecture || '')) arch = 'aarch64'
+  } catch { /* Safari/Firefox */ }
+  if (/arm64|aarch64/i.test(ua)) arch = 'aarch64'
+  if (os === 'macos' && arch === 'x86_64') {
+    try {
+      const gl = document.createElement('canvas').getContext('webgl')
+      const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info')
+      const renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : ''
+      if (/Apple M\d/.test(renderer)) arch = 'aarch64'
+    } catch { /* no WebGL */ }
+  }
+  return { os, arch }
+}
+
+/* ------------------------------------------------------------------
+ * Download link. Always resolved from the release's real asset list
+ * (never a constructed /latest/download/ URL — prereleases 404 there).
+ * ---------------------------------------------------------------- */
+const ASSET_MAP: Record<Platform['os'], Record<string, string>> = {
+  linux: {
+    x86_64: 'dologctl-linux-x86_64', aarch64: 'dologctl-linux-aarch64',
+    i686: 'dologctl-linux-i686', armv7: 'dologctl-linux-armv7', riscv64: 'dologctl-linux-riscv64'
+  },
+  windows: {
+    x86_64: 'dologctl-windows-x86_64.exe', aarch64: 'dologctl-windows-aarch64.exe',
+    i686: 'dologctl-windows-i686.exe'
+  },
+  macos: {
+    x86_64: 'dologctl-macos-x86_64', aarch64: 'dologctl-macos-aarch64'
+  }
+}
+
+function resolveDownload(releases: Release[] | null, os: Platform['os'], arch: string): string {
+  const latest = releases && releases.length ? releases[0] : FALLBACK_RELEASES[0]
+  const assets = (latest.assets && latest.assets.length)
+    ? latest.assets
+    : FALLBACK_RELEASES[0].assets
+  const want = ASSET_MAP[os]?.[arch]
+  const hit = assets.find(function (a) { return a.name === want })
+  if (hit && hit.browser_download_url) return hit.browser_download_url
+  return latest.html_url || 'https://github.com/Nekolio/DoLogger/releases'
+}
+
+async function init(): Promise<SiteData> {
+  const [releases, repo, contributors, benchmarks] = await Promise.all([
+    getReleases(), getRepo(), getContributors(), getBenchmarks()
+  ])
+  const latest = releases.length ? releases[0] : FALLBACK_RELEASES[0]
+  const platform = await detectPlatform()
+  return {
+    releases,
+    latest,
+    repo,
+    contributors,
+    benchmarks,
+    platform,
+    downloadUrl: resolveDownload(releases, platform.os, platform.arch)
+  }
+}
+
+/* ------------------------------------------------------------------
+ * Vue store — a module-level ref shared by every component.
+ * ---------------------------------------------------------------- */
+const siteData: Ref<SiteData | null> = ref(null)
+
+export function useSiteData(): Ref<SiteData | null> {
+  return siteData
+}
+
+export async function loadSiteData(): Promise<SiteData> {
+  if (!siteData.value) siteData.value = await init()
+  return siteData.value
+}

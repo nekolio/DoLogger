@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Dark-theme favicon: terminal chip + brand-ramp "D" with a
+       top-down shine. Browsers cannot animate tab icons, so the
+       "flowing light" is baked in as a static gradient; the page
+       swaps to favicon-light.svg when the theme switches. -->
+  <defs>
+    <linearGradient id="ramp" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7FD5FF"/>
+      <stop offset="0.45" stop-color="#8A9BFF"/>
+      <stop offset="0.78" stop-color="#C792EA"/>
+      <stop offset="1" stop-color="#F472D0"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.38"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0b0e14"/>
+  <path d="M22 19h7a13 13 0 0 1 0 26h-7z" fill="url(#ramp)"/>
+  <path d="M22 19h7a13 13 0 0 1 0 26h-7z" fill="url(#shine)"/>
+</svg>

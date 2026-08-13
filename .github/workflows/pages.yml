@@ -1,0 +1,79 @@
+# Deploy GitHub Pages — DoLogger landing site (site/).
+#
+# ── Why this workflow can never loop (the site rebuilds without pushing) ──
+#  1. Nothing here runs `git push` — the only action that can re-trigger a
+#     push-based workflow. actions/deploy-pages uploads the artifact
+#     straight to the Pages service; no gh-pages branch is created or
+#     pushed, so this workflow cannot fire itself.
+#  2. GITHUB_TOKEN pushes don't re-trigger workflows (documented GitHub
+#     behavior). The single exception is `repository_dispatch`, used here
+#     exactly once, strictly acyclic:
+#       tag push → release.yml → dispatch pages-update → this workflow → deploy
+#     release.yml fires the dispatch AFTER the release exists
+#     (`if: success()`), so the site bakes the new release and its
+#     benchmark-results.json — never a stale tag.
+#  3. Deliberately NOT triggered on push: tags — at tag-push time the
+#     release (and its 20+ minute benchmarks job) does not exist yet.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'Docs/assets/**'
+      - 'scripts/build-site.sh'
+      - '.github/workflows/pages.yml'
+  repository_dispatch:
+    types: [pages-update]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # enablement: true turns on Pages for this (public) repo on first run.
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # Bun builds the Vite app and runs the vue-tsc type check (script
+      # "build" = "vue-tsc --noEmit && vite build").
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      # Builds the site AND bakes the real latest release +
+      # benchmark-results.json server-side (the browser cannot fetch
+      # release assets — CORS).
+      - name: Build site artifact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/build-site.sh site/dist
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

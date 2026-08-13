@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Light-theme favicon: light chip + the light ramp's darker gradient
+       "D" (matches [data-theme="light"] colors). Swapped in by App.vue. -->
+  <defs>
+    <linearGradient id="ramp" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F6DC0"/>
+      <stop offset="0.45" stop-color="#3F62C4"/>
+      <stop offset="0.78" stop-color="#7A5CC0"/>
+      <stop offset="1" stop-color="#B8489F"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#000000" stop-opacity="0.12"/>
+      <stop offset="0.55" stop-color="#000000" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="#f0f2f5" stroke="#d0d7de" stroke-width="2"/>
+  <path d="M22 19h7a13 13 0 0 1 0 26h-7z" fill="url(#ramp)"/>
+  <path d="M22 19h7a13 13 0 0 1 0 26h-7z" fill="url(#shine)"/>
+</svg>
