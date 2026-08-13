@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useSiteData, selectRelease, pickRelease, assetFor, type Platform } from '../data'
+import { useSiteData, pickRelease, assetFor, type Platform } from '../data'
 import FilterPopup from './FilterPopup.vue'
 
 const { t, locale } = useI18n()

@@ -3,7 +3,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteData, FALLBACK_BENCHMARKS } from '../../data'
 
-const props = defineProps<{ expanded?: boolean }>()
+defineProps<{ expanded?: boolean }>()
 const { t } = useI18n()
 const siteData = useSiteData()
 
