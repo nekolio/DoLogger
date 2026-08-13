@@ -59,36 +59,47 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Every target ships its CLI binary AND its core library. Each
+          # core library gets a per-target asset name: download-artifact
+          # merges all jobs' files into one directory, and five Linux jobs
+          # all building libdologger_core.so would otherwise overwrite each
+          # other (only the last one would survive in the release).
+          #
           # ── Linux ───────────────────────────────────────────────
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: dologctl
             asset_name: dologctl-linux-x86_64
             lib_name: libdologger_core.so
+            lib_asset_name: libdologger_core-linux-x86_64.so
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             artifact: dologctl
             asset_name: dologctl-linux-aarch64
             lib_name: libdologger_core.so
+            lib_asset_name: libdologger_core-linux-aarch64.so
 
           - os: ubuntu-latest
             target: i686-unknown-linux-gnu
             artifact: dologctl
             asset_name: dologctl-linux-i686
             lib_name: libdologger_core.so
+            lib_asset_name: libdologger_core-linux-i686.so
 
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             artifact: dologctl
             asset_name: dologctl-linux-armv7
             lib_name: libdologger_core.so
+            lib_asset_name: libdologger_core-linux-armv7.so
 
           - os: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             artifact: dologctl
             asset_name: dologctl-linux-riscv64
             lib_name: libdologger_core.so
+            lib_asset_name: libdologger_core-linux-riscv64.so
 
           # ── Windows ─────────────────────────────────────────────
           - os: windows-latest
@@ -98,18 +109,21 @@ jobs:
             # binaries are conventionally extension-less.
             asset_name: dologctl-windows-x86_64.exe
             lib_name: dologger_core.dll
+            lib_asset_name: dologger_core-windows-x86_64.dll
 
           - os: windows-latest
             target: aarch64-pc-windows-msvc
             artifact: dologctl.exe
             asset_name: dologctl-windows-aarch64.exe
             lib_name: dologger_core.dll
+            lib_asset_name: dologger_core-windows-aarch64.dll
 
           - os: windows-latest
             target: i686-pc-windows-msvc
             artifact: dologctl.exe
             asset_name: dologctl-windows-i686.exe
             lib_name: dologger_core.dll
+            lib_asset_name: dologger_core-windows-i686.dll
 
           # ── macOS ───────────────────────────────────────────────
           - os: macOS-latest
@@ -117,12 +131,14 @@ jobs:
             artifact: dologctl
             asset_name: dologctl-macos-aarch64
             lib_name: libdologger_core.dylib
+            lib_asset_name: libdologger_core-macos-aarch64.dylib
 
           - os: macOS-latest
             target: x86_64-apple-darwin
             artifact: dologctl
             asset_name: dologctl-macos-x86_64
             lib_name: libdologger_core.dylib
+            lib_asset_name: libdologger_core-macos-x86_64.dylib
 
     steps:
       - name: Checkout repository
@@ -215,7 +231,7 @@ jobs:
         run: |
           if [ -f "target/${{ matrix.target }}/release/${{ matrix.lib_name }}" ]; then
             cp "target/${{ matrix.target }}/release/${{ matrix.lib_name }}" \
-               "release-artifacts/"
+               "release-artifacts/${{ matrix.lib_asset_name }}"
           fi
 
       - name: Upload release artifacts
@@ -272,6 +288,45 @@ jobs:
             printf '%s\n' "$CRIT_RAW" | tail -30
           fi
 
+          # Localized copies for the Chinese block. The CLI and criterion
+          # print fixed English labels; translating them here in shell keeps
+          # the source output untouched. Match longer strings first so e.g.
+          # `single_record_submit_with_sign` is handled before its prefix
+          # `single_record_submit`.
+          PERF_ZH="$(printf '%s\n' "$PERF_OUT" | sed \
+            -e 's/DoLogger Performance Benchmark/DoLogger 性能跑分/' \
+            -e 's/^  Records:/  记录数:/' \
+            -e 's/^  Message size:/  消息大小:/' \
+            -e 's/ bytes/ 字节/' \
+            -e 's/^  Ring buffer:/  环形缓冲:/' \
+            -e 's/ slots (\([0-9]*\) KiB)/ 槽位（\1 KiB）/' \
+            -e 's/Warming up (\([0-9 ]*\) records)\.\.\./预热中（\1 条记录）.../' \
+            -e 's/^  Warm-up P50:/  预热 P50:/' \
+            -e 's/Benchmarking (\([0-9]*\) records)\.\.\./跑分中（\1 条记录）.../' \
+            -e 's/^Results$/结果/' \
+            -e 's/^  Total time:/  总耗时:/' \
+            -e 's/^  Records pushed:/  已压入记录:/' \
+            -e 's/rec\/s/条\/秒/' \
+            -e 's/^  Throughput:/  吞吐:/' \
+            -e 's/Submit Latency (push → ring buffer)/提交延迟（压入 → 环形缓冲）/' \
+            -e 's/\([0-9.]*\) ns/\1 纳秒/g' \
+            -e 's/\([0-9.]*\) µs/\1 微秒/g' \
+            -e 's/\([0-9.]*\) ms/\1 毫秒/g' \
+            -e 's/\([0-9.]*\) s$/\1 秒/' \
+            -e 's/ Min:/ 最小:/' \
+            -e 's/ Max:/ 最大:/' \
+            -e 's/ Avg:/ 平均:/')"
+          CRIT_ZH="$(printf '%s\n' "$CRIT_OUT" | sed \
+            -e 's/^test /测试 /' \
+            -e 's/single_record_submit_with_sign/单条记录提交（带签名）/' \
+            -e 's/single_record_submit/单条记录提交/' \
+            -e 's/ring_buffer_push_1k/环形缓冲压入 1K/' \
+            -e 's/ring_buffer_push_batch_256/环形缓冲批量压入 256/' \
+            -e 's/ bench:/ 耗时:/' \
+            -e 's/ ns\/iter/ 纳秒\/次/' \
+            -e 's/(+\/-/（±/' \
+            -e 's/)$/）/')"
+
           CPU_MODEL="$(grep 'model name' /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)"
           MEM_TOTAL="$(free -h | awk '/^Mem:/ {print $2}')"
           OS_VER="$(uname -sr)"
@@ -318,13 +373,13 @@ jobs:
           **提交延迟与吞吐** —— \`dologctl perf --count 200000\`：
 
           \`\`\`text
-          ${PERF_OUT:-<本次运行器上 dologctl perf 失败>}
+          ${PERF_ZH:-<本次运行器上 dologctl perf 失败>}
           \`\`\`
 
           **单条记录延迟（Criterion）** —— \`cargo bench --bench latency --bench throughput\`：
 
           \`\`\`text
-          ${CRIT_OUT:-<本次运行器上 criterion 跑分失败>}
+          ${CRIT_ZH:-<本次运行器上 criterion 跑分失败>}
           \`\`\`
           EOF
 
