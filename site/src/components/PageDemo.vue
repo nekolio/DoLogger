@@ -17,7 +17,6 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { snippets, demoFiles } from '../demo/snippets'
-import type { Snippet } from '../demo/snippets'
 import { tokenize } from '../demo/tokenizer'
 import { BEFORE_LOGS, AFTER_LOGS, SPEED } from '../demo/logs'
 import type { DemoLog } from '../demo/logs'
@@ -46,9 +45,11 @@ function setPaused(v: boolean) {
   paused = v
   if (v) {
     stopTerminalLoop() // the interval stops while hidden — zero work
-  } else if (wantedSpeed > 0) {
+  } else if (terminalOn) {
     startTerminalLoop(wantedSpeed) // resume exactly where it left off
   }
+  // terminalOn also guards the resume: staticRender pages (reduced motion /
+  // touch) never started the loop, so a visibility flip must not start one.
 }
 function onVisibility() { setPaused(document.hidden || !sectionVisible) }
 function onIntersect(entries: IntersectionObserverEntry[]) {
@@ -377,7 +378,6 @@ function switchLanguage(lang: string) {
 
 /* ── reduced motion: static final state, no animation loop ────────── */
 function staticRender() {
-  const s = snippets[currentLang.value]
   const state = langState[currentLang.value]
   state.replaced = true
   renderCode(currentLang.value, state)
