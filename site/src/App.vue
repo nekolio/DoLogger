@@ -64,7 +64,7 @@ function detectLang(): 'zh' | 'en' {
   } catch { /* old browsers */ }
   return 'en'
 }
-let savedLang = detectLang()
+let savedLang: string = detectLang()
 try {
   savedLang = localStorage.getItem('dologger:lang') || savedLang
 } catch { /* private mode */ }

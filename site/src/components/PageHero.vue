@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useSiteData, useSelectedTag, selectRelease, pickRelease, assetFor, groupAssets } from '../data'
+import { useSiteData, selectRelease, pickRelease, assetFor, groupAssets, type Platform } from '../data'
 
 const { t, locale } = useI18n()
 const siteData = useSiteData()
-const selectedTag = useSelectedTag()
 
 const REPO_URL = 'https://github.com/Nekolio/DoLogger'
 const WIKI_URL = REPO_URL + '/wiki'
@@ -18,7 +17,7 @@ const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').mat
    label, and the grouped asset panel all at once. */
 const releases = computed(() => siteData.value?.releases ?? [])
 const selectedRelease = computed(() => pickRelease(releases.value.length ? releases.value : null))
-const platform = computed(() => siteData.value?.platform ?? { os: 'linux', arch: 'x86_64' })
+const platform = computed<Platform>(() => siteData.value?.platform ?? { os: 'linux', arch: 'x86_64' })
 const version = computed(() => selectedRelease.value.tag_name || 'v0.1.0')
 const downloadUrl = computed(() => {
   const hit = assetFor(selectedRelease.value, platform.value.os, platform.value.arch)
