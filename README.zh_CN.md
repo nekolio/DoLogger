@@ -1,11 +1,16 @@
-# 🔐 DoLogger
+# DoLogger
 
-> *跨平台、高安全日志引擎 — Ed25519 审计链、无锁管道、插件沙箱隔离。*
+> 下一代安全日志引擎 — 无锁速度下的 Ed25519 审计链。
+
+<p align="center">
+  <img src="./Docs/assets/hero.svg" alt="DoLogger 启动序列 — Hello DoLogger、4 个沙箱插件、Ed25519 审计链已武装、7 级管道在线" width="880">
+</p>
 
 [English](README.md) | [中文](README.zh_CN.md)
 
 <p align="center">
   <a href="https://github.com/Nekolio/DoLogger/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nekolio/DoLogger/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://github.com/Nekolio/DoLogger/releases"><img src="https://img.shields.io/github/v/release/Nekolio/DoLogger?include_prereleases&style=flat-square&label=release" alt="Release"></a>
   <a href="https://github.com/Nekolio/DoLogger/stargazers"><img src="https://img.shields.io/github/stars/Nekolio/DoLogger?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="https://github.com/Nekolio/DoLogger/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/rust-stable-orange?style=flat-square" alt="Rust">
@@ -17,11 +22,12 @@
 
 ## 概述
 
-DoLogger 是一个面向**高性能与高安全**双重需求的生产级日志引擎。它将纳秒级无锁记录提交与 Ed25519 签名审计链、插件沙箱隔离、以及 11 种内置输出接收器相结合——全部由 TOML 配置文件驱动，支持域继承与不可降级安全保障。
+DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防篡改审计日志
+的应用而设计。它将纳秒级延迟的无锁记录提交与 Ed25519 签名审计链、插件
+沙箱隔离、以及 11 种内置输出接收器相结合——全部由 TOML 配置驱动,支持
+域继承与不可降级的安全保障。
 
-### 为什么选择 DoLogger？
-
-| 特性 | DoLogger | 传统日志库 |
+| 能力 | DoLogger | 传统日志库 |
 |:-:|:-:|:-:|
 | **提交延迟（P50）** | 102 ns | 500–2000 ns |
 | **批量吞吐量** | 13.3M rec/s | 1–5M rec/s |
@@ -33,23 +39,86 @@ DoLogger 是一个面向**高性能与高安全**双重需求的生产级日志�
 
 ---
 
+## 特性
+
+- `[PERF]` **无锁热路径** — 基于 CAS 的环形缓冲区 + Treiber 栈对象池;记录提交零堆分配(本地 P50 ≈ 102 ns)。
+- `[SIGN]` **Ed25519 审计链** — 每条审计记录在组装阶段被签名,通过 LSN + prev_hash 链接成链;离线可用 `dologctl verify-log` 校验。
+- `[SINK]` **11 种接收器 + 沙箱插件** — Console、File、Kafka、Syslog、Webhook、SQLite、WORM、Security、Shared Memory、OTel、Callback;插件在 seccomp-bpf / AppContainer / Sandbox 隔离下运行,按信任级别着色。
+- `[OBSV]` **内置可观测性** — 逐记录管道耗时(`--trace`)、SIF 录制/回放、`dologctl perf` 基准测试、崩溃恢复报告。
+
+---
+
+## 性能快照
+
+基于同一份代码测量(release + LTO);与其他 Rust 日志库的横向对比数据
+尚未发布——每个 release 都会在发布说明中携带 GitHub Actions runner 上
+的最新实测数据。
+
+| 环境 | 提交 P50 | 吞吐量 | 签名提交（Ed25519） |
+|:-:|:-:|:-:|:-:|
+| GitHub runner — AMD EPYC 7763,v0.1.0 release | **120 ns** | 5.06M rec/s | 19.8 µs |
+| 本机 — Windows 11 LTSC,Intel i5-12400F | **102 ns** | 9.78M rec/s | 16.96 µs |
+
+Criterion(同一本机):
+
+| 基准测试 | P50 | 吞吐量 |
+|:-:|:-:|:-:|
+| 单条记录提交 | **102 ns** | ~9.78M rec/s |
+| 环形缓冲区推入（1K） | **121 µs** | ~8.26M rec/s |
+| 批量推入（256） | **19.2 µs** | ~13.3M rec/s |
+
+CRC32C 通过 SSE 4.2(`_mm_crc32_u64`)硬件加速,并提供 Slicing-by-8
+软件回退。
+
+---
+
 ## 快速开始
 
+### 预编译二进制
+
+每个 [GitHub Release](https://github.com/Nekolio/DoLogger/releases) 都
+附带 `dologctl-<os>-<arch>` 二进制(Windows 上为 `.exe`)及对应架构的
+核心库。请用随附的 `checksums-sha256.txt` 校验每个下载文件:
+
 ```bash
-# 从源码安装（需要 Rust ≥ 1.70）
+curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/dologctl-linux-x86_64
+chmod +x dologctl-linux-x86_64
+./dologctl-linux-x86_64 init --template dev
+./dologctl-linux-x86_64 run --config dologger.toml
+```
+
+### 从源码构建
+
+```bash
 git clone https://github.com/Nekolio/DoLogger.git
-cd dologger
+cd DoLogger
 cargo build --release
 
-# 生成配置模板
 ./target/release/dologctl init --template dev
-
-# 启动引擎
 ./target/release/dologctl run --config dologger.toml
 ```
 
-> [!NOTE]
-> 每个 [GitHub Release](https://github.com/Nekolio/DoLogger/releases) 都附带预编译二进制,命名规则为 `dologctl-<os>-<arch>`(Windows 上为 `.exe`)。请使用随附的 `checksums-sha256.txt` 校验下载文件。
+### Rust SDK
+
+SDK 随仓库发布(`adapters/rust`);以路径依赖方式引入:
+`dologger-sdk = { path = "adapters/rust" }`。
+
+```rust
+use dologger_sdk::Logger;
+
+fn main() {
+    let mut logger = Logger::init(None).expect("init"); // 默认配置
+    logger.info("Application started");
+    logger.audit("User 42 deleted record #7"); // 签名 + WORM
+    logger.shutdown();
+}
+```
+
+审计记录经 Ed25519 签名;离线校验日志:
+
+```shell
+dologctl verify-log audit.log
+```
 
 ### Shell 补全
 
@@ -68,50 +137,45 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 ## 架构
 
 > [!IMPORTANT]
-> DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化 —— 生产环境请锁定到确切版本。详见[版本管理与弃用策略](Docs/zh_CN/guides/VersioningAndDeprecation.md)。
+> DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化——生产环境请锁定到确切版本。详见[版本管理与弃用策略](Docs/zh_CN/guides/VersioningAndDeprecation.md)。
 
-<details open>
-<summary>架构总览</summary>
+![架构](./Docs/assets/architecture.svg)
 
-```mermaid
-flowchart TD
-    APP["应用程序（APPLICATION）<br/>dologger_log() / dologger_logv()<br/>← C ABI (FFI)"]
-    APP -->|"102ns P50（CAS 推入）"| RB
-
-    subgraph RB["无锁 MPSC 环形缓冲区"]
-        direction LR
-        R1["普通分区（90%）"]
-        R2["审计分区（10%）"]
-        R3["协作式帮助<br/>（生产者侧排空）"]
-    end
-
-    RB -->|"批量排空（Batch drain）"| PIPE
-
-    subgraph PIPE["7 级管道（PIPELINE）"]
-        direction TB
-        P0["PreFilter → Filter → FieldProvider → Assembly<br/>→ Processing → Formatting → Sink Fan-out"]
-        P1["Assembly：LSN 分配 + Ed25519 签名<br/>+ prev_hash 链"]
-        P2["Processing：CRC32C 校验 + 密钥检测"]
-    end
-
-    PIPE -->|"io_pool 线程<br/>（channel 分发）"| SINK
-
-    subgraph SINK["接收器层（SINK）"]
-        direction LR
-        S0["Console | File | Kafka | Syslog<br/>Webhook | SQLite | WORM<br/>Shared Memory | OpenTelemetry<br/>Security File"]
-    end
-```
-
-</details>
+应用将记录直接推入无锁 MPSC 环形缓冲区——热路径上没有任何锁。后台
+管道运行七个阶段(PreFilter → Filter → FieldProvider → Assembly →
+Processing → Formatting → Sink),在 Assembly 阶段用 Ed25519 为审计
+记录签名,在 Processing 阶段校验校验和。批量排空后扇出到接收器层,
+慢速 I/O 永远不会阻塞生产者。
 
 ### 关键设计决策
 
-- **无锁热路径**：基于 CAS 的环形缓冲区 + Treiber 栈对象池 — 记录提交零堆分配
-- **Ring 0–3 字段权限**：CPU 式特权环模型；Ring 2 修改自动追加审计追踪
-- **AUDIT 铁律**：`block_timeout_ms=0`，`drop_strategy=Never` — 审计记录绝不丢弃
-- **背压控制**：90% 告警 + 协作式帮助，95% 紧急模式 + 可选丢弃
-- **6 项不可降级配置**：`enable_signature`、`escape_html`、`worm_enabled`、`fsync_on_write`、`require_tls`、`sign_ring2`
-- **4 种性能配置**：Dev / ProdPerformance / ProdAudit / Balanced — 每种绑定具体超时与策略值
+- **无锁热路径**:基于 CAS 的环形缓冲区 + Treiber 栈对象池——记录提交零堆分配
+- **Ring 0–3 字段权限**:CPU 式特权环模型;Ring 2 修改自动追加审计追踪
+- **AUDIT 铁律**:`block_timeout_ms=0`,`drop_strategy=Never`——审计记录绝不丢弃
+- **背压控制**:90% 告警 + 协作式帮助,95% 紧急模式 + 可选丢弃
+- **6 项不可降级配置**:`enable_signature`、`escape_html`、`worm_enabled`、`fsync_on_write`、`require_tls`、`sign_ring2`
+- **4 种性能配置**:Dev / ProdPerformance / ProdAudit / Balanced——每种绑定具体超时与策略值
+
+---
+
+## 配置与部署
+
+默认配置开箱即用——`dologctl run` 不带配置时使用内置默认值,
+`dologctl init --template dev` 生成开发模板。
+
+| 环境变量 | 用途 |
+|:-:|:-:|
+| `DO_LOGGER_LIB_PATH` | 语言适配器共享库路径 |
+| `DO_LOG_PLUGIN_DIR` | 插件搜索路径(覆盖 `./plugins`) |
+| `DO_LOG_CONFIG_FILE` | `dologctl config validate` 的配置文件 |
+
+```shell
+dologctl init --template gdpr    # 欧盟 GDPR
+dologctl init --template hipaa   # 美国 HIPAA
+dologctl init --template pci     # PCI-DSS
+```
+
+合规模板自动激活不可降级安全项并强制审计要求。
 
 ---
 
@@ -136,7 +200,7 @@ dologctl version                 项目横幅与系统信息
 dologctl version --licenses      第三方许可证归属
 ```
 
-全局参数：`--output json|text`、`--color auto|always|never`、`--quiet`、`--config <path>`
+全局参数:`--output json|text`、`--color auto|always|never`、`--quiet`、`--config <path>`
 
 ---
 
@@ -145,65 +209,36 @@ dologctl version --licenses      第三方许可证归属
 | 插件类型 | 管道阶段 | 说明 |
 |:-:|:-:|:-:|
 | **Filter** | 1 | 基于规则丢弃或放行记录 |
-| **FieldProvider** | 2 | 注入字段（HostInfoProvider 为受限子类型） |
+| **FieldProvider** | 2 | 注入字段(HostInfoProvider 为受限子类型) |
 | **Processor** | 4 | 转换 / 增强 / 检测密钥 |
 | **Formatter** | 5 | 将记录序列化为输出格式 |
 | **IOSink** | 6 | 最终输出目标 |
-| **ConfigProvider** | — | 外部配置源（远程配置中心） |
-| **KeyProvider** | — | Ed25519 密钥服务（可外接 HSM） |
-| **PolicyProvider** | 0 | 提交前策略（限流、级别过滤） |
-| **HostInfoProvider** | 2 | 系统信息注入（ring1_only=true） |
+| **ConfigProvider** | — | 外部配置源(远程配置中心) |
+| **KeyProvider** | — | Ed25519 密钥服务(可外接 HSM) |
+| **PolicyProvider** | 0 | 提交前策略(限流、级别过滤) |
+| **HostInfoProvider** | 2 | 系统信息注入(ring1_only=true) |
 | **SyscallBroker** | — | 沙箱插件的系统调用代理 |
 
 ### 信任级别
 
 | 级别 | 颜色 | 签名要求 | 系统调用权限 | 可用插件类型 |
 |:-:|:-:|:-:|:-:|:-:|
-| **Blue** | 🔵 | Ed25519 签名 | 完整 | 全部 |
-| **Yellow** | 🟡 | 自签名 | 受限 | 有限 |
-| **Red** | 🔴 | 无（开发模式） | 最小白名单 | 仅 Filter、Formatter、Processor |
-
----
-
-## 性能
-
-测试环境：Windows 11 LTSC、Rust stable、Intel i5-12400F、release + LTO：
-
-| 基准测试 | P50 | 吞吐量 |
-|:-:|:-:|:-:|
-| 单条记录提交 | **102 ns** | ~9.78M rec/s |
-| 环形缓冲区推入（1K） | **121 μs** | ~8.26M rec/s |
-| 批量推入（256） | **19.2 μs** | ~13.3M rec/s |
-| 签名提交（Ed25519） | **16.96 μs** | ~59K rec/s |
-
-CRC32C：SSE 4.2（`_mm_crc32_u64`）硬件加速 + Slicing-by-8 软件回退。
+| **Blue** | 蓝 | Ed25519 签名 | 完整 | 全部 |
+| **Yellow** | 黄 | 自签名 | 受限 | 有限 |
+| **Red** | 红 | 无(开发模式) | 最小白名单 | 仅 Filter、Formatter、Processor |
 
 ---
 
 ## 安全
 
-- **Ed25519 审计链**：每条审计记录均被签名；LSN + prev_hash 形成类区块链防篡改链条
-- **WORM 存储**：一次写入多次读取，fsync + 只读权限强制
-- **插件沙箱**：seccomp-bpf（Linux）、AppContainer（Windows）、Sandbox（macOS），信任颜色能力矩阵
-- **密钥检测**：14 条前缀匹配规则，覆盖 Critical/High/Medium 三个严重级别（AWS、GCP、GitHub Token、私钥等）
-- **密钥轮换 + CRL**：多密钥并行验证、轮换生命周期、紧急吊销
-- **外部锚定**：定期将根哈希锚定到不可变存储（S3/HTTP）
-- **断路器**：3 状态（CLOSED→OPEN→HALF_OPEN→CLOSED），用于远程接收器故障隔离
-- **紧急 mmap 缓冲区**：AES-256-GCM 加密溢出缓冲区，环形缓冲区溢出时启用
-
----
-
-## 合规模板
-
-针对常见监管框架预置 TOML 模板：
-
-```bash
-dologctl init --template gdpr    # 欧盟 GDPR
-dologctl init --template hipaa   # 美国 HIPAA
-dologctl init --template pci     # PCI-DSS
-```
-
-模板自动激活不可降级安全项并强制审计要求。
+- **Ed25519 审计链**:每条审计记录均被签名;LSN + prev_hash 形成类区块链防篡改链条
+- **WORM 存储**:一次写入多次读取,fsync + 只读权限强制
+- **插件沙箱**:seccomp-bpf(Linux)、AppContainer(Windows)、Sandbox(macOS),信任颜色能力矩阵
+- **密钥检测**:14 条前缀匹配规则,覆盖 Critical/High/Medium 三个严重级别(AWS、GCP、GitHub Token、私钥等)
+- **密钥轮换 + CRL**:多密钥并行验证、轮换生命周期、紧急吊销
+- **外部锚定**:定期将根哈希锚定到不可变存储(S3/HTTP)
+- **断路器**:3 状态(CLOSED→OPEN→HALF_OPEN→CLOSED),用于远程接收器故障隔离
+- **紧急 mmap 缓冲区**:AES-256-GCM 加密溢出缓冲区,环形缓冲区溢出时启用
 
 ---
 
@@ -211,9 +246,9 @@ dologctl init --template pci     # PCI-DSS
 
 | 语言 | 位置 | 状态 |
 |:-:|:-:|:-:|
-| **Rust** | `adapters/rust/` | ✅ SDK crate（dologger-sdk） |
-| **Python** | `adapters/python/` | ✅ ctypes 封装 |
-| **Go** | `adapters/go/` | ✅ cgo 封装 |
+| **Rust** | `adapters/rust/` | SDK crate(dologger-sdk) |
+| **Python** | `adapters/python/` | ctypes 封装 |
+| **Go** | `adapters/go/` | cgo 封装 |
 
 ---
 
@@ -236,6 +271,7 @@ DoLogger/
 ├── adapters/                   # 语言 SDK（Rust、Python、Go）
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS 合规模板
 ├── Docs/                       # 技术文档
+│   ├── assets/                 # 静态资源（架构图、图片）
 │   ├── zh_CN/                  # 中文文档
 │   └── en_US/                  # 英文文档（自动同步至 GitHub wiki）
 ├── tests/                      # 集成与安全测试
@@ -249,10 +285,10 @@ DoLogger/
 ## 编译
 
 ```bash
-# 前置条件：Rust ≥ 1.70，CMake ≥ 3.20
+# 前置条件:Rust stable,CMake ≥ 3.20
 cargo build --release
 
-# 启用 Kafka 支持（需 librdkafka）
+# 启用 Kafka 支持(需 librdkafka)
 cargo build --release --features sink-kafka
 
 # 跨平台目标检查
@@ -290,6 +326,7 @@ cargo check --target aarch64-apple-darwin
 </a>
 
 [@Nekolio](https://github.com/Nekolio) —— 项目作者与维护者
+
 ---
 
 ## 许可证
@@ -310,4 +347,4 @@ cargo check --target aarch64-apple-darwin
 
 ---
 
-*由 [@Nekolio](https://github.com/Nekolio) 用 ❤️ 构建 | nekoliowork+DoLogger@gmail.com*
+*由 [@Nekolio](https://github.com/Nekolio) 构建 | nekoliowork+DoLogger@gmail.com*

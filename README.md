@@ -1,11 +1,16 @@
-# 🔐 DoLogger
+# DoLogger
 
-> *Cross-platform, high-security logging engine — Ed25519 audit chains, lock-free pipelines, plugin sandbox isolation.*
+> Next-gen secure logging — Ed25519 audit chains at lock-free speed.
+
+<p align="center">
+  <img src="./Docs/assets/hero.svg" alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" width="880">
+</p>
 
 [English](README.md) | [中文](README.zh_CN.md)
 
 <p align="center">
   <a href="https://github.com/Nekolio/DoLogger/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nekolio/DoLogger/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://github.com/Nekolio/DoLogger/releases"><img src="https://img.shields.io/github/v/release/Nekolio/DoLogger?include_prereleases&style=flat-square&label=release" alt="Release"></a>
   <a href="https://github.com/Nekolio/DoLogger/stargazers"><img src="https://img.shields.io/github/stars/Nekolio/DoLogger?style=flat-square&color=yellow" alt="Stars"></a>
   <a href="https://github.com/Nekolio/DoLogger/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/rust-stable-orange?style=flat-square" alt="Rust">
@@ -17,15 +22,13 @@
 
 ## Overview
 
-DoLogger is a production-grade logging engine designed for applications that demand
-**both performance and security**. It combines nanosecond-latency lock-free record
-submission with Ed25519-signed audit chains, plugin sandboxing, and 11 built-in output
-sinks — all driven by a TOML configuration with domain inheritance and non-downgradable
-security guarantees.
+DoLogger is a cross-platform, high-security logging engine for applications that
+need signed, tamper-evident audit logs. It combines nanosecond-latency lock-free
+record submission with Ed25519-signed audit chains, plugin sandboxing, and
+11 built-in output sinks — all driven by TOML configuration with domain
+inheritance and non-downgradable security guarantees.
 
-### Why DoLogger?
-
-| Feature | DoLogger | Traditional Loggers |
+| Capability | DoLogger | Traditional Loggers |
 |:-:|:-:|:-:|
 | **Submit latency (P50)** | 102 ns | 500–2000 ns |
 | **Batch throughput** | 13.3M rec/s | 1–5M rec/s |
@@ -37,23 +40,86 @@ security guarantees.
 
 ---
 
+## Features
+
+- `[PERF]` **Lock-free hot path** — CAS-based ring buffer with a Treiber object pool; record submission does no heap allocation (P50 ≈ 102 ns locally).
+- `[SIGN]` **Ed25519 audit chain** — every audit record is signed at assembly time and chained by LSN + prev_hash; verify offline with `dologctl verify-log`.
+- `[SINK]` **11 sinks + sandboxed plugins** — Console, File, Kafka, Syslog, Webhook, SQLite, WORM, Security, Shared Memory, OTel, Callback; plugins run under seccomp-bpf / AppContainer / Sandbox isolation with color-coded trust levels.
+- `[OBSV]` **Observability built in** — per-record pipeline timing (`--trace`), SIF recording/replay, `dologctl perf` benchmarks, crash recovery reports.
+
+---
+
+## Performance Snapshot
+
+Measured on the same code (release + LTO); no head-to-head numbers against
+other Rust loggers are published yet — each release carries fresh measurements
+from the GitHub Actions runner in its release notes.
+
+| Environment | Submit P50 | Throughput | Signed submit (Ed25519) |
+|:-:|:-:|:-:|:-:|
+| GitHub runner — AMD EPYC 7763, v0.1.0 release | **120 ns** | 5.06M rec/s | 19.8 µs |
+| Local — Windows 11 LTSC, Intel i5-12400F | **102 ns** | 9.78M rec/s | 16.96 µs |
+
+Criterion (same local machine):
+
+| Benchmark | P50 | Throughput |
+|:-:|:-:|:-:|
+| Single record submit | **102 ns** | ~9.78M rec/s |
+| Ring buffer push (1K) | **121 µs** | ~8.26M rec/s |
+| Batch push (256) | **19.2 µs** | ~13.3M rec/s |
+
+CRC32C is hardware-accelerated via SSE 4.2 (`_mm_crc32_u64`) with a
+Slicing-by-8 software fallback.
+
+---
+
 ## Quick Start
 
+### Prebuilt binaries
+
+Every [GitHub Release](https://github.com/Nekolio/DoLogger/releases) attaches
+`dologctl-<os>-<arch>` binaries (`.exe` on Windows) plus per-arch core
+libraries. Verify each download against the attached `checksums-sha256.txt`:
+
 ```bash
-# Install from source (requires Rust ≥ 1.70)
+curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/dologctl-linux-x86_64
+chmod +x dologctl-linux-x86_64
+./dologctl-linux-x86_64 init --template dev
+./dologctl-linux-x86_64 run --config dologger.toml
+```
+
+### Build from source
+
+```bash
 git clone https://github.com/Nekolio/DoLogger.git
-cd dologger
+cd DoLogger
 cargo build --release
 
-# Generate a config template
 ./target/release/dologctl init --template dev
-
-# Start logging
 ./target/release/dologctl run --config dologger.toml
 ```
 
-> [!NOTE]
-> Prebuilt binaries are attached to every [GitHub Release](https://github.com/Nekolio/DoLogger/releases) and follow the naming pattern `dologctl-<os>-<arch>` (`.exe` on Windows). Verify each download against the attached `checksums-sha256.txt`.
+### Rust SDK
+
+The SDK ships in the repository (`adapters/rust`); add it as a path
+dependency: `dologger-sdk = { path = "adapters/rust" }`.
+
+```rust
+use dologger_sdk::Logger;
+
+fn main() {
+    let mut logger = Logger::init(None).expect("init"); // default config
+    logger.info("Application started");
+    logger.audit("User 42 deleted record #7"); // signed + WORM
+    logger.shutdown();
+}
+```
+
+Audit records are Ed25519-signed; verify the log offline:
+
+```shell
+dologctl verify-log audit.log
+```
 
 ### Shell Completions
 
@@ -74,39 +140,14 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 > [!IMPORTANT]
 > DoLogger is **pre-1.0**. MINOR releases may include breaking changes and the ABI may change — pin to an exact version in production. See the [Versioning & Deprecation Policy](Docs/en_US/guides/VersioningAndDeprecation.md).
 
-<details open>
-<summary>Architecture overview</summary>
+![Architecture](./Docs/assets/architecture.svg)
 
-```mermaid
-flowchart TD
-    APP["APPLICATION<br/>dologger_log() / dologger_logv()<br/>← C ABI (FFI)"]
-    APP -->|"102ns P50 (CAS push)"| RB
-
-    subgraph RB["LOCK-FREE MPSC RING BUFFER"]
-        direction LR
-        R1["Normal partition (90%)"]
-        R2["Audit partition (10%)"]
-        R3["Cooperative helping<br/>(producer-side drain)"]
-    end
-
-    RB -->|"Batch drain"| PIPE
-
-    subgraph PIPE["7-STAGE PIPELINE"]
-        direction TB
-        P0["PreFilter → Filter → FieldProvider → Assembly<br/>→ Processing → Formatting → Sink Fan-out"]
-        P1["Assembly: LSN assign + Ed25519 sign<br/>+ prev_hash chain"]
-        P2["Processing: CRC32C verify + secret detection"]
-    end
-
-    PIPE -->|"io_pool thread<br/>(channel dispatch)"| SINK
-
-    subgraph SINK["SINK LAYER"]
-        direction LR
-        S0["Console | File | Kafka | Syslog<br/>Webhook | SQLite | WORM<br/>Shared Memory | OpenTelemetry<br/>Security File"]
-    end
-```
-
-</details>
+The application pushes records straight into a lock-free MPSC ring buffer — no
+locks on the hot path. A background pipeline runs seven stages
+(PreFilter → Filter → FieldProvider → Assembly → Processing → Formatting →
+Sink), signing audit records with Ed25519 at the Assembly stage and verifying
+checksums at Processing. Batched drains fan out to the sink layer, so slow I/O
+never blocks the producer.
 
 ### Key Design Decisions
 
@@ -116,6 +157,29 @@ flowchart TD
 - **Backpressure**: 90% alert + cooperative helping, 95% emergency + optional drop
 - **6 non-downgradable items**: `enable_signature`, `escape_html`, `worm_enabled`, `fsync_on_write`, `require_tls`, `sign_ring2`
 - **4 performance profiles**: Dev / ProdPerformance / ProdAudit / Balanced — each binding to concrete timeouts and strategies
+
+---
+
+## Configuration & Deployment
+
+Default configuration works out of the box — `dologctl run` with no config
+uses built-in defaults, and `dologctl init --template dev` generates a
+development template.
+
+| Environment variable | Purpose |
+|:-:|:-:|
+| `DO_LOGGER_LIB_PATH` | Path to the shared library for language adapters |
+| `DO_LOG_PLUGIN_DIR` | Plugin search path (overrides `./plugins`) |
+| `DO_LOG_CONFIG_FILE` | Config file for `dologctl config validate` |
+
+```shell
+dologctl init --template gdpr    # EU GDPR
+dologctl init --template hipaa   # US HIPAA
+dologctl init --template pci     # PCI-DSS
+```
+
+Compliance templates activate the non-downgradable items and enforce audit
+requirements automatically.
 
 ---
 
@@ -163,24 +227,9 @@ Global flags: `--output json|text`, `--color auto|always|never`, `--quiet`, `--c
 
 | Level | Color | Signature Required | Syscall Access | Plugin Types |
 |:-:|:-:|:-:|:-:|:-:|
-| **Blue** | 🔵 | Ed25519 signed | Full | All |
-| **Yellow** | 🟡 | Self-signed | Restricted | Limited |
-| **Red** | 🔴 | None (dev mode) | Minimal allowlist | Filter, Formatter, Processor only |
-
----
-
-## Performance
-
-Measured on Windows 11 LTSC, Rust stable, Intel i5-12400F, release + LTO:
-
-| Benchmark | P50 | Throughput |
-|:-:|:-:|:-:|
-| Single record submit | **102 ns** | ~9.78M rec/s |
-| Ring buffer push (1K) | **121 μs** | ~8.26M rec/s |
-| Batch push (256) | **19.2 μs** | ~13.3M rec/s |
-| Signed submit (Ed25519) | **16.96 μs** | ~59K rec/s |
-
-CRC32C: hardware-accelerated via SSE 4.2 (`_mm_crc32_u64`) with Slicing-by-8 software fallback.
+| **Blue** | blue | Ed25519 signed | Full | All |
+| **Yellow** | yellow | Self-signed | Restricted | Limited |
+| **Red** | red | None (dev mode) | Minimal allowlist | Filter, Formatter, Processor only |
 
 ---
 
@@ -197,27 +246,13 @@ CRC32C: hardware-accelerated via SSE 4.2 (`_mm_crc32_u64`) with Slicing-by-8 sof
 
 ---
 
-## Compliance Templates
-
-Pre-built TOML templates for common regulatory frameworks:
-
-```bash
-dologctl init --template gdpr    # EU GDPR
-dologctl init --template hipaa   # US HIPAA
-dologctl init --template pci     # PCI-DSS
-```
-
-Templates automatically activate non-downgradable security items and enforce audit requirements.
-
----
-
 ## Language Adapters
 
 | Language | Location | Status |
 |:-:|:-:|:-:|
-| **Rust** | `adapters/rust/` | ✅ SDK crate (dologger-sdk) |
-| **Python** | `adapters/python/` | ✅ ctypes wrapper |
-| **Go** | `adapters/go/` | ✅ cgo wrapper |
+| **Rust** | `adapters/rust/` | SDK crate (dologger-sdk) |
+| **Python** | `adapters/python/` | ctypes wrapper |
+| **Go** | `adapters/go/` | cgo wrapper |
 
 ---
 
@@ -240,6 +275,7 @@ DoLogger/
 ├── adapters/                   # Language SDKs (Rust, Python, Go)
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS compliance templates
 ├── Docs/                       # Technical documentation
+│   ├── assets/                 # Static assets (architecture diagram, images)
 │   ├── zh_CN/                  # Chinese docs
 │   └── en_US/                  # English docs (auto-synced to the GitHub wiki)
 ├── tests/                      # Integration and security tests
@@ -253,7 +289,7 @@ DoLogger/
 ## Building
 
 ```bash
-# Prerequisites: Rust ≥ 1.70, CMake ≥ 3.20
+# Prerequisites: Rust stable, CMake ≥ 3.20
 cargo build --release
 
 # With Kafka support (requires librdkafka)
@@ -315,4 +351,4 @@ Licensed under either of [Apache License 2.0](LICENSE-APACHE) or [MIT license](L
 
 ---
 
-*Built with ❤️ by [@Nekolio](https://github.com/Nekolio) | nekoliowork+DoLogger@gmail.com*
+*Built by [@Nekolio](https://github.com/Nekolio) | nekoliowork+DoLogger@gmail.com*
