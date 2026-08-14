@@ -11,6 +11,7 @@
 //! all official plugins in ONE dynamic library.
 
 use std::ffi::{c_char, CStr};
+use std::sync::Mutex;
 
 use dologger_core::ffi::DologgerPluginInfo;
 use dologger_core::Record;
@@ -18,6 +19,7 @@ use serde_json::Value;
 
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
+const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
 
 // Plugin mount phase — Formatting stage
 const PHASE_FORMATTING: u32 = 0x0010;
@@ -67,11 +69,97 @@ fn is_zero_u128(hi: u64, lo: u64) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: format 128-bit timestamp as seconds.nanoseconds
+// Formatter configuration — parsed from the `init` config JSON
 // ---------------------------------------------------------------------------
 
-fn format_timestamp(hi: u64, lo: u64) -> String {
-    format!("{}.{:09}", hi, lo)
+/// Timestamp rendering mode selected via the `timestamp_format` config key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TimestampFormat {
+    /// Unix seconds.nanoseconds (default — matches historical output).
+    Unix,
+    /// Unix milliseconds (integer, rounded down).
+    UnixMs,
+    /// ISO 8601 UTC wall-clock (RFC 3339, `...Z`).
+    Iso8601,
+}
+
+/// Formatter options parsed from the `init` config JSON.
+///
+/// Thread-safe static shared with `format_impl`: `init` runs once before any
+/// `format` call, so this is set-then-read-only and the `Mutex` guard is held
+/// only for the duration of a single `format` call.
+#[derive(Debug, Clone, Copy)]
+struct JsonConfig {
+    /// Pretty-print the JSON output (multi-line, indented).
+    pretty: bool,
+    /// Include Ring-3 extension data (`ext_data`). Default false: Ring-3 is
+    /// arbitrary extension data, so it is opt-in for security-conscious sinks.
+    include_ring3: bool,
+    /// Include Ring-1 source location fields (file/function/line/column).
+    /// Default true: source location is core diagnostic information.
+    include_source: bool,
+    /// How to render the 128-bit `timestamp` field.
+    timestamp_format: TimestampFormat,
+}
+
+impl JsonConfig {
+    /// Default options. `const` so it can initialise the [`CONFIG`] static.
+    const fn default_config() -> Self {
+        Self {
+            pretty: false,
+            include_ring3: false,
+            include_source: true,
+            timestamp_format: TimestampFormat::Unix,
+        }
+    }
+}
+
+impl Default for JsonConfig {
+    fn default() -> Self {
+        Self::default_config()
+    }
+}
+
+/// Parsed formatter config, written once by [`init`] and read by `format_impl`.
+static CONFIG: Mutex<JsonConfig> = Mutex::new(JsonConfig::default_config());
+
+// ---------------------------------------------------------------------------
+// Helper: convert days-since-epoch to a civil (year, month, day) date
+// ---------------------------------------------------------------------------
+
+/// Convert days since 1970-01-01 to a (year, month, day) civil date.
+///
+/// Howard Hinnant's `civil_from_days` algorithm (public domain); correct for
+/// the full range of `i64` days. Kept dependency-free so ISO 8601 timestamp
+/// rendering needs no date-time crate.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097;
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
+/// Render a 128-bit `{seconds, nanos}` timestamp per the selected format.
+fn render_timestamp(hi: u64, lo: u64, fmt: TimestampFormat) -> String {
+    match fmt {
+        TimestampFormat::Unix => format!("{}.{:09}", hi, lo),
+        TimestampFormat::UnixMs => {
+            format!("{}", hi.saturating_mul(1000) + lo / 1_000_000)
+        }
+        TimestampFormat::Iso8601 => {
+            let sod = hi % 86_400;
+            let (h, mi, s) = (sod / 3600, (sod % 3600) / 60, sod % 60);
+            let (y, mo, d) = civil_from_days((hi / 86_400) as i64);
+            format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{:09}Z", lo)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,12 +194,21 @@ unsafe extern "C" fn format_impl(
     let max_len = unsafe { *output_len } as usize;
     let rec = unsafe { &*record };
 
-    let json_value = match record_to_json(rec) {
+    // Read the formatter config once (set by `init`); the Mutex guard is
+    // released as soon as the config is copied out.
+    let cfg = *CONFIG.lock().unwrap();
+
+    let json_value = match record_to_json(rec, &cfg) {
         Ok(v) => v,
         Err(_) => return -1,
     };
 
-    let json_bytes = match serde_json::to_vec(&json_value) {
+    let json_bytes = if cfg.pretty {
+        serde_json::to_vec_pretty(&json_value)
+    } else {
+        serde_json::to_vec(&json_value)
+    };
+    let json_bytes = match json_bytes {
         Ok(v) => v,
         Err(_) => return -1,
     };
@@ -134,8 +231,9 @@ unsafe extern "C" fn format_impl(
 // ---------------------------------------------------------------------------
 
 /// Build a `serde_json::Value` from a `Record`, including only non-empty /
-/// non-zero fields. Returns an error if any field access fails.
-fn record_to_json(rec: &Record) -> Result<Value, ()> {
+/// non-zero fields, honouring the formatter [`JsonConfig`]. Returns an error
+/// if any field access fails.
+fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
     let mut map = serde_json::Map::new();
 
     // ── Ring 0: Kernel-core fields ──
@@ -148,7 +246,11 @@ fn record_to_json(rec: &Record) -> Result<Value, ()> {
     if !is_zero_u128(rec.timestamp.hi, rec.timestamp.lo) {
         map.insert(
             "timestamp".to_string(),
-            Value::String(format_timestamp(rec.timestamp.hi, rec.timestamp.lo)),
+            Value::String(render_timestamp(
+                rec.timestamp.hi,
+                rec.timestamp.lo,
+                cfg.timestamp_format,
+            )),
         );
     }
     if rec.origin_lsn != 0 {
@@ -166,23 +268,25 @@ fn record_to_json(rec: &Record) -> Result<Value, ()> {
         map.insert("message".to_string(), Value::String(msg.to_string()));
     }
 
-    // ── Ring 1: Source location ──
-    let sf = rec.source_file.as_str();
-    if !sf.is_empty() {
-        map.insert("source_file".to_string(), Value::String(sf.to_string()));
-    }
-    let sfn = rec.source_function.as_str();
-    if !sfn.is_empty() {
-        map.insert(
-            "source_function".to_string(),
-            Value::String(sfn.to_string()),
-        );
-    }
-    if rec.source_line != 0 {
-        map.insert("source_line".to_string(), Value::from(rec.source_line));
-    }
-    if rec.source_column != 0 {
-        map.insert("source_column".to_string(), Value::from(rec.source_column));
+    // ── Ring 1: Source location (configurable via `source`) ──
+    if cfg.include_source {
+        let sf = rec.source_file.as_str();
+        if !sf.is_empty() {
+            map.insert("source_file".to_string(), Value::String(sf.to_string()));
+        }
+        let sfn = rec.source_function.as_str();
+        if !sfn.is_empty() {
+            map.insert(
+                "source_function".to_string(),
+                Value::String(sfn.to_string()),
+            );
+        }
+        if rec.source_line != 0 {
+            map.insert("source_line".to_string(), Value::from(rec.source_line));
+        }
+        if rec.source_column != 0 {
+            map.insert("source_column".to_string(), Value::from(rec.source_column));
+        }
     }
 
     // ── Ring 1: Thread / Process ──
@@ -296,10 +400,12 @@ fn record_to_json(rec: &Record) -> Result<Value, ()> {
         map.insert("audit_tags".to_string(), Value::String(at.to_string()));
     }
 
-    // ── Ring 3: Extension data ──
-    let ed = rec.ext_data.as_str();
-    if !ed.is_empty() {
-        map.insert("ext_data".to_string(), Value::String(ed.to_string()));
+    // ── Ring 3: Extension data (configurable via `include_ring3`) ──
+    if cfg.include_ring3 {
+        let ed = rec.ext_data.as_str();
+        if !ed.is_empty() {
+            map.insert("ext_data".to_string(), Value::String(ed.to_string()));
+        }
     }
 
     Ok(Value::Object(map))
@@ -336,18 +442,44 @@ pub fn plugin_info() -> &'static DologgerPluginInfo {
 
 pub fn init(config: *const std::ffi::c_void) -> i32 {
     if config.is_null() {
-        return DO_LOG_OK; // Use defaults
+        // Null config ⇒ "use defaults": reset to the initial values.
+        *CONFIG.lock().unwrap() = JsonConfig::default();
+        return DO_LOG_OK;
     }
 
     // Config is a JSON string: {"pretty":false,"include_ring3":false,...}
     // SAFETY: config validated non-null above. CStr::from_ptr reads a
     // null-terminated UTF-8 string provided by the host.
     let config_str = unsafe { CStr::from_ptr(config as *const c_char) };
-    if let Ok(_s) = config_str.to_str() {
-        // TODO: Parse config fields (pretty, include_ring3, timestamp_format)
-        // and store in static state for use by format_impl.
-        // For now, we accept any valid config and use defaults.
+    let Ok(s) = config_str.to_str() else {
+        return DO_LOG_ERR_INVALID_ARG; // Not valid UTF-8
+    };
+    let Ok(value) = serde_json::from_str::<Value>(s) else {
+        return DO_LOG_ERR_INVALID_ARG; // Not valid JSON
+    };
+    let Some(obj) = value.as_object() else {
+        return DO_LOG_ERR_INVALID_ARG; // Config must be a JSON object
+    };
+
+    let mut cfg = JsonConfig::default();
+    if let Some(p) = obj.get("pretty").and_then(Value::as_bool) {
+        cfg.pretty = p;
     }
+    if let Some(r) = obj.get("include_ring3").and_then(Value::as_bool) {
+        cfg.include_ring3 = r;
+    }
+    if let Some(s) = obj.get("source").and_then(Value::as_bool) {
+        cfg.include_source = s;
+    }
+    if let Some(f) = obj.get("timestamp_format").and_then(Value::as_str) {
+        cfg.timestamp_format = match f {
+            "unix_ms" => TimestampFormat::UnixMs,
+            "iso8601" => TimestampFormat::Iso8601,
+            _ => TimestampFormat::Unix, // "unix" or unknown → default
+        };
+    }
+
+    *CONFIG.lock().unwrap() = cfg;
     DO_LOG_OK
 }
 
@@ -367,6 +499,7 @@ pub fn shutdown() -> i32 {
 mod tests {
     use super::*;
     use dologger_core::Record;
+    use std::ffi::CString;
 
     #[test]
     fn test_plugin_info_returns_valid_entry() {
@@ -392,6 +525,102 @@ mod tests {
     }
 
     #[test]
+    fn test_init_parses_config_and_affects_output() {
+        // Reset to defaults first, then apply a full non-default config.
+        init(std::ptr::null());
+        let cfg = CString::new(
+            r#"{"pretty":true,"include_ring3":true,"source":false,"timestamp_format":"unix_ms"}"#,
+        )
+        .unwrap();
+        assert_eq!(init(cfg.as_ptr() as *const std::ffi::c_void), DO_LOG_OK);
+
+        let mut record = Record::new(0);
+        record.timestamp = dologger_core::ffi::dologger_uint128_t {
+            hi: 1_700_000_000,
+            lo: 500_000_000,
+        };
+        record.level = dologger_core::LogLevel::Warn;
+        record.message.set("cfg");
+        record.source_file.set("main.rs");
+        record.source_line = 7;
+        record.ext_data.set(r#"{"tenant":"acme"}"#);
+
+        let mut output_buf = vec![0u8; 8192];
+        let mut output_len: u32 = output_buf.len() as u32;
+        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
+        assert_eq!(result, DO_LOG_OK);
+        let json_str =
+            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid UTF-8");
+
+        // pretty ⇒ multi-line output with newlines.
+        assert!(
+            json_str.contains('\n'),
+            "expected pretty output, got: {json_str}"
+        );
+
+        let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
+        let obj = parsed.as_object().unwrap();
+        // include_ring3=true ⇒ ext_data present.
+        assert_eq!(obj["ext_data"], r#"{"tenant":"acme"}"#);
+        // timestamp_format=unix_ms ⇒ integer millis (1700000000.5s → 1700000000500ms).
+        assert_eq!(obj["timestamp"], "1700000000500");
+        // source=false ⇒ source fields absent.
+        assert!(!obj.contains_key("source_file"));
+        assert!(!obj.contains_key("source_line"));
+
+        // Reset so later tests see defaults.
+        init(std::ptr::null());
+    }
+
+    #[test]
+    fn test_init_rejects_invalid_config() {
+        let invalid = CString::new("not json").unwrap();
+        assert_eq!(
+            init(invalid.as_ptr() as *const std::ffi::c_void),
+            DO_LOG_ERR_INVALID_ARG
+        );
+
+        // A non-object JSON value is also invalid.
+        let arr = CString::new("[1,2,3]").unwrap();
+        assert_eq!(
+            init(arr.as_ptr() as *const std::ffi::c_void),
+            DO_LOG_ERR_INVALID_ARG
+        );
+
+        init(std::ptr::null()); // reset
+    }
+
+    #[test]
+    fn test_render_timestamp_modes() {
+        let (hi, lo) = (1_700_000_000u64, 123_456_789u64);
+        assert_eq!(
+            render_timestamp(hi, lo, TimestampFormat::Unix),
+            "1700000000.123456789"
+        );
+        assert_eq!(
+            render_timestamp(hi, lo, TimestampFormat::UnixMs),
+            "1700000000123"
+        );
+        // 1970-01-01 00:00:00 UTC → ISO 8601.
+        assert_eq!(
+            render_timestamp(0, 0, TimestampFormat::Iso8601),
+            "1970-01-01T00:00:00.000000000Z"
+        );
+        // 2000-01-01T17:54:56Z = 946749296s (verified via `date`); nanos 7.
+        assert_eq!(
+            render_timestamp(946_749_296, 7, TimestampFormat::Iso8601),
+            "2000-01-01T17:54:56.000000007Z"
+        );
+    }
+
+    #[test]
+    fn test_civil_from_days_known_dates() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_days(10_957), (2000, 1, 1)); // verified: 10957 days
+        assert_eq!(civil_from_days(19_534), (2023, 6, 26)); // verified: 19534 days
+    }
+
+    #[test]
     fn test_format_null_pointers() {
         // All null → error
         assert_eq!(
@@ -410,6 +639,7 @@ mod tests {
 
     #[test]
     fn test_format_empty_record() {
+        init(std::ptr::null()); // reset config to defaults
         let record = Record::new(0);
         let mut output_buf = vec![0u8; 4096];
         let mut output_len: u32 = output_buf.len() as u32;
@@ -431,6 +661,7 @@ mod tests {
 
     #[test]
     fn test_format_populated_record() {
+        init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
 
         // Set some fields
@@ -484,6 +715,7 @@ mod tests {
 
     #[test]
     fn test_format_respects_output_buffer_limit() {
+        init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
         record
             .message
@@ -509,6 +741,7 @@ mod tests {
 
     #[test]
     fn test_format_skips_empty_fields() {
+        init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
         // Set only two fields — everything else is default/empty
         record.level = dologger_core::LogLevel::Info;
@@ -539,6 +772,7 @@ mod tests {
 
     #[test]
     fn test_format_json_is_valid_utf8() {
+        init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
         record.level = dologger_core::LogLevel::Debug;
         record.message.set("UTF-8 test: \u{00e9}\u{00f1}\u{00fc}");
