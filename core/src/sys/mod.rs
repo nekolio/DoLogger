@@ -17,4 +17,4 @@ pub use host_info::HostInfoProvider;
 pub use internal_log::{DiagLevel, InternalLog};
 pub use system_monitor::{Sysmon, SysmonEvent};
 pub use thread_pool::{PoolSet, ThreadPool};
-pub use time::TimeSource;
+pub use time::{MonotonicClock, TimeSource};
