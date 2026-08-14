@@ -36,6 +36,28 @@ core/src/sink/shared_memory.rs     # shared_memory，位于 sink 模块内
 - 同目录兄弟文件遵循同一语法：`sink/` 用一个 sink 一文件的裸名词（`console`、`file`、`syslog`），基础设施用 `{对象}`（`ring_buffer`）。
 - 除 §4 所列，文件名中不得使用缩写。
 
+### Shell 脚本（`scripts/`、`peripheral/github/scripts/`）
+
+可执行脚本采用 PowerShell 式「动词-名词」命名：
+
+```
+{动词}-{宾语}.sh        # build-all.sh、setup-conan.sh、check-env.sh
+```
+
+- `{动词}` 取自下表；`{宾语}` 为小写目标，多词用连字符（`release-notes`）。
+- `.sh` 后缀**强制**——每个 Bash 脚本都必须带。不允许无后缀、`dologger-` 前缀的名字：目录已表明项目身份，脚本以 `bash scripts/<名>.sh` 调用。
+- 只用全词——`generate-release-notes.sh`，绝不写 `gen-release-notes.sh`。
+
+批准动词（新动词须加入下表并评审，同 §3）：
+
+| 动词 | 含义 |
+|:-:|:-:|
+| `build` | 编译产物 |
+| `setup` | 安装/探测前置条件 |
+| `check` | 校验环境或输出 |
+| `sync` | 将内容镜像到目标 |
+| `generate` | 从 git 状态生成文档/正文 |
+
 ## 3. 批准的角色后缀词表
 
 角色后缀是 PowerShell「动词-名词」规则在代码层面的对应物：「动词」即文件的角色，取自一份固定词表。新角色须加入词表（并评审），而非临时自造。

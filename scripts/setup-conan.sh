@@ -13,14 +13,13 @@
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Shared helpers (PROJECT_DIR, colours, die/info) — resolves the repo root
+# regardless of the invocation directory.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+cd "$PROJECT_DIR"
+
 PROFILES_DIR="$PROJECT_DIR/.conan/profiles"
 BUILD_DIR="${BUILD_DIR:-$PROJECT_DIR/build}"
-
-# Colours
-RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
-YELLOW='\033[1;33m'; BOLD='\033[1m'; NC='\033[0m'
 
 banner() {
     echo ""

@@ -491,7 +491,7 @@ jobs:
           sed -i 's/^          //' benchmark-results.md
           cat benchmark-results.md
 
-          # Machine-readable copy for the site (scripts/build-site.sh
+          # Machine-readable copy for the site (peripheral/github/scripts/build-site.sh
           # downloads this release asset server-side — browsers cannot fetch
           # release assets due to CORS). Same numbers as the markdown:
           # perf --output json is the CLI's own JSON emitter; criterion is
@@ -568,9 +568,9 @@ jobs:
           merge-multiple: true
 
       # The machine-readable benchmark-results.json DOES ship as a release
-      # asset: scripts/build-site.sh downloads it server-side when the site
-      # is built (browsers cannot fetch release assets — CORS). Copied in
-      # before checksums so it is covered by checksums-sha256.txt too.
+      # asset: peripheral/github/scripts/build-site.sh downloads it server-side when
+      # the site is built (browsers cannot fetch release assets — CORS).
+      # Copied in before checksums so it is covered by checksums-sha256.txt too.
       - name: Add benchmark JSON to release assets
         run: |
           cp bench/benchmark-results.json release-artifacts/benchmark-results.json
@@ -663,7 +663,7 @@ jobs:
       - name: Generate release notes
         shell: bash
         run: |
-          bash scripts/gen-release-notes.sh "${{ github.ref_name }}" > release-notes.md
+          bash peripheral/github/scripts/generate-release-notes.sh "${{ github.ref_name }}" > release-notes.md
 
       - name: Merge benchmark results into release notes
         shell: bash

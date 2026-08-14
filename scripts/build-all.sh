@@ -16,15 +16,15 @@
 # ==============================================================================
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+# Shared helpers (PROJECT_DIR, colours, die/info) — resolves the repo root
+# regardless of the invocation directory.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+cd "$PROJECT_DIR"
+
 BUILD_TYPE="debug"
 BUILD_FLAGS=""
 CORE_ONLY=false
 RUN_TESTS=false
-
-# Colours
-RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 for arg in "$@"; do
     case "$arg" in
@@ -71,7 +71,7 @@ if [ "$CORE_ONLY" = false ] && [ -f "$PROJECT_DIR/conanfile.py" ]; then
     CURRENT=$((CURRENT + 1))
     step "$CURRENT" "C dependencies (Conan)..."
     if command -v conan &>/dev/null; then
-        bash "$SCRIPT_DIR/setup-conan.sh" || echo "  Conan setup skipped (deps may already be installed)"
+        bash "$PROJECT_DIR/scripts/setup-conan.sh" || echo "  Conan setup skipped (deps may already be installed)"
     else
         echo "  Conan not installed — skipping C dependency management"
         echo "  Install: pip install conan"
@@ -94,7 +94,7 @@ echo "  CLI tool:     target/$BUILD_TYPE/dologctl"
 if [ "$CORE_ONLY" = false ]; then
     CURRENT=$((CURRENT + 1))
     step "$CURRENT" "Building non-Rust plugins..."
-    bash "$SCRIPT_DIR/build-plugins.sh" --"$BUILD_TYPE"
+    bash "$PROJECT_DIR/scripts/build-plugins.sh" --"$BUILD_TYPE"
 fi
 
 # ── Step 5: Run tests (optional) ─────────────────────────────────────────

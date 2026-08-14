@@ -67,10 +67,10 @@ One-command setup:
 
 ```bash
 # Linux / macOS
-bash scripts/dologger-setup-dev
+bash scripts/setup-dev.sh
 
 # Windows (the env check is a bash script — run it from Git Bash)
-bash scripts/dologger-env-check
+bash scripts/check-env.sh
 ```
 
 ---
@@ -565,7 +565,7 @@ flowchart TD
 
 ```bash
 # What's my platform?
-bash scripts/dologger-env-check
+bash scripts/check-env.sh
 
 # Is Conan ready?
 bash scripts/setup-conan.sh --detect

@@ -134,9 +134,10 @@ Deep dive into the full specification?
 | [compliance/README.md](../compliance/README.md) | GDPR / HIPAA / PCI-DSS compliance templates |
 | [conanfile.py](../conanfile.py) | Conan 2.x C dependency recipe |
 | [cmake/](../cmake/) | CMake helper modules (cross-compilation, Conan toolchain) |
-| [scripts/](../scripts/) | Build, setup, and CI automation scripts |
+| [scripts/](../scripts/) | Build and setup scripts (local + CI) |
 | [tools/](../peripheral/tools/) | Maintainer-only auxiliary tools — **not part of the project**; see [tools/README.md](../peripheral/tools/README.md) |
 | [site/](../peripheral/site/) | Vue 3 + TypeScript landing page (GitHub Pages) |
+| [github/](../peripheral/github/) | GitHub publishing automation — Pages / wiki / release scripts |
 | [.conan/profiles/](../.conan/profiles/) | Pre-built Conan cross-compilation profiles |
 
 ### Project Conventions / 工程规范

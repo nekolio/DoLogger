@@ -304,10 +304,12 @@ DoLogger/
 ├── docs/                       # 技术文档（中英双语，自动同步至 wiki）
 │   └── assets/                 # hero.svg、architecture.svg
 ├── tests/                      # 测试套件（common/、release-smoke/、security/）
-├── scripts/                    # 构建、CI、发布与开发环境脚本
+├── scripts/                    # 构建与开发环境脚本（本地 + CI）
 ├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）
 └── peripheral/                 # 非产品：营销站 + 维护工具
     ├── site/                   # Vue 3 + TypeScript 落地页（GitHub Pages）
+    ├── github/                 # GitHub 发布自动化
+    │   └── scripts/            #   build-site · sync-wiki · generate-release-notes
     └── tools/                  # 仅维护者使用的辅助工具（见 peripheral/tools/README.md）
 ```
 

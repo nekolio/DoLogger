@@ -37,11 +37,13 @@ DoLogger/
 ├── cmake/                         ← CMake 辅助模块
 ├── docker/                        ← 容器镜像（Dockerfile.dev；运行时镜像在 v1.0.0）
 ├── .conan/                        ← 交叉编译 profile
-├── scripts/                       ← 构建 / CI / 发布 / 环境脚本
+├── scripts/                       ← 构建 / 环境脚本（本地 + CI）
 │
 │  ⑥ 外围（非产品、非构建）
 └── peripheral/
     ├── site/                      ← GitHub Pages 营销站（Vue 3）
+    ├── github/                    ← GitHub 发布自动化
+    │   └── scripts/               ←   build-site · sync-wiki · generate-release-notes
     └── tools/                     ← 仅维护者使用的工具（hero-svg）
 ```
 
@@ -75,8 +77,10 @@ DoLogger/
 | `site/`（根） | `peripheral/site/` | 非产品：营销 |
 | `tools/`（根） | `peripheral/tools/` | 非产品：维护工具 |
 | `Docs/` | `docs/` | 小写，对齐企划书 §3.3，并修复大小写敏感的 `.gitignore` 不匹配 |
+| `scripts/build-site.sh` · `sync-wiki.sh` · `generate-release-notes.sh` | `peripheral/github/scripts/` | GitHub 发布自动化属外围，非构建基础设施 |
+| `scripts/ci-build.sh` · `ci-test.sh` · `*.ps1` | *（已删除）* | 死代码 / 孤儿 —— workflows 内联执行等价命令 |
 
-部署路径已同步更新：`pages.yml` / `wiki-sync.yml` 的 `paths:` 过滤器、`scripts/build-site.sh`、`scripts/sync-wiki.sh`、`peripheral/tools/hero-svg/hero_gen.py`。
+部署路径已同步更新：`pages.yml` / `wiki-sync.yml` 的 `paths:` 过滤器、`peripheral/github/scripts/build-site.sh`、`peripheral/github/scripts/sync-wiki.sh`、`peripheral/tools/hero-svg/hero_gen.py`。
 
 ## 5. 新增条目的判断准则
 

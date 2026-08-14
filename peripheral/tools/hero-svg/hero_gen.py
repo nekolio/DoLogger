@@ -27,7 +27,7 @@ Output is deterministic (all randomness is seeded by fixed timeline values),
 so regenerating produces a byte-identical file unless the LINES/data above
 are edited. Writes docs/assets/hero.svg and keeps peripheral/site/public/assets/hero.svg
 in sync (both are the same brand image; the site build also re-copies the
-docs copy, see scripts/build-site.sh).
+docs copy, see peripheral/github/scripts/build-site.sh).
 """
 
 import math
@@ -604,8 +604,9 @@ with open(OUT, "w", encoding="utf-8") as f:
     f.write(svg)
 
 # Keep the site copy in sync (same brand image, two consumers: README/docs
-# and the landing page). build-site.sh re-copies the Docs copy into dist
-# anyway; syncing public/ here keeps local `bun run dev/build` honest too.
+# and the landing page). peripheral/github/scripts/build-site.sh re-copies the Docs
+# copy into dist anyway; syncing public/ here keeps local `bun run dev/build`
+# honest too.
 with open(SITE_OUT, "w", encoding="utf-8") as f:
     f.write(svg)
 

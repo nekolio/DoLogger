@@ -64,10 +64,10 @@ Conan 是一个 **C/C++ 包管理器**（类似于 Node.js 的 npm 或 Python �
 
 ```bash
 # Linux / macOS
-bash scripts/dologger-setup-dev
+bash scripts/setup-dev.sh
 
 # Windows（Git Bash；仓库中该脚本为 bash 脚本，无 .ps1 版本）
-bash scripts/dologger-env-check
+bash scripts/check-env.sh
 ```
 
 ---
@@ -494,7 +494,7 @@ flowchart TD
 
 ```bash
 # 我的平台是什么？
-bash scripts/dologger-env-check
+bash scripts/check-env.sh
 
 # Conan 就绪了吗？
 bash scripts/setup-conan.sh --detect

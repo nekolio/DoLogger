@@ -22,7 +22,7 @@ on:
     paths:
       - 'peripheral/site/**'
       - 'docs/assets/**'
-      - 'scripts/build-site.sh'
+      - 'peripheral/github/scripts/build-site.sh'
       - '.github/workflows/pages.yml'
   repository_dispatch:
     types: [pages-update]
@@ -64,7 +64,7 @@ jobs:
       - name: Build site artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/build-site.sh peripheral/site/dist
+        run: bash peripheral/github/scripts/build-site.sh peripheral/site/dist
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

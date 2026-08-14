@@ -39,11 +39,13 @@ DoLogger/
 ├── cmake/                         ← CMake helper modules
 ├── docker/                        ← container images (Dockerfile.dev; runtime in v1.0.0)
 ├── .conan/                        ← cross-compile profiles
-├── scripts/                       ← build / CI / release / setup scripts
+├── scripts/                       ← build / setup scripts (local + CI)
 │
 │  ⑥ Peripheral (non-product, non-build)
 └── peripheral/
     ├── site/                      ← GitHub Pages marketing site (Vue 3)
+    ├── github/                    ← GitHub publishing automation
+    │   └── scripts/               ←   build-site · sync-wiki · generate-release-notes
     └── tools/                     ← maintainer-only utilities (hero-svg)
 ```
 
@@ -85,9 +87,12 @@ CI, or build tooling stop working — usually without an error.
 | `site/` (root) | `peripheral/site/` | non-product: marketing |
 | `tools/` (root) | `peripheral/tools/` | non-product: maintainer utilities |
 | `Docs/` | `docs/` | lowercase, aligns with the design doc §3.3 and fixes the case-sensitive `.gitignore` mismatch |
+| `scripts/build-site.sh` · `sync-wiki.sh` · `generate-release-notes.sh` | `peripheral/github/scripts/` | GitHub publishing automation is peripheral, not build infrastructure |
+| `scripts/ci-build.sh` · `ci-test.sh` · `*.ps1` | *(removed)* | dead / orphaned — workflows run the equivalent inline |
 
 Deployment paths were updated in lockstep: `pages.yml` / `wiki-sync.yml`
-`paths:` filters, `scripts/build-site.sh`, `scripts/sync-wiki.sh`,
+`paths:` filters, `peripheral/github/scripts/build-site.sh`,
+`peripheral/github/scripts/sync-wiki.sh`,
 `peripheral/tools/hero-svg/hero_gen.py`.
 
 ## 5. Rule of thumb for new entries

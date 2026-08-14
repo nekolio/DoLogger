@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gen-release-notes.sh — assemble the GitHub Release body.
+# generate-release-notes.sh — assemble the GitHub Release body.
 #
 # The release page is the changelog for its version. The body is written in
 # two self-contained sections — English, then Chinese — switched via the
@@ -10,12 +10,17 @@
 # per-release benchmark job.
 #
 # Usage:
-#   scripts/gen-release-notes.sh <tag> > release-notes.md
+#   peripheral/github/scripts/generate-release-notes.sh <tag> > release-notes.md
 #
 # Requires a full git history (actions/checkout with fetch-depth: 0).
 set -euo pipefail
 
-TAG="${1:?usage: gen-release-notes.sh <tag>}"
+# git describe/log below need the repository; resolve ROOT so this works no
+# matter where the workflow invokes the script from.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$ROOT"
+
+TAG="${1:?usage: generate-release-notes.sh <tag>}"
 BODY="$(mktemp)"
 
 # ── Commit list since the previous tag ─────────────────────────────

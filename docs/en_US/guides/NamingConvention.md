@@ -47,6 +47,31 @@ Rules:
   infrastructure (`ring_buffer`).
 - No abbreviations in file names unless listed in §4.
 
+### Shell scripts (`scripts/`, `peripheral/github/scripts/`)
+
+Executable scripts use PowerShell-style *verb-noun* names:
+
+```
+{verb}-{object}.sh        # build-all.sh, setup-conan.sh, check-env.sh
+```
+
+- `{verb}` comes from the approved list below; `{object}` is the target in
+  lowercase, hyphen-separated when multi-word (`release-notes`).
+- The `.sh` suffix is **mandatory** — every Bash script carries it. No
+  extension-less, `dologger-`-prefixed names: the directory already names the
+  project, and the file is invoked as `bash scripts/<name>.sh`.
+- Full words only — `generate-release-notes.sh`, never `gen-release-notes.sh`.
+
+Approved verbs (add new ones here with a review, as in §3):
+
+| Verb | Meaning |
+|:-:|:-:|
+| `build` | Compiles artifacts |
+| `setup` | Installs or detects prerequisites |
+| `check` | Verifies an environment or output |
+| `sync` | Mirrors content to a target |
+| `generate` | Produces a document/body from git state |
+
 ## 3. Approved role suffixes
 
 A role suffix is the code-level analogue of PowerShell's *verb-noun* rule: the

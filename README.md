@@ -313,10 +313,12 @@ DoLogger/
 ├── docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
 │   └── assets/                 # hero.svg, architecture.svg
 ├── tests/                      # Test suites (common/, release-smoke/, security/)
-├── scripts/                    # Build, CI, release, and setup scripts
+├── scripts/                    # Build and setup scripts (local + CI)
 ├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
 └── peripheral/                 # Non-product: marketing site + maintainer tools
     ├── site/                   # Vue 3 + TypeScript landing page (GitHub Pages)
+    ├── github/                 # GitHub publishing automation
+    │   └── scripts/            #   build-site · sync-wiki · generate-release-notes
     └── tools/                  # Maintainer-only aux tools (see peripheral/tools/README.md)
 ```
 

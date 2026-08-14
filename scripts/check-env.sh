@@ -2,11 +2,15 @@
 # ==============================================================================
 # DoLogger Development Environment Check
 # ==============================================================================
-# Usage: bash scripts/dologger-env-check
+# Usage: bash scripts/check-env.sh
 # Exit code 0 = all OK, 1 = some missing
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+# Shared helpers (PROJECT_DIR, colours, die/info) — resolves the repo root
+# regardless of the invocation directory.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+cd "$PROJECT_DIR"
+
 MISSING=0
 
 check() {

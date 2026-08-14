@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the GitHub Pages artifact for the DoLogger site.
 #
-# Runs identically locally and in CI:  bash scripts/build-site.sh [OUT]
+# Runs identically locally and in CI:  bash peripheral/github/scripts/build-site.sh [OUT]
 # (default OUT=peripheral/site/dist).
 #
 #  1. Builds the Vue 3 + TypeScript app with Vite (bun if available, else
@@ -18,7 +18,7 @@ set -euo pipefail
 
 OUT="${1:-peripheral/site/dist}"
 REPO="Nekolio/DoLogger"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 # 1. Vite build (vue-tsc type-check runs inside `bun run build` too).
 cd "$ROOT/peripheral/site"

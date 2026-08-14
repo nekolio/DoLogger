@@ -36,7 +36,7 @@ python3 tools/hero-svg/hero_gen.py
 
 - Writes `docs/assets/hero.svg` (source of truth).
 - Also syncs `site/public/assets/hero.svg` so local site builds never ship a
-  stale copy (`scripts/build-site.sh` re-copies the Docs copy at CI time).
+  stale copy (`peripheral/github/scripts/build-site.sh` re-copies the Docs copy at CI time).
 - Output is deterministic: with unchanged inputs, regeneration is a no-op.
 - Requires only the Python 3 standard library.
 

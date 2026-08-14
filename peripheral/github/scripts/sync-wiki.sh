@@ -10,12 +10,17 @@
 # switch headers keep working on the wiki.
 #
 # Usage:
-#   CI:      scripts/sync-wiki.sh     (uses $GITHUB_TOKEN / $GITHUB_REPOSITORY)
-#   Local:   scripts/sync-wiki.sh     (uses `gh auth token`)
+#   CI:      peripheral/github/scripts/sync-wiki.sh  (uses $GITHUB_TOKEN / $GITHUB_REPOSITORY)
+#   Local:   peripheral/github/scripts/sync-wiki.sh  (uses `gh auth token`)
 #
 # Exit codes: 0 = wiki updated or already in sync or not yet initialized.
 #             1 = real failure worth surfacing.
 set -euo pipefail
+
+# Run from the repo root so docs/ paths and git commands resolve regardless
+# of where the workflow invokes this script from.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+cd "$ROOT"
 
 REPO="${GITHUB_REPOSITORY:-Nekolio/DoLogger}"
 BRANCH="${GITHUB_REF_NAME:-main}"

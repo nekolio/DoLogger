@@ -2,8 +2,8 @@
  *
  * Fetches version / release / benchmark data from the GitHub API with a
  * localStorage cache, and falls back to build-time JSON baked by
- * scripts/build-site.sh, then to the v0.1.0 manifest below. The page
- * picks up a new release with no code change.
+ * peripheral/github/scripts/build-site.sh, then to the v0.1.0 manifest below. The
+ * page picks up a new release with no code change.
  *
  * Resolution order per dataset:
  *   fresh cache → GitHub API → stale cache → baked JSON → hardcoded fallback
@@ -221,9 +221,9 @@ interface BakedBenchmarks {
 }
 
 /* benchmark-results.json is baked into the artifact at build time by
- * scripts/build-site.sh (server-side — the browser cannot fetch release
- * assets reliably). Normalize the release.yml schema into the same shape
- * as the fallback. */
+ * peripheral/github/scripts/build-site.sh (server-side — the browser cannot fetch
+ * release assets reliably). Normalize the release.yml schema into the same
+ * shape as the fallback. */
 async function getBenchmarks(): Promise<Benchmarks> {
   const baked = await fetchJson<BakedBenchmarks>('./data/benchmarks.json')
   if (baked && !baked.fallback) return normalizeBakedBenchmarks(baked)
