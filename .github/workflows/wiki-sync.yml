@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'Docs/**'
+      - 'docs/**'
       - 'scripts/sync-wiki.sh'
       - '.github/workflows/wiki-sync.yml'
   workflow_dispatch: {}

@@ -73,8 +73,8 @@ pub use sink::callback as sink_callback;
 pub use sink::file as sink_file;
 #[cfg(feature = "sink-kafka")]
 pub use sink::kafka as sink_kafka;
-#[cfg(feature = "sink-webhook")]
-pub use sink::otel as sink_otel;
+#[cfg(feature = "sink-otel")]
+pub use sink::open_telemetry as sink_otel;
 pub use sink::security as sink_security;
 pub use sink::shm as sink_shm;
 #[cfg(feature = "sink-sqlite")]
@@ -84,11 +84,13 @@ pub use sink::syslog as sink_syslog;
 pub use sink::webhook as sink_webhook;
 pub use sink::worm as sink_worm;
 pub use sys::control_plane;
-pub use sys::diag;
+pub use sys::diagnostics;
+pub use sys::diagnostics as diag;
 pub use sys::host_info;
 pub use sys::internal_log;
 pub use sys::io;
-pub use sys::sysmon;
+pub use sys::system_monitor;
+pub use sys::system_monitor as sysmon;
 pub use sys::thread_pool;
 pub use sys::time;
 
@@ -178,7 +180,7 @@ impl CooperativeHelping {
         });
 
         if drained > 0 {
-            crate::sys::diag::info(
+            crate::sys::diagnostics::info(
                 "coop_helping",
                 &format!("Helped drain {drained} records (fill={:.1}%)", fill * 100.0),
             );
@@ -228,7 +230,7 @@ impl Engine {
     /// Initialize the engine with the given config.
     pub fn init(config: DologgerConfig) -> Result<Self, String> {
         // Initialise diagnostic log FIRST — before any other operations
-        crate::sys::diag::init("./dologger_internal.log");
+        crate::sys::diagnostics::init("./dologger_internal.log");
 
         let pool_capacity = config.ring_buffer_size;
         let pool = Arc::new(RecordPool::new(pool_capacity));
@@ -280,7 +282,10 @@ impl Engine {
         // missing store can never brick the engine.
         if let Some(store) = &config.plugin_trust_store {
             if let Err(e) = plugin_manager.load_trust_store(std::path::Path::new(store)) {
-                crate::sys::diag::warn("engine", &format!("plugin trust store load failed: {e}"));
+                crate::sys::diagnostics::warn(
+                    "engine",
+                    &format!("plugin trust store load failed: {e}"),
+                );
             }
         } else if let Some(anchor_hex) = &config.plugin_trust_anchor {
             match hex::decode(anchor_hex) {
@@ -289,7 +294,7 @@ impl Engine {
                     anchor.copy_from_slice(&bytes);
                     plugin_manager.set_trust_anchor(anchor);
                 }
-                _ => crate::sys::diag::warn(
+                _ => crate::sys::diagnostics::warn(
                     "engine",
                     "plugin_trust_anchor must be a 64-hex Ed25519 public key",
                 ),
@@ -391,8 +396,8 @@ impl Engine {
         }
 
         self.sysmon.shutdown();
-        crate::sys::diag::info("core", "DoLogger engine shutdown complete");
-        crate::sys::diag::close();
+        crate::sys::diagnostics::info("core", "DoLogger engine shutdown complete");
+        crate::sys::diagnostics::close();
     }
 }
 

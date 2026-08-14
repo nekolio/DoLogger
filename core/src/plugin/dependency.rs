@@ -145,7 +145,7 @@ impl DependencyValidator {
                     for &(provider_name, provider_stage) in providers {
                         if provider_stage >= consumer_stage {
                             // Provider is at the same or later stage — ordering violation
-                            crate::sys::diag::warn(
+                            crate::sys::diagnostics::warn(
                                 "dependency",
                                 &format!(
                                     "Pipeline ordering violation: plugin '{}' (stage {}) requires field '{}' \

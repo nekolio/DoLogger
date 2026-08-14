@@ -1,6 +1,6 @@
 # Security Policy
 
-> 🌐 **语言 / Language**: 中文说明见[下半部分](#安全政策中文版) · Full Chinese docs: [安全开发规范](Docs/zh_CN/guides/SecurityDevelopmentSpec.md)
+> 🌐 **语言 / Language**: 中文说明见[下半部分](#安全政策中文版) · Full Chinese docs: [安全开发规范](docs/zh_CN/guides/SecurityDevelopmentSpec.md)
 
 ## Supported Versions
 
@@ -36,8 +36,8 @@ DoLogger is a security product — reports from security researchers are treated
 
 The design baseline is documented in:
 
-- [Security Whitepaper](Docs/en_US/guides/SecurityWhitepaper.md) — threat model, Ed25519 audit chain, WORM guarantees
-- [Security Development Spec](Docs/en_US/guides/SecurityDevelopmentSpec.md) — 15 implemented security tests, coding requirements
+- [Security Whitepaper](docs/en_US/guides/SecurityWhitepaper.md) — threat model, Ed25519 audit chain, WORM guarantees
+- [Security Development Spec](docs/en_US/guides/SecurityDevelopmentSpec.md) — 15 implemented security tests, coding requirements
 
 ---
 
@@ -77,5 +77,5 @@ DoLogger 本身是安全产品,来自安全研究者的报告将被优先处理�
 
 设计基线文档:
 
-- [安全白皮书](Docs/zh_CN/guides/SecurityWhitepaper.md) —— 威胁模型、Ed25519 审计链、WORM 保证
-- [安全开发规范](Docs/zh_CN/guides/SecurityDevelopmentSpec.md) —— 15 项已实现的安全测试与编码要求
+- [安全白皮书](docs/zh_CN/guides/SecurityWhitepaper.md) —— 威胁模型、Ed25519 审计链、WORM 保证
+- [安全开发规范](docs/zh_CN/guides/SecurityDevelopmentSpec.md) —— 15 项已实现的安全测试与编码要求

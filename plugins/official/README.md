@@ -5,7 +5,7 @@ Core Team, analogous to a language standard library. They cover the most
 common logging, formatting, security, and observability needs. Third-party
 plugins extend this foundation for domain-specific requirements.
 
-See [OfficialPluginRoadmap.md](../../Docs/en_US/OfficialPluginRoadmap.md) for
+See [OfficialPluginRoadmap.md](../../docs/en_US/OfficialPluginRoadmap.md) for
 the current inventory of official plugins. This page intentionally carries
 no future roadmap — it documents what exists today.
 
@@ -64,7 +64,7 @@ verifies `<library>.sig` against the **multi-anchor trust store** committed in
 against any active, non-revoked anchor grants Blue trust, a signature from a
 revoked key is rejected even in dev mode (the CRL wins), and unsigned libraries
 are rejected outside dev mode. See
-[Signature Verification & Trust Anchors](../../Docs/en_US/guides/PluginDevelopmentGuide.md#signature-verification--trust-anchors).
+[Signature Verification & Trust Anchors](../../docs/en_US/guides/PluginDevelopmentGuide.md#signature-verification--trust-anchors).
 
 Locally, sign and verify with:
 

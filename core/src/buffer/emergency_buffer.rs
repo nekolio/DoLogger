@@ -162,7 +162,7 @@ impl EmergencyBuffer {
             .expect("AES-256-GCM: invalid key length (should be 32 bytes)");
         *self.cipher.lock().unwrap() = Some(cipher);
         self.audit_encryption.store(true, Ordering::Release);
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "emergency_buffer",
             "AUDIT emergency encryption enabled (AES-256-GCM, ephemeral session key)",
         );
@@ -246,7 +246,7 @@ impl EmergencyBuffer {
         self.active.store(true, Ordering::Release);
         self.total_activations.fetch_add(1, Ordering::Relaxed);
 
-        crate::sys::diag::warn(
+        crate::sys::diagnostics::warn(
             "emergency_buffer",
             "Emergency spill buffer ACTIVATED — spilling records to disk",
         );
@@ -278,7 +278,7 @@ impl EmergencyBuffer {
         self.record_count.store(0, Ordering::Release);
         self.byte_count.store(0, Ordering::Release);
 
-        crate::sys::diag::info("emergency_buffer", "Emergency spill buffer DEACTIVATED");
+        crate::sys::diagnostics::info("emergency_buffer", "Emergency spill buffer DEACTIVATED");
     }
 
     /// Push a record to the emergency buffer.
@@ -296,7 +296,7 @@ impl EmergencyBuffer {
 
         if current_records >= self.max_records || current_bytes >= self.max_bytes {
             self.total_dropped.fetch_add(1, Ordering::Relaxed);
-            crate::sys::diag::warn(
+            crate::sys::diagnostics::warn(
                 "emergency_buffer",
                 &format!(
                     "Emergency buffer FULL: {} records, {} bytes — dropping record",
@@ -413,7 +413,7 @@ impl EmergencyBuffer {
                             match cipher.decrypt(nonce, &data[1 + NONCE_LEN..]) {
                                 Ok(pt) => pt,
                                 Err(_) => {
-                                    crate::sys::diag::error(
+                                    crate::sys::diagnostics::error(
                                         "emergency_buffer",
                                         "AES-GCM decryption failed during recovery — record skipped",
                                     );
@@ -422,7 +422,7 @@ impl EmergencyBuffer {
                             }
                         }
                         None => {
-                            crate::sys::diag::error(
+                            crate::sys::diagnostics::error(
                                 "emergency_buffer",
                                 "Encrypted record found but no cipher available — record skipped",
                             );

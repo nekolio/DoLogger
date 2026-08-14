@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# sync-wiki.sh — publish Docs/ to the GitHub wiki.
+# sync-wiki.sh — publish docs/ to the GitHub wiki.
 #
 # The wiki is a separate git repository (https://github.com/<repo>.wiki.git).
 # GitHub wikis only render .md files at the repository ROOT as pages — files
@@ -49,7 +49,7 @@ fi
 git -C "$WORK/wiki" config user.name  "${GITHUB_ACTOR:-github-actions[bot]}"
 git -C "$WORK/wiki" config user.email "github-actions[bot]@users.noreply.github.com"
 
-# ── 2. Flatten Docs/ into wiki-root pages with rewritten links ─────
+# ── 2. Flatten docs/ into wiki-root pages with rewritten links ─────
 # Clean slate: drop every previously synced page (root .md pages and the
 # old en_US/ zh_CN/ folders), keep _Sidebar/_Footer for regeneration.
 find "$WORK/wiki" -mindepth 1 -maxdepth 1 -name '*.md' -delete
@@ -104,12 +104,12 @@ PY
 
 for lang in en_US zh_CN; do
     while IFS= read -r src; do
-        rel="${src#Docs/${lang}/}"                 # e.g. guides/PluginDevelopmentGuide.md
+        rel="${src#docs/${lang}/}"                 # e.g. guides/PluginDevelopmentGuide.md
         page="${lang}/${rel}"                      # Docs-relative page path
         flat="$(printf '%s' "${lang}-${rel}" | tr '/' '-')"   # en_US-guides-PluginDevelopmentGuide.md
         cp "$src" "$WORK/wiki/$flat"
         rewrite_links "$WORK/wiki/$flat" "$page"
-    done < <(find "Docs/${lang}" -name '*.md' | sort)
+    done < <(find "docs/${lang}" -name '*.md' | sort)
 done
 
 # ── 3. Page title mapping (flat filename → human title) ────────────
@@ -168,8 +168,8 @@ SIDEBAR="$WORK/wiki/_Sidebar.md"
 cat > "$SIDEBAR" <<'EOF'
 # DoLogger Wiki
 
-> 由仓库 `Docs/` 经 Wiki Sync workflow 自动生成 — 请勿在此编辑。
-> Auto-generated from the repository `Docs/` — do not edit here.
+> 由仓库 `docs/` 经 Wiki Sync workflow 自动生成 — 请勿在此编辑。
+> Auto-generated from the repository `docs/` — do not edit here.
 
 - [🏠 Home](Home)
 - [🏠 中文首页](Chinese-Home)
@@ -204,7 +204,7 @@ cat > "$WORK/wiki/Home.md" <<EOF
 [![License](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)](https://github.com/${REPO}/blob/main/LICENSE-APACHE)
 
 > [!NOTE]
-> This wiki is **auto-generated** from the repository's \`Docs/\` directory by the Wiki Sync workflow — do not edit here. Push changes to main and they sync automatically.
+> This wiki is **auto-generated** from the repository's \`docs/\` directory by the Wiki Sync workflow — do not edit here. Push changes to main and they sync automatically.
 
 ## 📖 Table of Contents — in reading order
 
@@ -234,13 +234,13 @@ cat > "$WORK/wiki/Home.md" <<EOF
 
 ## 📎 Appendix
 
-- [Documentation Index](https://github.com/${REPO}/blob/main/Docs/README.md)
+- [Documentation Index](https://github.com/${REPO}/blob/main/docs/README.md)
 - [GitHub Releases](https://github.com/${REPO}/releases) — each release page is that version's changelog
 - [Issue Tracker](https://github.com/${REPO}/issues)
 - [Security Policy](https://github.com/${REPO}/blob/main/SECURITY.md)
 
 ---
-*Synced from [${REPO}](https://github.com/${REPO}) \`Docs/\` — Wiki Sync workflow*
+*Synced from [${REPO}](https://github.com/${REPO}) \`docs/\` — Wiki Sync workflow*
 EOF
 
 cat > "$WORK/wiki/Chinese-Home.md" <<EOF
@@ -255,7 +255,7 @@ cat > "$WORK/wiki/Chinese-Home.md" <<EOF
 [![License](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)](https://github.com/${REPO}/blob/main/LICENSE-APACHE)
 
 > [!NOTE]
-> 本 wiki 由仓库 \`Docs/\` 目录经 Wiki Sync workflow **自动生成** —— 请勿在此直接编辑。修改源文档并推送到 main 即可自动更新。
+> 本 wiki 由仓库 \`docs/\` 目录经 Wiki Sync workflow **自动生成** —— 请勿在此直接编辑。修改源文档并推送到 main 即可自动更新。
 
 ## 📖 目录 · 按阅读顺序
 
@@ -285,13 +285,13 @@ cat > "$WORK/wiki/Chinese-Home.md" <<EOF
 
 ## 📎 附录
 
-- [文档总索引](https://github.com/${REPO}/blob/main/Docs/README.md)
+- [文档总索引](https://github.com/${REPO}/blob/main/docs/README.md)
 - [GitHub Releases](https://github.com/${REPO}/releases) —— 每个 release 页面即该版本的 changelog
 - [Issue Tracker](https://github.com/${REPO}/issues)
 - [安全政策](https://github.com/${REPO}/blob/main/SECURITY.md)
 
 ---
-*Synced from [${REPO}](https://github.com/${REPO}) \`Docs/\` — Wiki Sync workflow*
+*Synced from [${REPO}](https://github.com/${REPO}) \`docs/\` — Wiki Sync workflow*
 EOF
 
 # ── 6. Commit and push (skip when nothing changed) ─────────────────

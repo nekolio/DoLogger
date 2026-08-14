@@ -1,6 +1,6 @@
 name: Deploy GitHub Pages
 
-# Deploy GitHub Pages — DoLogger landing site (site/).
+# Deploy GitHub Pages — DoLogger landing site (peripheral/site/).
 #
 # ── Why this workflow can never loop (the site rebuilds without pushing) ──
 #  1. Nothing here runs `git push` — the only action that can re-trigger a
@@ -20,8 +20,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'site/**'
-      - 'Docs/assets/**'
+      - 'peripheral/site/**'
+      - 'docs/assets/**'
       - 'scripts/build-site.sh'
       - '.github/workflows/pages.yml'
   repository_dispatch:
@@ -64,12 +64,12 @@ jobs:
       - name: Build site artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/build-site.sh site/dist
+        run: bash scripts/build-site.sh peripheral/site/dist
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site/dist
+          path: peripheral/site/dist
 
   deploy:
     needs: build

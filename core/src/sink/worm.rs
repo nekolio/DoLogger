@@ -125,7 +125,7 @@ impl WormSink {
         if lsn == expected_lsn {
             // Verify prev_hash against last persisted record for chain continuity
             if self.last_lsn > 0 && *prev_hash != self.last_hash {
-                crate::sys::diag::error(
+                crate::sys::diagnostics::error(
                     "worm_sink",
                     &format!(
                         "prev_hash MISMATCH at LSN={}: expected {:02x?}.., got {:02x?}.. — chain broken",
@@ -217,7 +217,7 @@ impl WormSink {
                     self.write_raw(gap_marker.as_bytes())?;
                     self.fsync()?;
 
-                    crate::sys::diag::warn(
+                    crate::sys::diagnostics::warn(
                         "worm_sink",
                         &format!(
                             "LSN gap detected: {gap_start}-{gap_end}. Gap marker written to {}",

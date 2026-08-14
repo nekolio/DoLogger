@@ -88,7 +88,7 @@ impl TimeSource {
             // Check for sequence overflow within the same millisecond
             if masked_seq == 0 && seq > 0 {
                 // Sequence overflow — block until next millisecond
-                crate::sys::diag::warn(
+                crate::sys::diagnostics::warn(
                     "time",
                     &format!("Snowflake sequence overflow at seq={seq} — blocking for next ms"),
                 );

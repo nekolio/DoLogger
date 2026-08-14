@@ -171,7 +171,7 @@ impl BackpressureController {
         // 90-95%: sysmon CRITICAL + cooperative helping signal
         if fill_ratio < 0.95 {
             if fill_permille >= 900 {
-                crate::sys::diag::warn(
+                crate::sys::diagnostics::warn(
                     "backpressure",
                     &format!(
                         "Ring buffer at {}% — cooperative helping recommended, blocked={}",
@@ -223,7 +223,7 @@ impl BackpressureController {
                     *since = Some(Instant::now());
                 } else if since.as_ref().unwrap().elapsed() > Duration::from_secs(5) {
                     self.emergency_active.store(true, Ordering::Release);
-                    crate::sys::diag::warn(
+                    crate::sys::diagnostics::warn(
                         "backpressure",
                         &format!(
                             "Emergency buffer activated: fill={}‰, accepted={}, dropped={}",
@@ -239,7 +239,7 @@ impl BackpressureController {
             // Recovered
             self.emergency_active.store(false, Ordering::Release);
             *self.emergency_since.lock().unwrap() = None;
-            crate::sys::diag::info(
+            crate::sys::diagnostics::info(
                 "backpressure",
                 "Emergency buffer deactivated — fill below 50%",
             );

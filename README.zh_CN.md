@@ -3,7 +3,7 @@
 > 下一代安全日志引擎 — 无锁速度下的 Ed25519 审计链。
 
 <p align="center">
-  <img src="./Docs/assets/hero.svg" alt="DoLogger 启动序列 — Hello DoLogger、4 个沙箱插件、Ed25519 审计链已武装、7 级管道在线" width="880">
+  <img src="./docs/assets/hero.svg" alt="DoLogger 启动序列 — Hello DoLogger、4 个沙箱插件、Ed25519 审计链已武装、7 级管道在线" width="880">
 </p>
 
 [English](README.md) | [中文](README.zh_CN.md)
@@ -140,9 +140,9 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 ## 架构
 
 > [!IMPORTANT]
-> DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化——生产环境请锁定到确切版本。详见[版本管理与弃用策略](Docs/zh_CN/guides/VersioningAndDeprecation.md)。
+> DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化——生产环境请锁定到确切版本。详见[版本管理与弃用策略](docs/zh_CN/guides/VersioningAndDeprecation.md)。
 
-![架构](./Docs/assets/architecture.svg)
+![架构](./docs/assets/architecture.svg)
 
 应用将记录直接推入无锁 MPSC 环形缓冲区——热路径上没有任何锁。后台
 管道运行七个阶段(PreFilter → Filter → FieldProvider → Assembly →
@@ -275,8 +275,9 @@ Shared Memory、OTel)在管道第 6 阶段运行,由核心直接驱动;插件在
 | 稳定内核 | [`core/`](core/) |
 | 产品包 | [`cli/`](cli/)、[`adapters/`](adapters/)、[`plugins/`](plugins/)、[`compliance/`](compliance/) |
 | 宿主应用示例 | [`examples/`](examples/) |
-| 文档与营销 | [`Docs/`](Docs/)、[`site/`](site/) |
-| 构建 / CI / 基础设施 | `scripts/`、`cmake/`、`docker/`、`.github/`、`config/`、`tests/` |
+| 文档与外围 | [`docs/`](docs/)、[`peripheral/site/`](peripheral/site/)、[`peripheral/tools/`](peripheral/tools/) |
+| 产品配套 | [`config/`](config/)、[`tests/`](tests/) |
+| 构建 / CI / 基础设施 | `scripts/`、`cmake/`、`docker/`、`.github/` |
 
 ```
 DoLogger/
@@ -300,14 +301,14 @@ DoLogger/
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS 合规模板
 ├── config/                     # 示例配置（dologger.example.toml）
 ├── docker/                     # 容器镜像（Dockerfile.dev；运行时镜像在 v1.0.0）
-├── site/                       # Vue 3 + TypeScript 落地页（GitHub Pages）
-├── Docs/                       # 技术文档（中英双语，自动同步至 wiki）
+├── docs/                       # 技术文档（中英双语，自动同步至 wiki）
 │   └── assets/                 # hero.svg、architecture.svg
 ├── tests/                      # 测试套件（common/、release-smoke/、security/）
 ├── scripts/                    # 构建、CI、发布与开发环境脚本
-├── tools/                      # 仅维护者使用的辅助工具（不属于项目本体 — 见 tools/README.md）
 ├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）
-└── .github/workflows/          # CI/CD 流水线（test、bench、release、pages、wiki-sync）
+└── peripheral/                 # 非产品：营销站 + 维护工具
+    ├── site/                   # Vue 3 + TypeScript 落地页（GitHub Pages）
+    └── tools/                  # 仅维护者使用的辅助工具（见 peripheral/tools/README.md）
 ```
 
 根目录关键文件：`Cargo.toml`（工作区）、`CMakeLists.txt`、`conanfile.py`、`deny.toml`、`rustfmt.toml`、`SECURITY.md`、`LICENSE-APACHE`、`LICENSE-MIT`、`NOTICE`。示例配置位于 `config/dologger.example.toml`。
@@ -340,12 +341,14 @@ cargo check --target aarch64-apple-darwin
 
 | 指南 | 内容 |
 |:-:|:-:|
-| [架构参考](Docs/zh_CN/ArchitectureReference.md) | 管道、环形缓冲区、审计链、安全模型 |
-| [dologctl 命令参考](Docs/zh_CN/guides/DologctlCommandReference.md) | 每个 CLI 子命令、选项与退出码 |
-| [插件开发快速入门](Docs/zh_CN/PluginDevelopmentQuickStart.md) | C/C++/Go 插件开发 |
-| [插件开发指南](Docs/zh_CN/guides/PluginDevelopmentGuide.md) | Rust 插件开发 |
-| [安全白皮书](Docs/zh_CN/guides/SecurityWhitepaper.md) | 威胁模型与加密设计 |
-| [文档总索引](Docs/README.md) | 全部指南,英文 + 中文 |
+| [架构参考](docs/zh_CN/ArchitectureReference.md) | 管道、环形缓冲区、审计链、安全模型 |
+| [dologctl 命令参考](docs/zh_CN/guides/DologctlCommandReference.md) | 每个 CLI 子命令、选项与退出码 |
+| [插件开发快速入门](docs/zh_CN/PluginDevelopmentQuickStart.md) | C/C++/Go 插件开发 |
+| [插件开发指南](docs/zh_CN/guides/PluginDevelopmentGuide.md) | Rust 插件开发 |
+| [安全白皮书](docs/zh_CN/guides/SecurityWhitepaper.md) | 威胁模型与加密设计 |
+| [仓库布局](docs/zh_CN/guides/RepositoryLayout.md) | 六区根地图 —— 产品 / 构建 / 外围 |
+| [命名规范](docs/zh_CN/guides/NamingConvention.md) | 路径即命名空间、角色词表、缩写规则 |
+| [文档总索引](docs/README.md) | 全部指南,英文 + 中文 |
 
 ---
 

@@ -268,7 +268,7 @@ requires_plugins = [
 每个 MAJOR 发布都附有一份迁移指南，发布在此目录中：
 
 ```text
-Docs/en_US/guides/migration/
+docs/en_US/guides/migration/
 ├── v1-to-v2.md     # 从 1.x 到 2.0 的迁移指南
 └── v2-to-v3.md     # 从 2.x 到 3.0 的迁移指南
 ```

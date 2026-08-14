@@ -275,7 +275,7 @@ Every MAJOR release is accompanied by a migration guide published in this direct
 
 ```text
 (illustrative directory layout)
-Docs/en_US/guides/migration/
+docs/en_US/guides/migration/
 ├── v1-to-v2.md     # Migration guide from 1.x to 2.0
 └── v2-to-v3.md     # Migration guide from 2.x to 3.0
 ```

@@ -145,8 +145,8 @@ Resolution order (highest to lowest priority):
 
 ## Quick Links
 
-- [Official Plugins](../Docs/en_US/OfficialPluginRoadmap.md)
-- [Plugin Development Guide](../Docs/en_US/guides/PluginDevelopmentGuide.md)
+- [Official Plugins](../docs/en_US/OfficialPluginRoadmap.md)
+- [Plugin Development Guide](../docs/en_US/guides/PluginDevelopmentGuide.md)
 
 ---
 

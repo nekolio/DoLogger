@@ -87,7 +87,7 @@ impl ControlPlane {
             })
             .map_err(|e| format!("Control plane thread: {e}"))?;
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "control_plane",
             &format!("Control plane listening on {bind_addr}"),
         );
@@ -106,7 +106,7 @@ impl ControlPlane {
         if let Some(handle) = self.listener_thread.take() {
             let _ = handle.join();
         }
-        crate::sys::diag::info("control_plane", "Control plane stopped");
+        crate::sys::diagnostics::info("control_plane", "Control plane stopped");
     }
 }
 
@@ -216,7 +216,7 @@ fn handle_request(mut stream: TcpStream, engine_level: SharedLevel, reload_callb
                 let mut guard = engine_level.lock().unwrap();
                 *guard = requested_level.to_string();
             }
-            crate::sys::diag::info(
+            crate::sys::diagnostics::info(
                 "control_plane",
                 &format!("Log level set to: {}", requested_level),
             );
@@ -239,7 +239,7 @@ fn handle_request(mut stream: TcpStream, engine_level: SharedLevel, reload_callb
 
             match reload_result {
                 None => {
-                    crate::sys::diag::info(
+                    crate::sys::diagnostics::info(
                         "control_plane",
                         "Config reload requested (no callback)",
                     );
@@ -250,7 +250,7 @@ fn handle_request(mut stream: TcpStream, engine_level: SharedLevel, reload_callb
                     );
                 }
                 Some(ref err) if err != "ok" => {
-                    crate::sys::diag::warn(
+                    crate::sys::diagnostics::warn(
                         "control_plane",
                         &format!("Config reload failed: {}", err),
                     );
@@ -261,7 +261,7 @@ fn handle_request(mut stream: TcpStream, engine_level: SharedLevel, reload_callb
                     send_response(&mut stream, 500, &resp);
                 }
                 Some(_) => {
-                    crate::sys::diag::info("control_plane", "Config reload succeeded");
+                    crate::sys::diagnostics::info("control_plane", "Config reload succeeded");
                     send_response(
                         &mut stream,
                         200,

@@ -21,11 +21,11 @@ that is exactly right.
   scripts belong in your scratch space, not here — they will be deleted
   eventually, and this directory should not be a graveyard.
 - If a tool produces output that the project *does* use (e.g. an SVG in
-  `Docs/assets/`), it regenerates it — it never replaces it.
+  `docs/assets/`), it regenerates it — it never replaces it.
 
 ## Tools
 
-### `hero-svg/` — regenerate `Docs/assets/hero.svg`
+### `hero-svg/` — regenerate `docs/assets/hero.svg`
 
 Regenerates the animated CRT-boot hero image used in the READMEs and the
 landing page. Pure decoration: the image has no effect on how DoLogger runs.
@@ -34,7 +34,7 @@ landing page. Pure decoration: the image has no effect on how DoLogger runs.
 python3 tools/hero-svg/hero_gen.py
 ```
 
-- Writes `Docs/assets/hero.svg` (source of truth).
+- Writes `docs/assets/hero.svg` (source of truth).
 - Also syncs `site/public/assets/hero.svg` so local site builds never ship a
   stale copy (`scripts/build-site.sh` re-copies the Docs copy at CI time).
 - Output is deterministic: with unchanged inputs, regeneration is a no-op.

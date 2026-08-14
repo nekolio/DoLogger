@@ -3,7 +3,7 @@
 > Next-gen secure logging — Ed25519 audit chains at lock-free speed.
 
 <p align="center">
-  <img src="./Docs/assets/hero.svg" alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" width="880">
+  <img src="./docs/assets/hero.svg" alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" width="880">
 </p>
 
 [English](README.md) | [中文](README.zh_CN.md)
@@ -142,9 +142,9 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 ## Architecture
 
 > [!IMPORTANT]
-> DoLogger is **pre-1.0**. MINOR releases may include breaking changes and the ABI may change — pin to an exact version in production. See the [Versioning & Deprecation Policy](Docs/en_US/guides/VersioningAndDeprecation.md).
+> DoLogger is **pre-1.0**. MINOR releases may include breaking changes and the ABI may change — pin to an exact version in production. See the [Versioning & Deprecation Policy](docs/en_US/guides/VersioningAndDeprecation.md).
 
-![Architecture](./Docs/assets/architecture.svg)
+![Architecture](./docs/assets/architecture.svg)
 
 The application pushes records straight into a lock-free MPSC ring buffer — no
 locks on the hot path. A background pipeline runs seven stages
@@ -284,8 +284,9 @@ kernel) / **product packages** (built on the core C ABI) / **host apps**
 | Stable kernel | [`core/`](core/) |
 | Product packages | [`cli/`](cli/), [`adapters/`](adapters/), [`plugins/`](plugins/), [`compliance/`](compliance/) |
 | Host app examples | [`examples/`](examples/) |
-| Docs & marketing | [`Docs/`](Docs/), [`site/`](site/) |
-| Build / CI / infra | `scripts/`, `cmake/`, `docker/`, `.github/`, `config/`, `tests/` |
+| Docs & peripheral | [`docs/`](docs/), [`peripheral/site/`](peripheral/site/), [`peripheral/tools/`](peripheral/tools/) |
+| Product support | [`config/`](config/), [`tests/`](tests/) |
+| Build / CI / infra | `scripts/`, `cmake/`, `docker/`, `.github/` |
 
 ```
 DoLogger/
@@ -309,14 +310,14 @@ DoLogger/
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS compliance templates
 ├── config/                     # Example configuration (dologger.example.toml)
 ├── docker/                     # Container images (Dockerfile.dev; runtime in v1.0.0)
-├── site/                       # Vue 3 + TypeScript landing page (GitHub Pages)
-├── Docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
+├── docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
 │   └── assets/                 # hero.svg, architecture.svg
 ├── tests/                      # Test suites (common/, release-smoke/, security/)
 ├── scripts/                    # Build, CI, release, and setup scripts
-├── tools/                      # Maintainer-only aux tools (NOT part of the project — see tools/README.md)
 ├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
-└── .github/workflows/          # CI/CD pipelines (test, bench, release, pages, wiki-sync)
+└── peripheral/                 # Non-product: marketing site + maintainer tools
+    ├── site/                   # Vue 3 + TypeScript landing page (GitHub Pages)
+    └── tools/                  # Maintainer-only aux tools (see peripheral/tools/README.md)
 ```
 
 Key files at the root: `Cargo.toml` (workspace), `CMakeLists.txt`, `conanfile.py`, `deny.toml`, `rustfmt.toml`, `SECURITY.md`, `LICENSE-APACHE`, `LICENSE-MIT`, `NOTICE`. Example config lives in `config/dologger.example.toml`.
@@ -349,12 +350,14 @@ cargo check --target aarch64-apple-darwin
 
 | Guide | Content |
 |:-:|:-:|
-| [Architecture Reference](Docs/en_US/ArchitectureReference.md) | Pipeline, ring buffer, audit chain, security model |
-| [dologctl Command Reference](Docs/en_US/guides/DologctlCommandReference.md) | Every CLI subcommand, option, and exit code |
-| [Plugin Development QuickStart](Docs/en_US/PluginDevelopmentQuickStart.md) | C/C++/Go plugin development |
-| [Plugin Development Guide](Docs/en_US/guides/PluginDevelopmentGuide.md) | Rust plugin development |
-| [Security Whitepaper](Docs/en_US/guides/SecurityWhitepaper.md) | Threat model & cryptographic design |
-| [Documentation Index](Docs/README.md) | All guides, English + 中文 |
+| [Architecture Reference](docs/en_US/ArchitectureReference.md) | Pipeline, ring buffer, audit chain, security model |
+| [dologctl Command Reference](docs/en_US/guides/DologctlCommandReference.md) | Every CLI subcommand, option, and exit code |
+| [Plugin Development QuickStart](docs/en_US/PluginDevelopmentQuickStart.md) | C/C++/Go plugin development |
+| [Plugin Development Guide](docs/en_US/guides/PluginDevelopmentGuide.md) | Rust plugin development |
+| [Security Whitepaper](docs/en_US/guides/SecurityWhitepaper.md) | Threat model & cryptographic design |
+| [Repository Layout](docs/en_US/guides/RepositoryLayout.md) | Six-zone root map — product vs build-infra vs peripheral |
+| [Naming Convention](docs/en_US/guides/NamingConvention.md) | Path-as-namespace, role suffixes, abbreviation rules |
+| [Documentation Index](docs/README.md) | All guides, English + 中文 |
 
 ---
 

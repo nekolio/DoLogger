@@ -520,7 +520,7 @@ impl Record {
                 // Only core or HostInfoProvider (Ring1 caller) can write Ring 1
                 // Plugins attempting to write Ring 1 MUST trigger security alarm.
                 if matches!(caller_ring, FieldRing::Ring2 | FieldRing::Ring3) {
-                    crate::sys::diag::error(
+                    crate::sys::diagnostics::error(
                         "security",
                         &format!(
                             "SECURITY_VIOLATION: Unauthorized Ring 1 write attempt to '{}' by caller {:?}",

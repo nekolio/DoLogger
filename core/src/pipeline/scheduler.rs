@@ -85,7 +85,7 @@ impl Pipeline {
                         match msg {
                             SinkMsg::Write(data) => {
                                 if let Err(e) = sink.write(&data) {
-                                    crate::sys::diag::error(
+                                    crate::sys::diagnostics::error(
                                         "pipeline",
                                         &format!("Sink write error: {e}"),
                                     );
@@ -153,7 +153,7 @@ impl Pipeline {
             let deadline = std::time::Instant::now() + Duration::from_secs(5);
             while !done.load(Ordering::Acquire) {
                 if std::time::Instant::now() > deadline {
-                    crate::sys::diag::error(
+                    crate::sys::diagnostics::error(
                         "pipeline",
                         "Sink I/O worker did not finish within the shutdown deadline",
                     );
@@ -197,11 +197,14 @@ impl ConsumerCtx<'_> {
             // Channel-based dispatch — send blocks if the I/O
             // worker is behind, providing natural backpressure.
             if tx.send(SinkMsg::Write(formatted)).is_err() {
-                crate::sys::diag::error("pipeline", "Sink channel disconnected — write dropped");
+                crate::sys::diagnostics::error(
+                    "pipeline",
+                    "Sink channel disconnected — write dropped",
+                );
             }
         } else if let Some(ref mut sink) = self.sink {
             if let Err(e) = sink.write(&formatted) {
-                crate::sys::diag::error("pipeline", &format!("Sink write error: {e}"));
+                crate::sys::diagnostics::error("pipeline", &format!("Sink write error: {e}"));
             }
         }
     }
@@ -281,7 +284,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         if last_stats_report.elapsed() >= stats_interval {
             report_stats(&pctx, c.batch_size);
             if total_processed > 0 || total_dropped > 0 {
-                crate::sys::diag::info(
+                crate::sys::diagnostics::info(
                     "pipeline",
                     &format!(
                         "Periodic: {total_processed} processed, {total_dropped} dropped total"
@@ -320,7 +323,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
     }
 
     if remaining > 0 {
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "pipeline",
             &format!("Shutdown: flushed {remaining} remaining records"),
         );

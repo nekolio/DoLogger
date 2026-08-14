@@ -176,7 +176,7 @@ impl CanaryProber {
                 // Recovery: if previously dead or degraded, log recovery
                 if self.dead.load(Ordering::Acquire) {
                     self.dead.store(false, Ordering::Release);
-                    crate::sys::diag::info(
+                    crate::sys::diagnostics::info(
                         "canary",
                         &format!(
                             "Sink '{}' RECOVERED — canary probe succeeded",
@@ -193,7 +193,7 @@ impl CanaryProber {
 
                 if consecutive >= self.config.failure_threshold as u64 {
                     self.dead.store(true, Ordering::Release);
-                    crate::sys::diag::error(
+                    crate::sys::diagnostics::error(
                         "canary",
                         &format!(
                             "Sink '{}' DEAD — {} consecutive canary failures (threshold: {})",
@@ -202,7 +202,7 @@ impl CanaryProber {
                     );
                     SinkHealth::Dead
                 } else {
-                    crate::sys::diag::warn(
+                    crate::sys::diagnostics::warn(
                         "canary",
                         &format!(
                             "Sink '{}' DEGRADED — canary probe failed ({}/{})",
@@ -254,7 +254,7 @@ impl CanaryProber {
         self.consecutive_failures.store(0, Ordering::Release);
         self.dead.store(false, Ordering::Release);
         *self.last_probe.lock().unwrap() = Instant::now();
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "canary",
             &format!("Sink '{}' canary prober reset", self.sink_name),
         );

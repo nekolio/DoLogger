@@ -450,7 +450,7 @@ impl PluginManager {
                         match self.load_plugin(&file_path) {
                             Ok(names) => {
                                 for name in &names {
-                                    crate::sys::diag::info(
+                                    crate::sys::diagnostics::info(
                                         "plugin_mgr",
                                         &format!("Plugin loaded: {name}"),
                                     );
@@ -458,7 +458,7 @@ impl PluginManager {
                             }
                             Err(e) => {
                                 let name = file_path.to_string_lossy().into_owned();
-                                crate::sys::diag::warn(
+                                crate::sys::diagnostics::warn(
                                     "plugin_mgr",
                                     &format!("Plugin load failed: {name} — {e}"),
                                 );
@@ -612,7 +612,7 @@ impl PluginManager {
             phase: info.phase,
         };
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "plugin_mgr",
             &format!(
                 "Plugin '{}' phase={:#x} vtable={:p} trust={:?}",
@@ -753,7 +753,7 @@ impl PluginManager {
         };
 
         if init_result != 0 {
-            crate::sys::diag::warn(
+            crate::sys::diagnostics::warn(
                 "plugin_mgr",
                 &format!("Plugin '{name}' init returned non-zero: {init_result}"),
             );
@@ -799,7 +799,7 @@ impl PluginManager {
         let names: Vec<String> = self.plugins.keys().cloned().collect();
         for name in &names {
             if let Err(e) = self.shutdown_plugin(name) {
-                crate::sys::diag::warn(
+                crate::sys::diagnostics::warn(
                     "plugin_mgr",
                     &format!("Error shutting down plugin '{name}': {e}"),
                 );

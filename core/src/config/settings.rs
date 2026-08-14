@@ -155,7 +155,7 @@ enable_signature = false
         }
     }
 
-    crate::sys::diag::info(
+    crate::sys::diagnostics::info(
         "config",
         &format!("Created default config at '{}'", path.display()),
     );
@@ -590,7 +590,7 @@ impl DologgerConfig {
         let overridden = config.apply_api_overrides(api);
         if !overridden.is_empty() {
             let fields: Vec<&str> = overridden;
-            crate::sys::diag::info(
+            crate::sys::diagnostics::info(
                 "config",
                 &format!("Priority 5 API overrides applied: {}", fields.join(", ")),
             );

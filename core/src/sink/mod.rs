@@ -9,8 +9,8 @@ pub mod console;
 pub mod file;
 #[cfg(feature = "sink-kafka")]
 pub mod kafka;
-#[cfg(feature = "sink-webhook")]
-pub mod otel;
+#[cfg(feature = "sink-otel")]
+pub mod open_telemetry;
 pub mod security;
 pub mod shm;
 #[cfg(feature = "sink-sqlite")]
@@ -25,8 +25,8 @@ pub use console::{ConsoleSink, DurabilityLevel, Sink, SinkError, SinkRef, SinkRe
 pub use file::{FileSink, FileSinkConfig};
 #[cfg(feature = "sink-kafka")]
 pub use kafka::{KafkaSink, KafkaSinkConfig, KafkaSinkStats};
-#[cfg(feature = "sink-webhook")]
-pub use otel::{OtelSink, OtelSinkConfig};
+#[cfg(feature = "sink-otel")]
+pub use open_telemetry::{OtelSink, OtelSinkConfig};
 pub use security::{SecuritySink, SecuritySinkConfig};
 pub use shm::{ShmFullPolicy, ShmSink, ShmSinkConfig, ShmSinkStats};
 #[cfg(feature = "sink-sqlite")]

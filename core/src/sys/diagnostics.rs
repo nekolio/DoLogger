@@ -8,7 +8,7 @@
 //!
 //! # Safety
 //!
-//! All `diag::*` functions are safe to call even before `diag::init()`.
+//! All `diagnostics::*` functions are safe to call even before `diagnostics::init()`.
 //! Uninitialized calls fall back to stderr (platform-native syscall).
 
 use crate::sys::{DiagLevel, InternalLog};
@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 static DIAG: OnceLock<InternalLog> = OnceLock::new();
 
 /// Initialise the global diagnostic logger.
-/// MUST be called before any diag::* function for file-backed logging.
+/// MUST be called before any diagnostics::* function for file-backed logging.
 pub fn init(path: &str) {
     let log = InternalLog::new(path);
     log.info(
@@ -33,7 +33,7 @@ fn emit(level: DiagLevel, component: &str, message: &str) {
     if let Some(log) = DIAG.get() {
         log.log(level, component, message);
     } else {
-        // Fallback: write to stderr before diag::init() is called
+        // Fallback: write to stderr before diagnostics::init() is called
         let label = match level {
             DiagLevel::Info => "INFO",
             DiagLevel::Warn => "WARN",

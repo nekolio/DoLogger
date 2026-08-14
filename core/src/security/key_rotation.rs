@@ -316,7 +316,7 @@ impl KeyRotationManager {
 
         self.rotation_history.push(event.clone());
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "key-rotation",
             &format!(
                 "Key rotation initiated: new key fingerprint {} (grace period: {} days)",
@@ -392,7 +392,7 @@ impl KeyRotationManager {
             event.status = RotationStatus::Completed;
         }
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "key-rotation",
             &format!(
                 "Key rotation completed: old key {} retired, new key {} now sole active",
@@ -442,7 +442,7 @@ impl KeyRotationManager {
             event.status = RotationStatus::Cancelled;
         }
 
-        crate::sys::diag::warn(
+        crate::sys::diagnostics::warn(
             "key-rotation",
             &format!(
                 "Key rotation cancelled: new key {} removed, reverted to {}",
@@ -513,7 +513,7 @@ impl KeyRotationManager {
         }
 
         // Emergency log at CRITICAL level
-        crate::sys::diag::critical(
+        crate::sys::diagnostics::critical(
             "key-rotation",
             &format!(
                 "KEY REVOKED: fingerprint {} reason {}",

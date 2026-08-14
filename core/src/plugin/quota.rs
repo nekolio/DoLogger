@@ -140,7 +140,7 @@ impl PluginQuota {
             if mem_bytes > mem_limit && self.config.terminate_on_memory {
                 self.terminated.store(true, Ordering::Release);
                 let v = self.violation_count.fetch_add(1, Ordering::Relaxed);
-                crate::sys::diag::warn(
+                crate::sys::diagnostics::warn(
                     "quota",
                     &format!(
                         "Plugin '{}' TERMINATED: memory {}MB > limit {}MB (violation #{})",
@@ -159,7 +159,7 @@ impl PluginQuota {
             let usage = self.cpu_window.usage_percent();
             if usage > self.config.cpu_quota_percent as f64 {
                 let v = self.violation_count.fetch_add(1, Ordering::Relaxed);
-                crate::sys::diag::warn(
+                crate::sys::diagnostics::warn(
                     "quota",
                     &format!(
                         "Plugin '{}' THROTTLED: CPU {:.1}% > quota {}% (violation #{})",
@@ -199,7 +199,7 @@ impl PluginQuota {
     /// Manually terminate the plugin (e.g., on administrator command).
     pub fn terminate(&self) {
         self.terminated.store(true, Ordering::Release);
-        crate::sys::diag::warn(
+        crate::sys::diagnostics::warn(
             "quota",
             &format!("Plugin '{}' manually terminated", self.config.plugin_name),
         );

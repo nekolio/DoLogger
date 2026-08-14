@@ -359,7 +359,7 @@ impl SandboxEngine {
     /// Disable sandboxing (e.g., for development/debugging).
     pub fn disable(&self) {
         self.enabled.store(false, Ordering::Release);
-        crate::sys::diag::warn(
+        crate::sys::diagnostics::warn(
             "sandbox",
             "Sandbox engine DISABLED — plugins run unrestricted",
         );
@@ -511,7 +511,7 @@ fn apply_seccomp_policy(policy: &SandboxPolicy) -> SandboxResult {
         };
     }
 
-    crate::sys::diag::info(
+    crate::sys::diagnostics::info(
         "sandbox",
         &format!(
             "seccomp-bpf applied: {} syscalls allowed, level={:?}",
@@ -681,7 +681,7 @@ fn apply_appcontainer_policy(policy: &SandboxPolicy) -> SandboxResult {
     // Full implementation requires process-level isolation (not yet implemented).
     // For now, we return a skeleton result indicating the policy was registered.
 
-    crate::sys::diag::info(
+    crate::sys::diagnostics::info(
         "sandbox",
         &format!(
             "AppContainer policy registered: level={:?}, allow_network={}, allow_fork={}",
@@ -711,7 +711,7 @@ fn apply_macos_sandbox_policy(policy: &SandboxPolicy) -> SandboxResult {
     // Full implementation requires process-level isolation (not yet implemented).
     // For now, we register the policy and return.
 
-    crate::sys::diag::info(
+    crate::sys::diagnostics::info(
         "sandbox",
         &format!(
             "macOS sandbox policy registered: level={:?}, allow_network={}",

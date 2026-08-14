@@ -126,7 +126,7 @@ pub extern "C" fn dologger_init(
     };
 
     for w in &warnings {
-        crate::sys::diag::warn("ffi", w);
+        crate::sys::diagnostics::warn("ffi", w);
     }
 
     match Engine::init(config) {
@@ -426,7 +426,7 @@ pub extern "C" fn dologger_config_load_from_string(
     match DologgerConfig::parse(toml_str, engine.config.config_path.clone()) {
         Ok((new_config, warnings)) => {
             for w in &warnings {
-                crate::sys::diag::warn("ffi", w);
+                crate::sys::diagnostics::warn("ffi", w);
             }
             engine.config = new_config;
             DO_LOG_OK

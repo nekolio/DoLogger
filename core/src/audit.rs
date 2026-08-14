@@ -105,7 +105,7 @@ impl AuditPipeline {
             })
             .map_err(|e| format!("Failed to spawn audit consumer: {e}"))?;
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "audit_pipeline",
             &format!(
                 "Audit pipeline started (dual-write): capacity={audit_capacity}, ratio={audit_ratio:.1}"
@@ -162,7 +162,7 @@ impl AuditPipeline {
         if let Some(handle) = self.consumer_thread.take() {
             let _ = handle.join();
         }
-        crate::sys::diag::info("audit_pipeline", "Audit pipeline shutdown complete");
+        crate::sys::diagnostics::info("audit_pipeline", "Audit pipeline shutdown complete");
     }
 }
 
@@ -204,10 +204,13 @@ fn audit_consumer_loop(
             // isolated file output with restrictive permissions.
             let formatted = crate::sink::SinkRef::format_record(record);
             if let Err(e) = worm_sink.write(&formatted) {
-                crate::sys::diag::error("audit_pipeline", &format!("WORM sink write failed: {e}"));
+                crate::sys::diagnostics::error(
+                    "audit_pipeline",
+                    &format!("WORM sink write failed: {e}"),
+                );
             }
             if let Err(e) = security_sink.write(&formatted) {
-                crate::sys::diag::error(
+                crate::sys::diagnostics::error(
                     "audit_pipeline",
                     &format!("Security sink write failed: {e}"),
                 );
@@ -242,7 +245,7 @@ fn audit_consumer_loop(
     });
 
     if remaining > 0 {
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "audit_pipeline",
             &format!("Shutdown: flushed {remaining} remaining AUDIT records"),
         );

@@ -112,7 +112,7 @@ impl HotReloadManager {
             .unwrap()
             .insert(plugin_name.to_string(), state);
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "hot_reload",
             &format!("State serialized for '{plugin_name}' v{plugin_version} at epoch {epoch}"),
         );
@@ -135,7 +135,7 @@ impl HotReloadManager {
 
         // Epoch anti-rollback check
         if state.epoch > expected_max_epoch {
-            crate::sys::diag::warn(
+            crate::sys::diagnostics::warn(
                 "hot_reload",
                 &format!(
                     "State for '{plugin_name}' has epoch {} > current {} — rejecting rollback",
@@ -147,7 +147,7 @@ impl HotReloadManager {
 
         // Format version check
         if state.format_version > 1 {
-            crate::sys::diag::warn(
+            crate::sys::diagnostics::warn(
                 "hot_reload",
                 &format!(
                     "State for '{plugin_name}' has format_version {} > supported 1",
@@ -215,7 +215,7 @@ impl HotReloadManager {
         };
 
         if state_migrated {
-            crate::sys::diag::info(
+            crate::sys::diagnostics::info(
                 "hot_reload",
                 &format!(
                     "Plugin '{plugin_name}' reloaded: v{old_version} → v{new_version}, state_migrated=true, epoch={epoch}"
@@ -232,7 +232,7 @@ impl HotReloadManager {
         let old_state = states.remove(plugin_name);
         let epoch = self.current_epoch();
 
-        crate::sys::diag::error(
+        crate::sys::diagnostics::error(
             "hot_reload",
             &format!("Reload of '{plugin_name}' failed, rolling back: {error}"),
         );

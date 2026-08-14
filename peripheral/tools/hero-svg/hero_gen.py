@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Generate Docs/assets/hero.svg - animated CRT boot hero, pure SMIL.
+"""Generate docs/assets/hero.svg - animated CRT boot hero, pure SMIL.
 
 AUXILIARY TOOL - NOT part of the DoLogger runtime, build, or CI.
 This script only regenerates a decorative README/landing-page image.
-Deleting it (or the whole tools/ directory) has ZERO effect on the
+Deleting it (or the whole peripheral/tools/ directory) has ZERO effect on the
 project. See ../README.md.
 
 Effects (SMIL only, no scripts - runs in GitHub READMEs):
@@ -21,13 +21,13 @@ Effects (SMIL only, no scripts - runs in GitHub READMEs):
     phosphor afterglow); power-on mirrors it
 
 Usage:
-    python3 tools/hero-svg/hero_gen.py
+    python3 peripheral/tools/hero-svg/hero_gen.py
 
 Output is deterministic (all randomness is seeded by fixed timeline values),
 so regenerating produces a byte-identical file unless the LINES/data above
-are edited. Writes Docs/assets/hero.svg and keeps site/public/assets/hero.svg
+are edited. Writes docs/assets/hero.svg and keeps peripheral/site/public/assets/hero.svg
 in sync (both are the same brand image; the site build also re-copies the
-Docs copy, see scripts/build-site.sh).
+docs copy, see scripts/build-site.sh).
 """
 
 import math
@@ -38,8 +38,8 @@ import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-OUT = os.path.join(ROOT, "Docs", "assets", "hero.svg")
-SITE_OUT = os.path.join(ROOT, "site", "public", "assets", "hero.svg")
+OUT = os.path.join(ROOT, "docs", "assets", "hero.svg")
+SITE_OUT = os.path.join(ROOT, "peripheral", "site", "public", "assets", "hero.svg")
 
 CYCLE = 10.0
 X0 = 44                      # text left edge

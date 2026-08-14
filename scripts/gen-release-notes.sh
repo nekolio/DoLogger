@@ -141,7 +141,7 @@ bundle_line() {
     echo
     echo 'The output hash must match the line for the same file in'
     echo '`checksums-sha256.txt`. For a supply-chain audit, see the'
-    echo '[Security Whitepaper](https://github.com/Nekolio/DoLogger/blob/main/Docs/en_US/guides/SecurityWhitepaper.md).'
+    echo '[Security Whitepaper](https://github.com/Nekolio/DoLogger/blob/main/docs/en_US/guides/SecurityWhitepaper.md).'
     echo
     echo '<a id="documentation-en"></a>'
     echo
@@ -214,7 +214,7 @@ bundle_line() {
     echo '```'
     echo
     echo '输出的哈希必须与 `checksums-sha256.txt` 中同一文件的条目一致。'
-    echo '供应链审计请参阅[安全白皮书](https://github.com/Nekolio/DoLogger/blob/main/Docs/zh_CN/guides/SecurityWhitepaper.md)。'
+    echo '供应链审计请参阅[安全白皮书](https://github.com/Nekolio/DoLogger/blob/main/docs/zh_CN/guides/SecurityWhitepaper.md)。'
     echo
     echo '<a id="documentation-zh"></a>'
     echo

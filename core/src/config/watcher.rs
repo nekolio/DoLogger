@@ -220,7 +220,7 @@ impl ConfigWatcher {
             })
             .map_err(|e| format!("ConfigWatcher: cannot spawn thread: {e}"))?;
 
-        crate::sys::diag::info(
+        crate::sys::diagnostics::info(
             "config_watcher",
             &format!(
                 "Config watcher started: poll={}ms, debounce={}ms",
@@ -292,7 +292,7 @@ impl ConfigWatcher {
         if let Some(handle) = self._watcher_thread.take() {
             let _ = handle.join();
         }
-        crate::sys::diag::info("config_watcher", "Config watcher stopped");
+        crate::sys::diagnostics::info("config_watcher", "Config watcher stopped");
     }
 }
 
@@ -381,12 +381,12 @@ fn watcher_loop(
             };
 
             if event.success {
-                crate::sys::diag::info(
+                crate::sys::diagnostics::info(
                     "config_watcher",
                     &format!("Config reloaded successfully: {}", path.display()),
                 );
             } else {
-                crate::sys::diag::error(
+                crate::sys::diagnostics::error(
                     "config_watcher",
                     &format!(
                         "Config reload FAILED for {}: {}",

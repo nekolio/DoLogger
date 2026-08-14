@@ -2,10 +2,10 @@
 # Build the GitHub Pages artifact for the DoLogger site.
 #
 # Runs identically locally and in CI:  bash scripts/build-site.sh [OUT]
-# (default OUT=site/dist).
+# (default OUT=peripheral/site/dist).
 #
 #  1. Builds the Vue 3 + TypeScript app with Vite (bun if available, else
-#     npm) — site/ → site/dist.
+#     npm) — peripheral/site/ → peripheral/site/dist.
 #  2. Bakes live data server-side: the real latest release (5 entries) and
 #     that release's benchmark-results.json. The browser cannot fetch
 #     release assets (CORS), so this must happen at build time.
@@ -16,12 +16,12 @@
 # page still renders fully — the artifact is static either way.
 set -euo pipefail
 
-OUT="${1:-site/dist}"
+OUT="${1:-peripheral/site/dist}"
 REPO="Nekolio/DoLogger"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # 1. Vite build (vue-tsc type-check runs inside `bun run build` too).
-cd "$ROOT/site"
+cd "$ROOT/peripheral/site"
 if command -v bun >/dev/null 2>&1; then
   bun install --frozen-lockfile 2>/dev/null || bun install
   bun run build
@@ -32,10 +32,10 @@ fi
 cd "$ROOT"
 mkdir -p "$OUT/data"
 
-# 2. Docs assets are the source of truth for the hero/architecture art —
+# 2. docs assets are the source of truth for the hero/architecture art —
 #    overwrite whatever Vite copied so a regenerated SVG always ships.
-cp "$ROOT"/Docs/assets/hero.svg "$OUT/assets/hero.svg"
-cp "$ROOT"/Docs/assets/architecture.svg "$OUT/assets/architecture.svg"
+cp "$ROOT"/docs/assets/hero.svg "$OUT/assets/hero.svg"
+cp "$ROOT"/docs/assets/architecture.svg "$OUT/assets/architecture.svg"
 
 # 3. Bake live data.
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then

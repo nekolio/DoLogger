@@ -36,7 +36,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::record::Record;
 use crate::sink::DurabilityLevel;
-use crate::sys::diag;
+use crate::sys::diagnostics;
 use crate::sys::Sysmon;
 
 // ---------------------------------------------------------------------------
@@ -452,7 +452,7 @@ impl ShmSinkConfig {
         }
         // durability_level is forced to UNSAFE
         if self.durability_level != DurabilityLevel::Unsafe {
-            crate::sys::diag::warn(
+            crate::sys::diagnostics::warn(
                 "shm_sink",
                 "durability_level overridden to UNSAFE for sink_shm",
             );
@@ -605,7 +605,7 @@ impl ShmSink {
 
         // Check data fits in a slot (with 4B length prefix)
         if sif_data.len() + 4 > slot_size as usize {
-            diag::warn(
+            diagnostics::warn(
                 "shm_sink",
                 &format!(
                     "SIF record {}B > slot {}B — dropped",
@@ -757,7 +757,7 @@ impl ShmSink {
                 .is_ok()
         {
             let dropped = self.total_dropped.load(Ordering::Relaxed);
-            diag::warn("shm_sink", &format!("SHM_DROP total_dropped={dropped}"));
+            diagnostics::warn("shm_sink", &format!("SHM_DROP total_dropped={dropped}"));
         }
     }
 }

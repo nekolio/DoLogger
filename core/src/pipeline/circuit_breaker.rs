@@ -135,7 +135,7 @@ impl CircuitBreaker {
                         inner.state = CircuitState::HalfOpen;
                         self.probes_remaining
                             .store(self.config.half_open_max_requests, Ordering::Release);
-                        crate::sys::diag::info(
+                        crate::sys::diagnostics::info(
                             "circuit_breaker",
                             "Circuit transitioned: OPEN → HALF_OPEN (probe)",
                         );
@@ -170,7 +170,7 @@ impl CircuitBreaker {
         if inner.state == CircuitState::HalfOpen {
             inner.state = CircuitState::Closed;
             inner.opened_at = None;
-            crate::sys::diag::info(
+            crate::sys::diagnostics::info(
                 "circuit_breaker",
                 "Circuit transitioned: HALF_OPEN → CLOSED (probe success)",
             );
@@ -188,7 +188,7 @@ impl CircuitBreaker {
                 if prev + 1 >= self.config.failure_threshold {
                     inner.state = CircuitState::Open;
                     inner.opened_at = Some(Instant::now());
-                    crate::sys::diag::warn(
+                    crate::sys::diagnostics::warn(
                         "circuit_breaker",
                         &format!(
                             "Circuit breaker OPENED after {} consecutive failures (threshold: {})",
@@ -202,7 +202,7 @@ impl CircuitBreaker {
                 inner.state = CircuitState::Open;
                 inner.opened_at = Some(Instant::now());
                 self.probes_remaining.store(0, Ordering::Release);
-                crate::sys::diag::warn(
+                crate::sys::diagnostics::warn(
                     "circuit_breaker",
                     "Circuit transitioned: HALF_OPEN → OPEN (probe failed)",
                 );

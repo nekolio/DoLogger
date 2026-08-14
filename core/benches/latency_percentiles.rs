@@ -264,9 +264,9 @@ fn bench_percentile_latency(c: &mut Criterion) {
     // (RecordString no longer emits truncation warnings — messages ≥ 255 bytes
     // take the heap path.) On Windows, NUL is the null device; on Unix, /dev/null.
     #[cfg(target_os = "windows")]
-    dologger_core::sys::diag::init("NUL");
+    dologger_core::sys::diagnostics::init("NUL");
     #[cfg(not(target_os = "windows"))]
-    dologger_core::sys::diag::init("/dev/null");
+    dologger_core::sys::diagnostics::init("/dev/null");
 
     // Header box — interior width between the ║ borders. Lines are padded
     // programmatically so the right border and the value columns always

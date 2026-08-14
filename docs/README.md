@@ -135,9 +135,16 @@ Deep dive into the full specification?
 | [conanfile.py](../conanfile.py) | Conan 2.x C dependency recipe |
 | [cmake/](../cmake/) | CMake helper modules (cross-compilation, Conan toolchain) |
 | [scripts/](../scripts/) | Build, setup, and CI automation scripts |
-| [tools/](../tools/) | Maintainer-only auxiliary tools — **not part of the project**; see [tools/README.md](../tools/README.md) |
-| [site/](../site/) | Vue 3 + TypeScript landing page (GitHub Pages) |
+| [tools/](../peripheral/tools/) | Maintainer-only auxiliary tools — **not part of the project**; see [tools/README.md](../peripheral/tools/README.md) |
+| [site/](../peripheral/site/) | Vue 3 + TypeScript landing page (GitHub Pages) |
 | [.conan/profiles/](../.conan/profiles/) | Pre-built Conan cross-compilation profiles |
+
+### Project Conventions / 工程规范
+
+| Document | Description |
+|:-:|:-:|
+| [Repository Layout](en_US/guides/RepositoryLayout.md) / [仓库布局](zh_CN/guides/RepositoryLayout.md) | Six-zone root map — product vs build-infra vs peripheral（六区根地图：产品 / 构建 / 外围） |
+| [Naming Convention](en_US/guides/NamingConvention.md) / [命名规范](zh_CN/guides/NamingConvention.md) | Path-as-namespace, role suffixes, abbreviation rules（路径即命名空间、角色词表、缩写规则） |
 
 ---
 

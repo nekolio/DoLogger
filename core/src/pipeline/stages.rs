@@ -21,7 +21,7 @@ use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::record::{LogLevel, Record};
 use crate::security::SecretDetector;
 use crate::security::SignatureEngine;
-use crate::sys::diag;
+use crate::sys::diagnostics;
 
 // ===========================================================================
 // Pipeline stage result
@@ -248,7 +248,7 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
         let computed_crc = crate::security::crc32c(record.ext_data.as_str().as_bytes());
         if computed_crc != record.ext_crc32c {
             // CRC mismatch — tampering or corruption detected
-            diag::warn(
+            diagnostics::warn(
                 "security",
                 &format!(
                     "CRC32C mismatch on ext_data for record LSN={}: expected=0x{:08x}, got=0x{:08x}. Zeroing ext_data.",
@@ -267,7 +267,7 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
         let result = detector.scan(record.message.as_str());
         if result.should_block {
             record.message.set("[SECRET-BLOCKED]");
-            diag::warn(
+            diagnostics::warn(
                 "security",
                 &format!(
                     "Secret leak BLOCKED in record LSN={}: {:?}",
@@ -281,7 +281,7 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
             );
         } else if result.detected {
             record.message.set(&result.message);
-            diag::info(
+            diagnostics::info(
                 "security",
                 &format!("Secret leak MASKED in record LSN={}", record.lsn),
             );
@@ -310,7 +310,7 @@ pub fn report_stats(ctx: &PipelineContext<'_>, batch_size: usize) {
     let filter_dropped = ctx.stage_stats[StageIndex::Filter as usize].dropped;
 
     if prefilter_dropped > 0 || filter_dropped > 0 {
-        diag::info(
+        diagnostics::info(
             "pipeline",
             &format!(
                 "Batch: {batch_size} records. PreFilter dropped {prefilter_dropped}, Filter dropped {filter_dropped}"

@@ -119,4 +119,4 @@ compatibility at runtime.
 
 - [FlatBuffers: Writing a schema](https://flatbuffers.dev/flatbuffers_guide_writing_schema.html)
 - [FlatBuffers: Rust usage](https://flatbuffers.dev/flatbuffers_guide_use_rust.html)
-- [DoLogger Design Document §14.4 — SIF](Docs/design.md)
+- [DoLogger Design Document §14.4 — SIF](docs/design.md)
