@@ -10,7 +10,7 @@
 //! | Assembly | 3 | Core: LSN assign, sign (if AUDIT) | No | Ring0+1 write |
 //! | Processing | 4 | Processor plugins (enrich, mask) | Yes | Ring2+3 write |
 //! | Formatting | 5 | Formatter plugins → SIF/text | No | Read-only |
-//! | Sink | 6 | IOSink plugins (fan-out write) | No | Read-only |
+//! | Sink | 6 | Core built-in sinks (fan-out write) | No | Read-only |
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;

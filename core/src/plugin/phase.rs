@@ -8,6 +8,9 @@
 //! Each constant here matches the C `#define` in `core/include/dologger_core.h`.
 //! They MUST be kept in sync — any change here requires a corresponding
 //! change in the C header and vice versa.
+//!
+//! The Sink stage (pipeline stage 6) is intentionally NOT a phase constant:
+//! Sink is a core built-in output executor, not a plugin mount point.
 
 /// Pre-filter stage: rate limiting, drop policy
 pub const PHASE_PRE_FILTER: u32 = 0x0001;
@@ -19,8 +22,6 @@ pub const PHASE_ASSEMBLY: u32 = 0x0004;
 pub const PHASE_PROCESSING: u32 = 0x0008;
 /// Formatting stage: text/json/csv/sif encoding
 pub const PHASE_FORMATTING: u32 = 0x0010;
-/// Sink stage: output to console/file/network/WORM
-pub const PHASE_SINK: u32 = 0x0020;
 /// Config provider: configuration loading/saving
 pub const PHASE_CONFIG: u32 = 0x0040;
 /// Key provider: Ed25519 key generation/storage
@@ -39,7 +40,6 @@ pub const PHASE_ALL: u32 = PHASE_PRE_FILTER
     | PHASE_ASSEMBLY
     | PHASE_PROCESSING
     | PHASE_FORMATTING
-    | PHASE_SINK
     | PHASE_CONFIG
     | PHASE_KEY
     | PHASE_HOSTINFO
@@ -53,7 +53,6 @@ pub fn phase_name(phase: u32) -> &'static str {
         PHASE_ASSEMBLY => "ASSEMBLY",
         PHASE_PROCESSING => "PROCESSING",
         PHASE_FORMATTING => "FORMATTING",
-        PHASE_SINK => "SINK",
         PHASE_CONFIG => "CONFIG",
         PHASE_KEY => "KEY",
         PHASE_HOSTINFO => "HOSTINFO",
@@ -69,7 +68,6 @@ pub const PHASE_NAMES: &[(&str, u32)] = &[
     ("ASSEMBLY", PHASE_ASSEMBLY),
     ("PROCESSING", PHASE_PROCESSING),
     ("FORMATTING", PHASE_FORMATTING),
-    ("SINK", PHASE_SINK),
     ("CONFIG", PHASE_CONFIG),
     ("KEY", PHASE_KEY),
     ("HOSTINFO", PHASE_HOSTINFO),
@@ -88,7 +86,6 @@ mod tests {
         assert_eq!(PHASE_ASSEMBLY, 0x0004);
         assert_eq!(PHASE_PROCESSING, 0x0008);
         assert_eq!(PHASE_FORMATTING, 0x0010);
-        assert_eq!(PHASE_SINK, 0x0020);
         assert_eq!(PHASE_CONFIG, 0x0040);
         assert_eq!(PHASE_KEY, 0x0080);
         assert_eq!(PHASE_HOSTINFO, 0x0100);
@@ -103,7 +100,6 @@ mod tests {
             PHASE_ASSEMBLY,
             PHASE_PROCESSING,
             PHASE_FORMATTING,
-            PHASE_SINK,
             PHASE_CONFIG,
             PHASE_KEY,
             PHASE_HOSTINFO,
@@ -118,8 +114,8 @@ mod tests {
 
     #[test]
     fn test_phase_name_known() {
-        assert_eq!(phase_name(PHASE_SINK), "SINK");
         assert_eq!(phase_name(PHASE_KEY), "KEY");
+        assert_eq!(phase_name(PHASE_HOSTINFO), "HOSTINFO");
     }
 
     #[test]

@@ -4,8 +4,8 @@
 //! production. The current implementation provides direct `write`/`WriteFile`
 //! syscalls; async upgrade is deferred to a later milestone.
 //!
-//! All log output routes through IOSink; system diagnostics use the
-//! sysmon self-monitoring channel or the internal diagnostic log.
+//! All log output routes through the built-in sink layer; system diagnostics
+//! use the sysmon self-monitoring channel or the internal diagnostic log.
 //!
 //! # Text encoding policy
 //!

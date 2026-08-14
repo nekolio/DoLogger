@@ -20,8 +20,7 @@ pub use manager::{
 pub use phase::PHASE_POLICY;
 pub use phase::{
     phase_name, PHASE_ALL, PHASE_ASSEMBLY, PHASE_CONFIG, PHASE_FILTER, PHASE_FORMATTING,
-    PHASE_HOSTINFO, PHASE_KEY, PHASE_NAMES, PHASE_PRE_FILTER, PHASE_PROCESSING, PHASE_SINK,
-    PHASE_SYSCALL,
+    PHASE_HOSTINFO, PHASE_KEY, PHASE_NAMES, PHASE_PRE_FILTER, PHASE_PROCESSING, PHASE_SYSCALL,
 };
 pub use quota::{PluginQuota, QuotaAction, QuotaConfig, QuotaManager};
 pub use sandbox::{

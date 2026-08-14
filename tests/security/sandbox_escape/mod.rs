@@ -357,7 +357,6 @@ mod plugin_type_restrictions {
             "Formatter",
             "Processor",
             "FieldProvider",
-            "IOSink",
             "ConfigProvider",
             "KeyProvider",
             "PolicyProvider",
@@ -385,7 +384,6 @@ mod plugin_type_restrictions {
             "Formatter",
             "Processor",
             "FieldProvider",
-            "IOSink",
         ];
         for pt in &safe_types {
             assert!(
@@ -422,9 +420,9 @@ mod plugin_type_restrictions {
     // --- Red (SandboxLevel::Isolated) ---
 
     #[test]
-    fn red_allows_only_render_transform_types() {
-        // Red can only be: Filter, FieldProvider, Processor, Formatter, IOSink
-        let allowed = ["Filter", "FieldProvider", "Processor", "Formatter", "IOSink"];
+    fn red_allows_only_transform_plugin_types() {
+        // Red can only be: Filter, FieldProvider, Processor, Formatter
+        let allowed = ["Filter", "FieldProvider", "Processor", "Formatter"];
         for pt in &allowed {
             assert!(
                 SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, pt).is_ok(),

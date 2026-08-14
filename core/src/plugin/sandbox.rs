@@ -278,9 +278,9 @@ impl SandboxPolicy {
                 }
             }
             SandboxLevel::Isolated => {
-                // Red can only be: Filter, FieldProvider, Processor, Formatter, IOSink
+                // Red can only be: Filter, FieldProvider, Processor, Formatter
                 match plugin_type_name {
-                    "Filter" | "FieldProvider" | "Processor" | "Formatter" | "IOSink" => Ok(()),
+                    "Filter" | "FieldProvider" | "Processor" | "Formatter" => Ok(()),
                     other => Err(format!("Red plugins cannot register as {}", other)),
                 }
             }
@@ -928,7 +928,7 @@ mod tests {
 
     #[test]
     fn test_check_plugin_type_allowed_red() {
-        // Red (Isolated) can only be: Filter, FieldProvider, Processor, Formatter, IOSink
+        // Red (Isolated) can only be: Filter, FieldProvider, Processor, Formatter
         assert!(SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "Filter").is_ok());
         assert!(
             SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "FieldProvider")
@@ -940,7 +940,6 @@ mod tests {
         assert!(
             SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "Formatter").is_ok()
         );
-        assert!(SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "IOSink").is_ok());
         // Cannot be anything else
         assert!(
             SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "ConfigProvider")

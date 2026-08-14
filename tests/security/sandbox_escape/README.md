@@ -12,7 +12,7 @@ Covers trust model enforcement, platform isolation policies, and seccomp-bpf fil
 |---------|---------|--------------|----------------------|-------------------|
 | Blue    | Full    | `None`       | ALL                  | ALL (no filter)   |
 | Yellow  | Partial | `Restricted` | Most (no Config/Key/Policy/HostInfo/Syscall providers) | Memory, FileIO, Threading, Time, Signal, SystemInfo |
-| Red     | None    | `Isolated`   | Filter, FieldProvider, Processor, Formatter, IOSink only | Memory, Threading, Time |
+| Red     | None    | `Isolated`   | Filter, FieldProvider, Processor, Formatter only | Memory, Threading, Time |
 
 ## Test Categories
 

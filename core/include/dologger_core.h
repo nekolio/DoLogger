@@ -400,7 +400,6 @@ DOLOGGER_API const char *dologger_version(void);
 #define DO_LOG_PHASE_ASSEMBLY    0x0004u
 #define DO_LOG_PHASE_PROCESSING  0x0008u
 #define DO_LOG_PHASE_FORMATTING  0x0010u
-#define DO_LOG_PHASE_SINK        0x0020u
 #define DO_LOG_PHASE_CONFIG      0x0040u
 #define DO_LOG_PHASE_KEY         0x0080u
 #define DO_LOG_PHASE_HOSTINFO    0x0100u
@@ -408,7 +407,7 @@ DOLOGGER_API const char *dologger_version(void);
 #define DO_LOG_PHASE_POLICY      0x0400u  /* deprecated, same as PRE_FILTER */
 
 /* =========================================================================
- * Plugin ABI — PluginInfo + ten VTable types
+ * Plugin ABI — PluginInfo + nine VTable types
  * ======================================================================== */
 
 /** @brief Opaque handle to a log record passed through the plugin pipeline. */
@@ -470,20 +469,7 @@ typedef struct {
                   dologger_output_buffer_t *buf, void *config);
 } dologger_formatter_vtable_t;
 
-/* --- (5) IOSink VTable --- */
-typedef struct {
-    int      (*open)(void *instance, void *config);
-    int      (*write)(void *instance, const uint8_t *data, size_t len);
-    /** Optional batch write — may be NULL if not implemented. */
-    int      (*write_batch)(void *instance, const uint8_t *const *data,
-                            const size_t *lengths, size_t count);
-    int      (*flush)(void *instance);
-    int      (*close)(void *instance);
-    /** Optional — returns last persisted record.id (0 if unavailable). */
-    uint64_t (*get_last_persisted_id)(void *instance);
-} dologger_iosink_vtable_t;
-
-/* --- (6) ConfigProvider VTable --- */
+/* --- (5) ConfigProvider VTable --- */
 typedef struct {
     int         (*open)(void *instance, void *config);
     /** Returns a TOML string; caller (core) takes ownership. */
@@ -491,7 +477,7 @@ typedef struct {
     int         (*close)(void *instance);
 } dologger_config_provider_vtable_t;
 
-/* --- (7) KeyProvider VTable --- */
+/* --- (6) KeyProvider VTable --- */
 typedef struct {
     int (*open)(void *instance, void *config);
     /** Write the Ed25519 public key (32 bytes) to out_pubkey. */
@@ -505,7 +491,7 @@ typedef struct {
     int (*close)(void *instance);
 } dologger_key_provider_vtable_t;
 
-/* --- (8) PolicyProvider VTable --- */
+/* --- (7) PolicyProvider VTable --- */
 typedef struct {
     /**
      * Evaluate whether the record should continue.
@@ -515,10 +501,10 @@ typedef struct {
     int (*evaluate)(const dologger_record_handle_t *rec);
 } dologger_policy_provider_vtable_t;
 
-/* --- (9) HostInfoProvider — reuses FieldProviderVTable --- */
+/* --- (8) HostInfoProvider — reuses FieldProviderVTable --- */
 typedef dologger_field_provider_vtable_t dologger_host_info_provider_vtable_t;
 
-/* --- (10) SystemCallBroker VTable --- */
+/* --- (9) SystemCallBroker VTable --- */
 typedef struct {
     /**
      * Proxy a system call. Returns 0 on success, -ENOSYS for unknown ops.
