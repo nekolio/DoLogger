@@ -21,8 +21,10 @@
 /// Corresponds to `SIF_MAGIC = *b"SIF1"` in the Rust module.
 file_identifier "SIF1";
 
-/// A single log record is the root object of every SIF message.
-root_type Record;
+/// Non-standard `length:` vector attribute used on Ring 0/1 fixed-size fields
+/// (signature, prev_hash) to document exact byte lengths. Declared here so
+/// flatc accepts it; it carries no codegen semantics.
+attribute "length";
 
 // ---------------------------------------------------------------------------
 // Record — main log record table
@@ -243,3 +245,11 @@ table Record {
 //   key:string (required);
 //   value:string;
 // }
+
+// =============================================================================
+// Root type
+// =============================================================================
+
+// Declared after the `Record` table definition — flatc 25.x does not accept a
+// `root_type` forward reference.
+root_type Record;
