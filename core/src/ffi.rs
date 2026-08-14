@@ -11,9 +11,12 @@
 use std::ffi::{c_char, c_void, CStr};
 
 use crate::config::DologgerConfig;
-use crate::error::{DologgerError, DO_LOG_ERR_INVALID_ARG, DO_LOG_ERR_NOT_SUPPORTED, DO_LOG_OK};
+use crate::error::{
+    DologgerError, DO_LOG_ERR_BUFFER_TOO_SMALL, DO_LOG_ERR_FIELD_NOT_FOUND,
+    DO_LOG_ERR_FIELD_PERMISSION_DENIED, DO_LOG_ERR_INVALID_ARG, DO_LOG_OK,
+};
 use crate::record::thread_id_u64;
-use crate::record::LogLevel;
+use crate::record::{FieldRing, LogLevel, Record};
 use crate::{create_handle, destroy_handle, Engine};
 
 /// Opaque handle to a DoLogger core instance.
@@ -300,8 +303,7 @@ pub extern "C" fn dologger_field_set(
         return DO_LOG_ERR_INVALID_ARG;
     }
 
-    // SAFETY: field_name validated non-null above. CStr::from_ptr reads
-    // a null-terminated UTF-8 string provided by the host.
+    // SAFETY: field_name validated non-null above.
     let name = unsafe { CStr::from_ptr(field_name) };
     // SAFETY: value validated non-null above.
     let val = unsafe { CStr::from_ptr(value) };
@@ -321,13 +323,27 @@ pub extern "C" fn dologger_field_set(
         }
     };
 
-    // SAFETY: record is a valid DologgerRecord pointer from the host.
-    // We're accessing the engine's record pool. In practice this function
-    // is a placeholder — the real implementation routes through Engine.
-    // For now, we return DO_LOG_ERR_NOT_SUPPORTED as field access requires
-    // the full Engine context.
-    let _ = (record, name_str, val_str);
-    DO_LOG_ERR_NOT_SUPPORTED
+    // SAFETY: `record` is an opaque handle the engine hands out as a pointer to
+    // a live `Record`; the host passes it back verbatim, so this cast recovers
+    // the original `Record` reference — the same pattern `dologger_log` uses on
+    // records it allocates from the engine pool. The C ABI contract
+    // (`dologger_core.h`) requires callers to pass only handles obtained from
+    // the engine; passing a fabricated pointer is a caller-side violation.
+    //
+    // The raw FFI surface is treated as an untrusted (Ring 3) caller, matching
+    // the documented contract: Ring 0 fields stay read-only, Ring 1 fields
+    // require HostInfoProvider, Ring 2/3 fields are writable by plugins.
+    let rec = unsafe { &mut *(record as *mut Record) };
+    match rec.field_set(name_str, val_str, FieldRing::Ring3) {
+        Ok(()) => {
+            set_last_error(DO_LOG_OK, "ok");
+            DO_LOG_OK
+        }
+        Err(e) => {
+            set_last_error(DO_LOG_ERR_FIELD_PERMISSION_DENIED, e);
+            DO_LOG_ERR_FIELD_PERMISSION_DENIED
+        }
+    }
 }
 
 #[no_mangle]
@@ -342,20 +358,55 @@ pub extern "C" fn dologger_field_get(
         return DO_LOG_ERR_INVALID_ARG;
     }
 
-    if buffer_size > 0 {
-        let msg = b"(field_get: not implemented)\0";
-        let len = msg.len().min(buffer_size);
-        // SAFETY: buffer is valid for buffer_size bytes (non-null check above).
-        // msg is a static byte string within bounds; we copy at most buffer_size bytes.
-        // The cast is required on targets where c_char is i8 (x86_64) and is a
-        // no-op where c_char is u8 (aarch64-linux) — clippy flags the latter.
-        #[allow(clippy::unnecessary_cast)]
-        unsafe {
-            std::ptr::copy_nonoverlapping(msg.as_ptr(), buffer as *mut u8, len);
-        }
+    if buffer_size == 0 {
+        set_last_error(DO_LOG_ERR_BUFFER_TOO_SMALL, "buffer size 0");
+        return DO_LOG_ERR_BUFFER_TOO_SMALL;
     }
 
-    DO_LOG_ERR_NOT_SUPPORTED
+    // SAFETY: field_name validated non-null above.
+    let name = unsafe { CStr::from_ptr(field_name) };
+    let name_str = match name.to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            set_last_error(DO_LOG_ERR_INVALID_ARG, "field_name not valid UTF-8");
+            return DO_LOG_ERR_INVALID_ARG;
+        }
+    };
+
+    // SAFETY: same opaque-handle contract as `dologger_field_set`.
+    let rec = unsafe { &*(record as *const Record) };
+    let value = match rec.field_get(name_str, FieldRing::Ring3) {
+        Ok(v) => v,
+        Err(_) => {
+            set_last_error(DO_LOG_ERR_FIELD_NOT_FOUND, "field not found");
+            return DO_LOG_ERR_FIELD_NOT_FOUND;
+        }
+    };
+
+    // Copy the value into the caller's buffer, NUL-terminated. If the value
+    // does not fit in `buffer_size - 1` bytes, the copy is truncated and
+    // `DO_LOG_ERR_BUFFER_TOO_SMALL` is returned so the caller can grow.
+    let bytes = value.as_bytes();
+    if bytes.len() >= buffer_size {
+        // SAFETY: buffer valid for buffer_size bytes; we copy buffer_size-1
+        // and NUL-terminate at buffer_size-1, both within bounds.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer as *mut u8, buffer_size - 1);
+            *buffer.add(buffer_size - 1) = 0;
+        }
+        set_last_error(DO_LOG_ERR_BUFFER_TOO_SMALL, "field value truncated");
+        return DO_LOG_ERR_BUFFER_TOO_SMALL;
+    }
+
+    let n = bytes.len();
+    // SAFETY: buffer valid for buffer_size bytes; n <= buffer_size-1 and the
+    // NUL write at buffer.add(n) is within bounds.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer as *mut u8, n);
+        *buffer.add(n) = 0;
+    }
+    set_last_error(DO_LOG_OK, "ok");
+    n as i32
 }
 
 // ==========================================================================
@@ -435,5 +486,126 @@ pub extern "C" fn dologger_config_load_from_string(
             set_last_error(code, &msg);
             code
         }
+    }
+}
+
+// ==========================================================================
+// Tests
+// ==========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    /// Reinterpret a `&mut Record` as the opaque `DologgerRecord` pointer, the
+    /// way the engine's record pool hands records to a C caller.
+    fn as_opaque(rec: &mut Record) -> *mut DologgerRecord {
+        rec as *mut Record as *mut DologgerRecord
+    }
+    fn as_opaque_const(rec: &Record) -> *const DologgerRecord {
+        rec as *const Record as *const DologgerRecord
+    }
+    fn c(s: &str) -> CString {
+        CString::new(s).unwrap()
+    }
+    fn err_out() -> DologgerError {
+        DologgerError::new()
+    }
+
+    #[test]
+    fn field_set_get_ring3_round_trip() {
+        let mut rec = Record::new(0);
+        let mut err = err_out();
+
+        // Ring 3 (ext.*) field write succeeds.
+        let ret = dologger_field_set(
+            as_opaque(&mut rec),
+            c("ext.trace_id").as_ptr(),
+            c("abc123").as_ptr(),
+            &mut err,
+        );
+        assert_eq!(ret, DO_LOG_OK);
+
+        // And reads back with the value NUL-terminated.
+        let mut buf = [0u8; 64];
+        let n = dologger_field_get(
+            as_opaque_const(&rec),
+            c("ext.trace_id").as_ptr(),
+            buf.as_mut_ptr() as *mut std::os::raw::c_char,
+            buf.len(),
+            &mut err,
+        );
+        assert_eq!(n, 6, "bytes written should equal value length");
+        assert_eq!(&buf[..6], b"abc123");
+        assert_eq!(buf[6], 0, "buffer must be NUL-terminated");
+    }
+
+    #[test]
+    fn field_set_ring0_is_read_only_for_ffi() {
+        let mut rec = Record::new(0);
+        let mut err = err_out();
+
+        // Ring 0 fields are read-only; an untrusted FFI caller must be denied.
+        let ret = dologger_field_set(
+            as_opaque(&mut rec),
+            c("record.id").as_ptr(),
+            c("fabricated").as_ptr(),
+            &mut err,
+        );
+        assert_eq!(ret, DO_LOG_ERR_FIELD_PERMISSION_DENIED);
+    }
+
+    #[test]
+    fn field_get_unknown_returns_not_found() {
+        let rec = Record::new(0);
+        let mut err = err_out();
+        let mut buf = [0u8; 64];
+
+        let ret = dologger_field_get(
+            as_opaque_const(&rec),
+            c("nope.not_a_field").as_ptr(),
+            buf.as_mut_ptr() as *mut std::os::raw::c_char,
+            buf.len(),
+            &mut err,
+        );
+        assert_eq!(ret, DO_LOG_ERR_FIELD_NOT_FOUND);
+    }
+
+    #[test]
+    fn field_get_truncation_reports_buffer_too_small() {
+        let mut rec = Record::new(0);
+        rec.message.set("a fairly long message value");
+        let mut err = err_out();
+
+        // Buffer smaller than the value → truncated copy + BUFFER_TOO_SMALL.
+        let mut small = [0u8; 8];
+        let ret = dologger_field_get(
+            as_opaque_const(&rec),
+            c("message").as_ptr(),
+            small.as_mut_ptr() as *mut std::os::raw::c_char,
+            small.len(),
+            &mut err,
+        );
+        assert_eq!(ret, DO_LOG_ERR_BUFFER_TOO_SMALL);
+        // The truncated copy is NUL-terminated within the small buffer.
+        assert_eq!(&small[..7], b"a fairl");
+        assert_eq!(small[7], 0);
+    }
+
+    #[test]
+    fn field_get_zero_buffer_is_rejected() {
+        let rec = Record::new(0);
+        let mut err = err_out();
+        let mut buf = [0u8; 1];
+
+        let ret = dologger_field_get(
+            as_opaque_const(&rec),
+            c("message").as_ptr(),
+            buf.as_mut_ptr() as *mut std::os::raw::c_char,
+            0,
+            &mut err,
+        );
+        assert_eq!(ret, DO_LOG_ERR_BUFFER_TOO_SMALL);
     }
 }

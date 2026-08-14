@@ -510,11 +510,16 @@ impl Record {
 
         match target_ring {
             FieldRing::Ring0 => {
-                // Only core engine (Ring0 caller) can write Ring 0 fields
+                // Ring 0 fields (id/timestamp/signature/origin_lsn) are owned
+                // by the engine and populated through dedicated methods
+                // (RecordPool, TimeSource, SignatureEngine). They are not
+                // settable through the string field API: non-Ring0 callers get
+                // a permission denial, and even a Ring0 caller gets a typed
+                // error rather than a silent success.
                 if !matches!(caller_ring, FieldRing::Ring0) {
                     return Err("Permission denied: Ring 0 fields are read-only for plugins");
                 }
-                self.set_ring0_field(field_name, value);
+                return Err("Ring 0 fields are engine-managed and not settable via field_set");
             }
             FieldRing::Ring1 => {
                 // Only core or HostInfoProvider (Ring1 caller) can write Ring 1
@@ -597,12 +602,6 @@ impl Record {
     }
 
     // -- Internal helpers --
-
-    fn set_ring0_field(&mut self, field_name: &str, _value: &str) {
-        // Ring 0 fields are set internally by the engine, not via string API
-        // This is a stub — actual Ring 0 writes go through dedicated methods
-        let _ = field_name;
-    }
 
     fn set_ring1_field(&mut self, field_name: &str, value: &str) {
         match field_name {
