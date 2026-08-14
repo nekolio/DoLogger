@@ -363,21 +363,19 @@ flowchart TD
 
 每个启用的接收器会收到每条已格式化记录的副本。分发通过 `io_pool` 线程池并行执行。
 
-### 内置接收器（共 11 种）
+### 内置接收器（共 9 种）
 
 | 接收器 | 类型 | TLS | 用途 |
 |:-:|:-:|:-:|:-:|
-| Console | `sink_console` | 不适用 | 开发调试 |
-| File | `sink_file` | 不适用 | 本地文件输出（支持轮转） |
-| Callback | `sink_callback` | 不适用 | 进程内自定义处理 |
-| Kafka | `sink_kafka` | TLS + SASL | 集中式日志聚合 |
-| Syslog | `sink_syslog` | TLS（RFC 5425） | 传统 syslog 基础设施 |
-| Webhook | `sink_webhook` | HTTPS | REST API 日志采集 |
-| SQLite | `sink_sqlite` | 不适用 | 本地结构化日志存储 |
-| WORM | `sink_worm` | 不适用 | 不可变审计日志存储 |
-| Security File | `sink_security` | 不适用 | 隔离审计输出（0600、绕过插件） |
-| Shared Memory | `sink_shm` | 不适用 | Sidecar 进程间通信 |
-| OpenTelemetry | `sink_otel` | HTTPS | OTLP/HTTP 可观测性管道 |
+| Console | `console` | 不适用 | 开发调试 |
+| File | `file` | 不适用 | 本地文件输出（支持轮转） |
+| WORM | `worm` | 不适用 | 不可变审计日志存储 |
+| Security File | `security` | 不适用 | 隔离审计输出（0600、绕过插件） |
+| Syslog | `syslog` | TLS（RFC 5425） | 传统 syslog 基础设施 |
+| Kafka | `kafka` | TLS + SASL | 集中式日志聚合（按特性启用） |
+| SQLite | `sqlite` | 不适用 | 本地结构化日志存储（按特性启用） |
+| Webhook | `webhook` | HTTPS | REST API 日志采集（按特性启用） |
+| OpenTelemetry | `otel` | HTTPS | OTLP/HTTP 可观测性管道（按特性启用） |
 
 ### 回退链
 
@@ -385,14 +383,12 @@ flowchart TD
 
 ```toml
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
 fallback = "emergency_file"
 
 [sinks.kafka]
-type = "sink_kafka"
-enabled = true
+type = "kafka"
 brokers = ["kafka1:9092"]
 fallback = "file"            # 若 Kafka 宕机，改写文件
 ```
@@ -650,34 +646,42 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 
 ### 格式
 
-SIF（Structured Interchange Format，结构化交换格式）是用于 WORM 存储和进程间通信的二进制日志记录格式。
+SIF（**Standard Intermediate Format**，标准中间格式）是二进制日志记录线格式，
+用于 WORM 存储、共享内存交接，以及 CLI 的 `record` / `verify` 命令。它是由
+FlatBuffer 编码的 `Record` 表，外加一个小的帧头，支持模式演化与零拷贝字段访问。
 
-### Record 布局（简化）
+每个 SIF 消息按如下方式分帧：
 
 | 偏移 | 大小 | 字段 | 描述 |
 |:-:|:-:|:-:|:-:|
-| 0 | 4 | magic | b"SIF1" (0x53494631) |
-| 4 | 4 | version | 格式版本（1） |
-| 8 | 4 | length | 记录总长度 |
-| 12 | 8 | lsn | 日志序列号 |
-| 20 | 8 | timestamp_hi | 时间戳高 64 位 |
-| 28 | 8 | timestamp_lo | 时间戳低 64 位 |
-| 36 | 1 | level | 日志级别（0-6） |
-| 37 | 1 | flags | 位标志 |
-| 38 | 2 | reserved | 保留（填充） |
-| 40 | 8 | thread_id | 线程 ID |
-| 48 | 8 | process_id | 进程 ID |
-| 56 | 8 | origin_lsn | 原始 LSN（分布式） |
-| 64 | 64 | signature | Ed25519 签名 |
-| 128 | 32 | prev_hash | SHA-256 链哈希 |
-| 160 | ... | message | 长度前缀 UTF-8 |
-| ... | ... | source_file | 长度前缀 UTF-8 |
-| ... | ... | host_name | 长度前缀 UTF-8 |
-| ... | 4 | crc32c | 整个记录的 CRC32C |
+| 0 | 4 | magic | `b"SIF1"` |
+| 4 | 12 | SifHeader | version、total_length、record_count |
+| 16 | 可变 | FlatBuffer | `Record` 表（根偏移 + vtable + 数据） |
 
-### 未来方向
+### 帧头（`SifHeader`）
 
-当前 SIF 格式为简化的二进制帧。计划引入基于 FlatBuffers 的完整 SIF，支持模式演化以实现向前/向后兼容。
+| 字段 | 大小 | 描述 |
+|:-:|:-:|:-:|
+| version | 4 | 打包的模式版本（`MAJOR << 24 \| MINOR << 16 \| PATCH`）；1.0.0 = `0x0100_0000` |
+| total_length | 4 | 帧总长度（含 magic + 帧头） |
+| record_count | 4 | `Record` 表数量（单记录帧为 1） |
+
+### 编码 / 解码
+
+`core::sif` 模块提供稳定的帧 API：
+
+- `encode_record(&Record) -> Vec<u8>` — 将记录序列化为分帧的 SIF 缓冲区。
+- `decode_record(&[u8]) -> Record` — 将分帧的 SIF 缓冲区解析回记录。
+- `validate_frame(&[u8]) -> SifError` — 校验 magic + 帧头一致性。
+
+FlatBuffer 模式位于 `core/sif/dologger_sif.fbs`；绑定由 `core/build.rs`
+（`flatc --rust`）生成并提交作为回退。模式支持演化，旧消费者会忽略未知字段。
+
+### 状态 — v0.1.0
+
+线格式与 `encode_record` / `decode_record` / `validate_frame` API 已交付，
+并被共享内存 sink 与 CLI 使用。引擎的 Formatting→Sink SIF 交接处于规划中
+（Formatting 阶段目前仍内部输出纯文本）。
 
 ---
 
