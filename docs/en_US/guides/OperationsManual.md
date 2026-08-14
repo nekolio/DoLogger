@@ -142,10 +142,9 @@ performance_profile = "prod-performance"
 ring_buffer_size = 262144       # MUST be a power of two
 batch_size = 256
 enable_signature = false        # Set true for audit deployments
-# The six domain-level non-downgradable items below are enforced by
+# The five domain-level non-downgradable items below are enforced by
 # DomainManager, not read from [dologger] in v0.1.0 — listed for completeness:
 escape_html = true              # Prevent CRLF / log injection
-worm_enabled = false            # Set true for compliance (GDPR, HIPAA, PCI DSS)
 fsync_on_write = false          # Set true for crash-safe durability
 require_tls = true              # Enforce TLS on all network sinks
 sign_ring2 = false              # Set true to sign verified extension fields
@@ -156,35 +155,14 @@ shutdown_timeout_ms = 5000
 # (illustrative — v0.1.0 config parsing covers [dologger] keys only; sink
 # sections are wired per-pipeline in code, see core/src/sink/)
 
-[sinks.console]
-type = "sink_console"
-enabled = false                  # Disable in production
+# Sinks disabled in the old schema (enabled = false) are omitted — a sink is
+# present iff its table exists; there is no enable flag.
 
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "100MB"
-rotation_interval = "24h"
-compression = "zstd"             # gzip | zstd | none
-retention_days = 90
-retention_total_size = "10GB"
-
-[sinks.syslog]
-type = "sink_syslog"
-enabled = false
-server = "syslog.internal:6514"
-protocol = "tcp"
-tls = true
-cert_file = "/etc/dologger/certs/syslog-client.pem"
-
-[sinks.kafka]
-type = "sink_kafka"
-enabled = false
-brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
-topic = "app-logs"
-tls = true
-sasl_mechanism = "SCRAM-SHA-256"
+max_size = 104857600
+durability_level = "os_cache"
 
 # ── Plugin definitions ────────────────────────────────────────────
 
@@ -385,7 +363,6 @@ The System Monitor (`sysmon`) emits structured events to `stderr` by default. Ea
   "plugins_loaded": 3,
   "plugins_failed": 0,
   "signature_enabled": false,
-  "worm_enabled": false,
   "ring_buffer": {
     "capacity": 262144,
     "used": 8192,
@@ -521,9 +498,9 @@ File Sink supports both size-based and time-based rotation:
 # fsync_on_write, durability_level, buffer_size; time-based rotation,
 # compression, and file-count retention are planned)
 [sinks.file]
-type = "sink_file"
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "100MB"              # Rotate when file exceeds 100 MB
+max_size = 104857600            # Rotate when file exceeds 100 MB
 rotation_interval = "24h"       # Rotate at midnight regardless of size
 max_rotated_files = 90          # Keep at most 90 rotated files
 compression = "zstd"            # Compress rotated files (gzip | zstd | none)
@@ -672,7 +649,7 @@ dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).t
 
 ### Non-Downgradable Items
 
-The following 6 configuration items can only be **tightened** (moved toward greater security) across configuration layers; they can never be loosened:
+The following 5 configuration items can only be **tightened** (moved toward greater security) across configuration layers; they can never be loosened:
 
 **Table 8: Non-Downgradable Security Items**
 
@@ -680,7 +657,6 @@ The following 6 configuration items can only be **tightened** (moved toward grea
 |:-:|:-:|:-:|
 | `enable_signature`  | `true` → `false`     | Logs are no longer cryptographically verifiable. Non-repudiation is lost. |
 | `escape_html`       | `true` → `false`     | Log injection (CRLF) attacks become possible. |
-| `worm_enabled`      | `true` → `false`     | Audit logs become mutable; historical records can be altered or deleted. |
 | `fsync_on_write`    | `true` → `false`     | Crashes may lose in-flight audit records; durability guarantee is voided. |
 | `require_tls`       | `true` → `false`     | Network sinks accept unencrypted connections; man-in-the-middle attack surface. |
 | `sign_ring2`        | `true` → `false`     | Verified extension fields lose cryptographic binding. |

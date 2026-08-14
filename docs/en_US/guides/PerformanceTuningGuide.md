@@ -368,17 +368,17 @@ Sinks are not created equal. The slowest enabled sink determines your effective 
 
 | Sink | Throughput (rec/s) | Latency Per Write | Bottleneck | Async? |
 |:-:|:-:|:-:|:-:|:-:|
-| Console (`sink_console`) | ~1,200,000 | ~0.8 us | Terminal emulator speed | Yes |
-| File, no fsync (`sink_file`) | ~950,000 | ~1.0 us | Filesystem page cache | Yes |
-| Callback (`sink_callback`) | ~2,000,000 | ~0.5 us | Callback function speed | No (sync) |
-| Shared Memory (`sink_shm`) | ~3,000,000 | ~0.3 us | Consumer read speed | Yes |
-| File + fsync (`sink_file`) | ~8,000 | ~125 us | Disk I/O latency | Yes |
-| Kafka + TLS (`sink_kafka`) | ~80,000 | ~12.5 us | Network I/O + TLS overhead | Yes |
-| Syslog + TLS (`sink_syslog`) | ~60,000 | ~16.7 us | Network I/O | Yes |
-| Webhook + HTTPS (`sink_webhook`) | ~5,000 | ~200 us | HTTP round-trip | Yes |
-| OTel OTLP/HTTP (`sink_otel`) | ~50,000 | ~20 us | HTTP/2 multiplexing | Yes |
-| SQLite (`sink_sqlite`) | ~40,000 | ~25 us | Write-ahead log + B-tree | Yes |
-| WORM (`sink_worm`) | ~12,000 | ~83 us | fsync + Ed25519 sign | No (sync) |
+| Console (`console`) | ~1,200,000 | ~0.8 us | Terminal emulator speed | Yes |
+| File, no fsync (`file`) | ~950,000 | ~1.0 us | Filesystem page cache | Yes |
+| Callback (`callback`) | ~2,000,000 | ~0.5 us | Callback function speed | No (sync) |
+| Shared Memory (`shm`) | ~3,000,000 | ~0.3 us | Consumer read speed | Yes |
+| File + fsync (`file`) | ~8,000 | ~125 us | Disk I/O latency | Yes |
+| Kafka + TLS (`kafka`) | ~80,000 | ~12.5 us | Network I/O + TLS overhead | Yes |
+| Syslog + TLS (`syslog`) | ~60,000 | ~16.7 us | Network I/O | Yes |
+| Webhook + HTTPS (`webhook`) | ~5,000 | ~200 us | HTTP round-trip | Yes |
+| OTel OTLP/HTTP (`otel`) | ~50,000 | ~20 us | HTTP/2 multiplexing | Yes |
+| SQLite (`sqlite`) | ~40,000 | ~25 us | Write-ahead log + B-tree | Yes |
+| WORM (`worm`) | ~12,000 | ~83 us | fsync + Ed25519 sign | No (sync) |
 
 ### Fast Sinks (Throughput > 500K rec/s)
 
@@ -414,9 +414,9 @@ When multiple sinks are enabled, the pipeline dispatches to all sinks in paralle
 Effective throughput = MIN(throughput of slowest enabled sink)
 
 Example:
-  sink_file (950K) + sink_kafka (80K) -> Effective: 80K rec/s
-  sink_console (1.2M) + sink_shm (3M) -> Effective: 1.2M rec/s
-  sink_worm (12K) + sink_file (950K)  -> Effective: 12K rec/s
+  file (950K) + kafka (80K) -> Effective: 80K rec/s
+  console (1.2M) + shm (3M) -> Effective: 1.2M rec/s
+  worm (12K) + file (950K)  -> Effective: 12K rec/s
 ```
 
 This is because all sinks share the pipeline output stage. The slowest sink creates backpressure.
@@ -505,10 +505,8 @@ ring_buffer_size = 1048576      # 1M slots for burst headroom
 batch_size = 512                 # Large batches for throughput
 enable_signature = false         # No audit requirement
 
-# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.kafka]
-type = "sink_kafka"
-enabled = true
+type = "kafka"
 brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
 topic = "api-logs"
 tls = true
@@ -537,18 +535,17 @@ performance_profile = "prod-audit"
 ring_buffer_size = 65536         # 64K -- low rate, focus on durability
 batch_size = 128
 enable_signature = true           # Non-downgradable
-# worm_enabled / fsync_on_write are domain-level items (DomainManager),
-# not [dologger] keys in v0.1.0 — listed for completeness:
-worm_enabled = true               # Non-downgradable
+# fsync_on_write is a domain-level item (DomainManager), not a [dologger]
+# key in v0.1.0 — listed for completeness. WORM durability is configured
+# on the [sinks.worm_file] sink itself:
 fsync_on_write = true             # Non-downgradable
 shutdown_policy = "graceful"
 shutdown_timeout_ms = 10000
 
-# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.worm_file]
-type = "sink_worm"
-enabled = true
+type = "worm"
 path = "/var/lib/dologger/audit/audit.worm"
+durability = "media_with_fua"
 ```
 
 **OS tuning:**
@@ -573,10 +570,8 @@ performance_profile = "dev"
 level = "DEBUG"
 ring_buffer_size = 65536
 
-# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.console]
-type = "sink_console"
-enabled = true
+type = "console"
 colored = true
 ```
 
@@ -594,19 +589,16 @@ performance_profile = "balanced"
 ring_buffer_size = 131072        # Conservative: 17 MB buffer + 17 MB pool
 batch_size = 128
 
-# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "50MB"
+max_size = 52428800            # 50 MB
 rotation_interval = "1h"
 compression = "zstd"
 retention_days = 7
 
 [sinks.otel]
-type = "sink_otel"
-enabled = true
+type = "otel"
 endpoint = "http://otel-collector:4318/v1/logs"
 ```
 
@@ -636,10 +628,8 @@ batch_size = 512
 shutdown_policy = "graceful"
 shutdown_timeout_ms = 30000      # 30s -- enough to drain 4M records
 
-# (illustrative — sink sections are not parsed from dologger.toml in v0.1.0)
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/data/etl/logs/pipeline.log"
 compression = "zstd"
 ```

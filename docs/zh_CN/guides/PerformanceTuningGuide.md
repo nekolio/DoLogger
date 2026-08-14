@@ -364,17 +364,17 @@ export DO_LOG_BUF_SIZE=524288
 
 | 接收器 | 吞吐量（rec/s） | 每次写入延迟 | 瓶颈 | 异步？ |
 |:-:|:-:|:-:|:-:|:-:|
-| Console（`sink_console`） | ~1,200,000 | ~0.8 us | 终端模拟器速度 | 是 |
-| File，无 fsync（`sink_file`） | ~950,000 | ~1.0 us | 文件系统页缓存 | 是 |
-| Callback（`sink_callback`） | ~2,000,000 | ~0.5 us | 回调函数速度 | 否（同步） |
-| Shared Memory（`sink_shm`） | ~3,000,000 | ~0.3 us | 消费者读取速度 | 是 |
-| File + fsync（`sink_file`） | ~8,000 | ~125 us | 磁盘 I/O 延迟 | 是 |
-| Kafka + TLS（`sink_kafka`） | ~80,000 | ~12.5 us | 网络 I/O + TLS 开销 | 是 |
-| Syslog + TLS（`sink_syslog`） | ~60,000 | ~16.7 us | 网络 I/O | 是 |
-| Webhook + HTTPS（`sink_webhook`） | ~5,000 | ~200 us | HTTP 往返 | 是 |
-| OTel OTLP/HTTP（`sink_otel`） | ~50,000 | ~20 us | HTTP/2 多路复用 | 是 |
-| SQLite（`sink_sqlite`） | ~40,000 | ~25 us | Write-ahead log + B-tree | 是 |
-| WORM（`sink_worm`） | ~12,000 | ~83 us | fsync + Ed25519 签名 | 否（同步） |
+| Console（`console`） | ~1,200,000 | ~0.8 us | 终端模拟器速度 | 是 |
+| File，无 fsync（`file`） | ~950,000 | ~1.0 us | 文件系统页缓存 | 是 |
+| Callback（`callback`） | ~2,000,000 | ~0.5 us | 回调函数速度 | 否（同步） |
+| Shared Memory（`shm`） | ~3,000,000 | ~0.3 us | 消费者读取速度 | 是 |
+| File + fsync（`file`） | ~8,000 | ~125 us | 磁盘 I/O 延迟 | 是 |
+| Kafka + TLS（`kafka`） | ~80,000 | ~12.5 us | 网络 I/O + TLS 开销 | 是 |
+| Syslog + TLS（`syslog`） | ~60,000 | ~16.7 us | 网络 I/O | 是 |
+| Webhook + HTTPS（`webhook`） | ~5,000 | ~200 us | HTTP 往返 | 是 |
+| OTel OTLP/HTTP（`otel`） | ~50,000 | ~20 us | HTTP/2 多路复用 | 是 |
+| SQLite（`sqlite`） | ~40,000 | ~25 us | Write-ahead log + B-tree | 是 |
+| WORM（`worm`） | ~12,000 | ~83 us | fsync + Ed25519 签名 | 否（同步） |
 
 ### 快速接收器（吞吐量 > 500K rec/s）
 
@@ -411,9 +411,9 @@ export DO_LOG_BUF_SIZE=524288
 有效吞吐量 = MIN（最慢启用接收器的吞吐量）
 
 示例：
-  sink_file（950K）+ sink_kafka（80K） -> 有效：80K rec/s
-  sink_console（1.2M）+ sink_shm（3M） -> 有效：1.2M rec/s
-  sink_worm（12K）+ sink_file（950K）  -> 有效：12K rec/s
+  file（950K）+ kafka（80K） -> 有效：80K rec/s
+  console（1.2M）+ shm（3M） -> 有效：1.2M rec/s
+  worm（12K）+ file（950K）  -> 有效：12K rec/s
 ```
 因为所有接收器共享管道输出阶段。最慢的接收器产生背压。
 
@@ -501,8 +501,7 @@ batch_size = 512                 # 大批量以提高吞吐量
 enable_signature = false         # 无审计要求
 
 [sinks.kafka]
-type = "sink_kafka"
-enabled = true
+type = "kafka"
 brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
 topic = "api-logs"
 tls = true
@@ -531,15 +530,16 @@ performance_profile = "prod-audit"
 ring_buffer_size = 65536         # 64K——低速率，注重持久性
 batch_size = 128
 enable_signature = true           # 不可降级
-worm_enabled = true               # 不可降级
+# fsync_on_write 是域级项（DomainManager），在 v0.1.0 中不是 [dologger]
+# 键——仅为完整性列出。WORM 持久性配置在 [sinks.worm_file] 接收器自身上：
 fsync_on_write = true             # 不可降级
 shutdown_policy = "graceful"
 shutdown_timeout_ms = 10000
 
 [sinks.worm_file]
-type = "sink_worm"
-enabled = true
+type = "worm"
 path = "/var/lib/dologger/audit/audit.worm"
+durability = "media_with_fua"
 ```
 
 **操作系统调优：**
@@ -565,8 +565,7 @@ level = "DEBUG"
 ring_buffer_size = 65536
 
 [sinks.console]
-type = "sink_console"
-enabled = true
+type = "console"
 colored = true
 ```
 
@@ -585,17 +584,15 @@ ring_buffer_size = 131072        # 保守：17 MB 缓冲区 + 17 MB 池
 batch_size = 128
 
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "50MB"
+max_size = 52428800            # 50 MB
 rotation_interval = "1h"
 compression = "zstd"
 retention_days = 7
 
 [sinks.otel]
-type = "sink_otel"
-enabled = true
+type = "otel"
 endpoint = "http://otel-collector:4318/v1/logs"
 ```
 
@@ -626,8 +623,7 @@ shutdown_policy = "graceful"
 shutdown_timeout_ms = 30000      # 30s——足够排空 4M 条记录
 
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/data/etl/logs/pipeline.log"
 compression = "zstd"
 ```

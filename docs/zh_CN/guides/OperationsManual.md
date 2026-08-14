@@ -138,10 +138,9 @@ performance_profile = "prod-performance"
 ring_buffer_size = 262144       # 必须是 2 的幂
 batch_size = 256
 enable_signature = false        # 审计部署时设为 true
-# 以下六项域级不可降级项由 DomainManager 强制执行，
+# 以下五项域级不可降级项由 DomainManager 强制执行，
 # 在 v0.1.0 中不读取自 [dologger] 段 — 此处仅为完整性列出：
 escape_html = true              # 防止 CRLF / 日志注入
-worm_enabled = false            # 合规场景设为 true（GDPR、HIPAA、PCI DSS）
 fsync_on_write = false          # 崩溃安全持久化设为 true
 require_tls = true              # 强制所有网络 Sink 使用 TLS
 sign_ring2 = false              # 设为 true 以签名受验证的扩展字段
@@ -152,35 +151,14 @@ shutdown_timeout_ms = 5000
 # （示意 — v0.1.0 的配置解析仅覆盖 [dologger] 键；Sink 段在代码中按管线接线，
 # 参见 core/src/sink/）
 
-[sinks.console]
-type = "sink_console"
-enabled = false                 # 生产环境禁用
+# 旧 schema 中通过 enabled = false 禁用的 Sink 在此省略——某个 Sink 存在与否仅取决于
+# 其表是否定义；不存在启用标志。
 
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "100MB"
-rotation_interval = "24h"
-compression = "zstd"            # gzip | zstd | none
-retention_days = 90
-retention_total_size = "10GB"
-
-[sinks.syslog]
-type = "sink_syslog"
-enabled = false
-server = "syslog.internal:6514"
-protocol = "tcp"
-tls = true
-cert_file = "/etc/dologger/certs/syslog-client.pem"
-
-[sinks.kafka]
-type = "sink_kafka"
-enabled = false
-brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
-topic = "app-logs"
-tls = true
-sasl_mechanism = "SCRAM-SHA-256"
+max_size = 104857600
+durability_level = "os_cache"
 
 # --- 插件定义 ---
 
@@ -381,7 +359,6 @@ ring_buffer_size = 524288       # 覆盖 262144 默认值
   "plugins_loaded": 3,
   "plugins_failed": 0,
   "signature_enabled": false,
-  "worm_enabled": false,
   "ring_buffer": {
     "capacity": 262144,
     "used": 8192,
@@ -517,9 +494,9 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 # fsync_on_write、durability_level、buffer_size；按时间滚动、
 # 压缩与文件数保留均为规划中）
 [sinks.file]
-type = "sink_file"
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "100MB"              # 文件超过 100 MB 时滚动
+max_size = 104857600            # 文件超过 100 MB 时滚动
 rotation_interval = "24h"       # 无论大小，每日零点滚动
 max_rotated_files = 90          # 最多保留 90 个滚动文件
 compression = "zstd"            # 压缩滚动文件（gzip | zstd | none）
@@ -668,7 +645,7 @@ dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).t
 
 ### 不可降级项
 
-以下 6 个配置项跨配置层只能**收紧**（朝更安全的方向调整），永远不能放宽：
+以下 5 个配置项跨配置层只能**收紧**（朝更安全的方向调整），永远不能放宽：
 
 **表 8：不可降级安全项**
 
@@ -676,7 +653,6 @@ dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).t
 |:-:|:-:|:-:|
 | `enable_signature` | `true` → `false` | 日志不再可加密验证，失去不可否认性。 |
 | `escape_html` | `true` → `false` | 可能出现日志注入（CRLF）攻击。 |
-| `worm_enabled` | `true` → `false` | 审计日志变得可修改；历史记录可能被篡改或删除。 |
 | `fsync_on_write` | `true` → `false` | 崩溃可能丢失在途审计记录；持久化保证失效。 |
 | `require_tls` | `true` → `false` | 网络 Sink 接受未加密连接；暴露中间人攻击面。 |
 | `sign_ring2` | `true` → `false` | 受验证的扩展字段失去加密绑定。 |
