@@ -3,7 +3,7 @@ project(dologger-filter-c-example LANGUAGES C)
 
 # Shared library target — builds the DoLogger Filter plugin.
 add_library(example_filter SHARED
-    example_filter.c
+    filter.c
 )
 
 # Include path for dologger_core.h

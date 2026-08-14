@@ -18,10 +18,10 @@ plugins/official/
 │   ├── Cargo.toml             ← package dologger-official-plugins
 │   ├── src/lib.rs             ← plugin_query_multi + init/shutdown fan-out
 │   └── tests/bundle_cdylib.rs ← dlopen integration test (C-ABI end-to-end)
-├── fmt_json/                  ← JSON formatter (rlib logic)
+├── formatter_json/                  ← JSON formatter (rlib logic)
 │   ├── Cargo.toml
 │   └── src/lib.rs
-├── fmt_text/                  ← Human-readable text formatter (rlib)
+├── formatter_text/                  ← Human-readable text formatter (rlib)
 │   ├── Cargo.toml
 │   └── src/lib.rs
 ├── filter_level/              ← Log level filter (rlib logic)
@@ -86,7 +86,7 @@ revocation runbooks live in
 cargo build --release -p dologger-official-plugins
 
 # Build and test a single member's logic
-cargo test -p dologger-plugin-fmt-json
+cargo test -p dologger-plugin-formatter-json
 
 # Run the bundle's end-to-end tests (unit + dlopen of the built cdylib)
 cargo test -p dologger-official-plugins

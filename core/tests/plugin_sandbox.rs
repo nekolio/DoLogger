@@ -12,22 +12,22 @@
 //! | Yellow | Partial | `Restricted`   | Verified third-party — no network, no fork |
 //! | Red    | None    | `Isolated`     | Untrusted community — memory/threading/time only |
 //!
-//! # Integration
+//! # Home
 //!
-//! These tests live at `tests/security/sandbox_escape/` in the workspace root.
-//! To run, copy or symlink into `core/tests/security/sandbox_escape/` and run:
+//! This suite lives at `core/tests/plugin_sandbox.rs` and is auto-discovered
+//! (the core crate declares no `[[test]]` entries). Run it with:
 //!
 //! ```bash
-//! cargo test -p dologger-core sandbox_escape
+//! cargo test -p dologger-core --test plugin_sandbox
 //! ```
 //!
-//! Or integrate via a `[[test]]` entry in `core/Cargo.toml`:
+//! # Platform notes
 //!
-//! ```toml
-//! [[test]]
-//! name = "sandbox_escape"
-//! path = "../tests/security/sandbox_escape/mod.rs"
-//! ```
+//! - The `bpf_filter_validation` module is gated on `#[cfg(target_os = "linux")]`
+//!   and only runs on Linux, where seccomp/BPF filtering is supported.
+//! - On Windows the AppContainer sandbox backend is still a skeleton:
+//!   `supports_isolation()` returns `false` and the enforcement-level checks are
+//!   skipped there.
 
 use std::collections::HashSet;
 
@@ -247,7 +247,10 @@ fn red_policy_denies_network_and_process() {
         !policy.allows_category(SyscallCategory::Process),
         "Red plugins must NOT have process creation"
     );
-    assert!(!policy.allow_network, "Red policy: allow_network must be false");
+    assert!(
+        !policy.allow_network,
+        "Red policy: allow_network must be false"
+    );
     assert!(!policy.allow_fork, "Red policy: allow_fork must be false");
 }
 
@@ -379,12 +382,7 @@ mod plugin_type_restrictions {
 
     #[test]
     fn yellow_allows_safe_plugin_types() {
-        let safe_types = [
-            "Filter",
-            "Formatter",
-            "Processor",
-            "FieldProvider",
-        ];
+        let safe_types = ["Filter", "Formatter", "Processor", "FieldProvider"];
         for pt in &safe_types {
             assert!(
                 SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Restricted, pt).is_ok(),
@@ -455,7 +453,8 @@ mod plugin_type_restrictions {
 
     #[test]
     fn red_error_message_is_descriptive() {
-        let result = SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "NetworkProxy");
+        let result =
+            SandboxPolicy::check_plugin_type_allowed(SandboxLevel::Isolated, "NetworkProxy");
         let err = result.unwrap_err();
         assert!(
             err.contains("Red"),
@@ -513,7 +512,10 @@ mod policy_validation {
         let mut policy = SandboxPolicy::yellow();
         policy.allowed_categories.remove(&SyscallCategory::Memory);
         let result = policy.validate();
-        assert!(result.is_err(), "Must reject policy without Memory category");
+        assert!(
+            result.is_err(),
+            "Must reject policy without Memory category"
+        );
         assert!(result.unwrap_err().contains("Memory"));
     }
 
@@ -613,7 +615,10 @@ mod sandbox_engine {
         let engine = SandboxEngine::new();
 
         engine.disable();
-        assert!(!engine.is_enabled(), "Engine must be disabled after disable()");
+        assert!(
+            !engine.is_enabled(),
+            "Engine must be disabled after disable()"
+        );
 
         engine.enable();
         assert!(engine.is_enabled(), "Engine must be enabled after enable()");
@@ -692,17 +697,26 @@ mod syscall_allowlist {
         assert!(syscalls.contains(&"mmap"), "Memory must include mmap");
         assert!(syscalls.contains(&"munmap"), "Memory must include munmap");
         assert!(syscalls.contains(&"brk"), "Memory must include brk");
-        assert!(syscalls.contains(&"mprotect"), "Memory must include mprotect");
+        assert!(
+            syscalls.contains(&"mprotect"),
+            "Memory must include mprotect"
+        );
     }
 
     #[test]
     fn network_category_includes_socket_apis() {
         let syscalls = SyscallCategory::Network.linux_syscalls();
         assert!(syscalls.contains(&"socket"), "Network must include socket");
-        assert!(syscalls.contains(&"connect"), "Network must include connect");
+        assert!(
+            syscalls.contains(&"connect"),
+            "Network must include connect"
+        );
         assert!(syscalls.contains(&"bind"), "Network must include bind");
         assert!(syscalls.contains(&"sendto"), "Network must include sendto");
-        assert!(syscalls.contains(&"recvfrom"), "Network must include recvfrom");
+        assert!(
+            syscalls.contains(&"recvfrom"),
+            "Network must include recvfrom"
+        );
     }
 
     #[test]
@@ -722,7 +736,10 @@ mod syscall_allowlist {
         assert!(syscalls.contains(&"fork"), "Process must include fork");
         assert!(syscalls.contains(&"execve"), "Process must include execve");
         assert!(syscalls.contains(&"exit"), "Process must include exit");
-        assert!(syscalls.contains(&"exit_group"), "Process must include exit_group");
+        assert!(
+            syscalls.contains(&"exit_group"),
+            "Process must include exit_group"
+        );
     }
 
     #[test]
@@ -846,9 +863,7 @@ mod policy_structural {
 
         // Modify the clone
         cloned.allow_network = true;
-        cloned
-            .allowed_categories
-            .insert(SyscallCategory::Network);
+        cloned.allowed_categories.insert(SyscallCategory::Network);
         cloned.allowed_read_paths.push("/tmp/test".into());
 
         // Original must remain unchanged
@@ -869,7 +884,7 @@ mod policy_structural {
     /// Test field-by-field construction of a custom policy.
     #[test]
     fn custom_policy_construction() {
-        let mut custom = SandboxPolicy {
+        let custom = SandboxPolicy {
             level: SandboxLevel::Restricted,
             allowed_categories: cat_set(&[
                 SyscallCategory::Memory,
@@ -975,7 +990,11 @@ mod sandbox_backend {
             let dbg = format!("{b:?}");
             seen.insert(dbg);
         }
-        assert_eq!(seen.len(), backends.len(), "All backends must have unique Debug output");
+        assert_eq!(
+            seen.len(),
+            backends.len(),
+            "All backends must have unique Debug output"
+        );
     }
 }
 
@@ -1144,11 +1163,11 @@ mod bpf_filter_validation {
         }
 
         // Always-allowed syscalls (mirrors sandbox.rs)
-        nums.push(60);  // exit
+        nums.push(60); // exit
         nums.push(231); // exit_group
         nums.push(219); // restart_syscall
-        nums.push(0);   // read
-        nums.push(1);   // write
+        nums.push(0); // read
+        nums.push(1); // write
 
         nums.sort();
         nums.dedup();
@@ -1166,10 +1185,7 @@ mod bpf_filter_validation {
             BPF_LD | BPF_W | BPF_ABS,
             "First instruction must be LD_W_ABS (load syscall number)"
         );
-        assert_eq!(
-            filter[0].k, 0,
-            "Load offset must be 0 (seccomp_data.nr)"
-        );
+        assert_eq!(filter[0].k, 0, "Load offset must be 0 (seccomp_data.nr)");
     }
 
     #[test]
@@ -1307,7 +1323,12 @@ mod bpf_filter_validation {
 
         // Verify sorted ascending
         for w in filter_syscalls.windows(2) {
-            assert!(w[0] <= w[1], "Allowed syscalls must be sorted: {} > {}", w[0], w[1]);
+            assert!(
+                w[0] <= w[1],
+                "Allowed syscalls must be sorted: {} > {}",
+                w[0],
+                w[1]
+            );
         }
     }
 
@@ -1521,7 +1542,13 @@ mod bpf_filter_validation {
 
     #[test]
     fn syscall_lookup_unknown_returns_none() {
-        let unknown = ["nonexistent", "create_process", "super_syscall", "", "SOCKET"];
+        let unknown = [
+            "nonexistent",
+            "create_process",
+            "super_syscall",
+            "",
+            "SOCKET",
+        ];
         for name in &unknown {
             assert_eq!(
                 test_syscall_lookup(name),
@@ -1573,7 +1600,11 @@ mod bpf_filter_validation {
     #[test]
     fn bpf_filter_handles_single_syscall() {
         let filter = build_test_bpf_filter(&[60]); // exit only
-        assert_eq!(filter.len(), 4, "Single syscall: load + 1 jeq + ALLOW + KILL");
+        assert_eq!(
+            filter.len(),
+            4,
+            "Single syscall: load + 1 jeq + ALLOW + KILL"
+        );
 
         // JEQ for exit(60)
         assert_eq!(filter[1].k, 60);
@@ -1581,8 +1612,14 @@ mod bpf_filter_validation {
         // Wait, with 4 instructions: [0]=ld, [1]=jeq, [2]=allow, [3]=kill
         // allow_idx = 2, i=1: jt = 2-1-1 = 0
         // jt=0 means "next instruction" (which is ALLOW)
-        assert_eq!(filter[1].jt, 0, "Single JEQ: jt=0 (next instruction is ALLOW)");
-        assert_eq!(filter[1].jf, 0, "Fall-through to KILL (but jt handles the match)");
+        assert_eq!(
+            filter[1].jt, 0,
+            "Single JEQ: jt=0 (next instruction is ALLOW)"
+        );
+        assert_eq!(
+            filter[1].jf, 0,
+            "Fall-through to KILL (but jt handles the match)"
+        );
     }
 
     #[test]
@@ -1656,7 +1693,11 @@ fn policy_allow_file_write_progression() {
 #[test]
 fn factory_policies_have_empty_path_lists() {
     // No factory policy pre-configures filesystem paths
-    for policy in [SandboxPolicy::blue(), SandboxPolicy::yellow(), SandboxPolicy::red()] {
+    for policy in [
+        SandboxPolicy::blue(),
+        SandboxPolicy::yellow(),
+        SandboxPolicy::red(),
+    ] {
         assert!(
             policy.allowed_read_paths.is_empty(),
             "{:?}: allowed_read_paths must be empty by default",
@@ -1681,7 +1722,11 @@ fn factory_policies_have_empty_path_lists() {
 
 #[test]
 fn factory_policies_have_unlimited_resources() {
-    for policy in [SandboxPolicy::blue(), SandboxPolicy::yellow(), SandboxPolicy::red()] {
+    for policy in [
+        SandboxPolicy::blue(),
+        SandboxPolicy::yellow(),
+        SandboxPolicy::red(),
+    ] {
         assert_eq!(
             policy.max_memory_bytes, 0,
             "{:?}: max_memory_bytes must be 0 (unlimited)",

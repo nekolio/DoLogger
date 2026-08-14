@@ -81,7 +81,7 @@ Every [GitHub Release](https://github.com/Nekolio/DoLogger/releases) attaches
 `dologctl-<version>-<os>-<arch>` binaries (`.exe` on Windows) plus per-arch
 core libraries and official plugins. Official plugins ship as ONE bundle per
 platform — `dologger-official-plugins-<version>-<os>-<arch>.{so|dll|dylib}` —
-hosting every official plugin (fmt-json, fmt-text, filter-level,
+hosting every official plugin (formatter-json, formatter-text, filter-level,
 field-container). Verify each download against the attached
 `checksums-sha256.txt`:
 
@@ -303,7 +303,7 @@ DoLogger/
 ├── adapters/                   # Language SDKs (C, Rust, Python, Go)
 │   └── c/                      # Thin C adapter (dologger_adapter.h)
 ├── plugins/                    # Plugin ecosystem
-│   ├── official/               # Official plugins (fmt_json, fmt_text, filter_level, field_container)
+│   ├── official/               # Official plugins (formatter_json, formatter_text, filter_level, field_container)
 │   │   └── trust-anchors/      # Public signing keys (active.pub) + revocation list (revoked.txt)
 │   └── examples/               # Multi-language examples (Rust, C, C++, Go)
 ├── examples/                   # Minimal host-app examples (C ABI consumers)
@@ -312,7 +312,7 @@ DoLogger/
 ├── docker/                     # Container images (Dockerfile.dev; runtime in v1.0.0)
 ├── docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
 │   └── assets/                 # hero.svg, architecture.svg
-├── tests/                      # Test suites (common/, release-smoke/, security/)
+├── tests/                      # Test suites (common/, perf/, smoke/)
 ├── scripts/                    # Build and setup scripts (local + CI)
 ├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
 └── peripheral/                 # Non-product: marketing site + maintainer tools

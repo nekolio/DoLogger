@@ -128,7 +128,7 @@ Every adapter must ensure proper cleanup. The pattern varies by language:
 ```python
 # dologger/ffi.py -- Raw C ABI bindings via ctypes
 # (signatures verified against the shipped dologger_core.h and the
-# reference smoke test tests/release-smoke/cabi_smoke.py)
+# reference smoke test tests/smoke/c_abi_smoke.py)
 
 import ctypes
 import platform

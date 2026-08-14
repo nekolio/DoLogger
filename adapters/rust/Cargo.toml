@@ -28,7 +28,7 @@ default = ["log-facade"]
 log-facade = ["dep:log"]
 # `tracing-subscriber` Layer adapter (`tracing_layer::TracingBridge`).
 tracing = ["dep:tracing", "dep:tracing-subscriber"]
-# `slog` Drain adapter (`slog_drain::SlogBridge`).
+# `slog` Drain adapter (`slog_adapter::SlogBridge`).
 slog = ["dep:slog"]
 
 [dev-dependencies]

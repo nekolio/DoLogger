@@ -61,7 +61,7 @@ Plugins follow the **VTable + ABI gate** pattern:
 
 (based on the real definitions in `core/include/dologger_core.h`, verified by
 compiling with MSVC on Windows; for a complete buildable version see
-`plugins/examples/filter/c/example_filter/example_filter.c`):
+`plugins/examples/filter/c/example_filter/filter.c`):
 
 ```c
 #include "dologger_core.h"
@@ -113,13 +113,13 @@ int plugin_shutdown(void) {
 
 ```bash
 # Linux
-cc -shared -fPIC -o dologger-plugin-filter-c.so example_filter.c -I/path/to/dologger/include
+cc -shared -fPIC -o dologger-plugin-filter-c.so filter.c -I/path/to/dologger/include
 
 # macOS
-cc -dynamiclib -o dologger-plugin-filter-c.dylib example_filter.c -I/path/to/dologger/include
+cc -dynamiclib -o dologger-plugin-filter-c.dylib filter.c -I/path/to/dologger/include
 
 # Windows (MSVC)
-cl /LD /Fe:example_filter.dll example_filter.c /I C:\path\to\dologger\include
+cl /LD /Fe:example_filter.dll filter.c /I C:\path\to\dologger\include
 ```
 
 ### Loading the Plugin
@@ -295,8 +295,8 @@ int plugin_shutdown(void);
 ```
 
 `dologger_plugin_info_list_t` carries `{count, infos}` — an array of
-`dologger_plugin_info_t` entries, one per official plugin (fmt-json,
-fmt-text, filter-level, field-container). The host
+`dologger_plugin_info_t` entries, one per official plugin (formatter-json,
+formatter-text, filter-level, field-container). The host
 (`PluginManager::load_plugin`) resolves `plugin_query_multi` first; when it is
 present, **every** entry is registered from the single library handle. A
 library exports exactly ONE query symbol: `plugin_query` (single-plugin,

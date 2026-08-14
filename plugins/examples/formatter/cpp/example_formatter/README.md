@@ -27,19 +27,19 @@ Phase: `DO_LOG_PHASE_FORMATTING` (0x0010) -- runs after processing and before th
 # Linux
 g++ -shared -fPIC -fvisibility=default -std=c++17 \
     -o dologger-plugin-formatter-cpp.so \
-    example_formatter.cpp \
+    formatter.cpp \
     -I../../../../../core/include
 
 # macOS
 g++ -shared -fPIC -fvisibility=default -std=c++17 \
     -o dologger-plugin-formatter-cpp.dylib \
-    example_formatter.cpp \
+    formatter.cpp \
     -I../../../../../core/include
 
 # Windows (MinGW)
 g++ -shared -std=c++17 \
     -o dologger-plugin-formatter-cpp.dll \
-    example_formatter.cpp \
+    formatter.cpp \
     -I../../../../../core/include
 ```
 

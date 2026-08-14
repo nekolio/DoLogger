@@ -140,9 +140,9 @@ dologctl plugin install <source>
 ```
 
 ```bash
-dologctl plugin install ./target/release/fmt_json.dll
+dologctl plugin install ./target/release/formatter_json.dll
 # pseudocode/illustrative — v0.1.0 install only accepts local file paths (fs::copy), not URLs
-# dologctl plugin install https://plugins.example.com/fmt_json-v1.2.0.zip
+# dologctl plugin install https://plugins.example.com/formatter_json-v1.2.0.zip
 ```
 
 Installed plugins are verified (ABI version, trust colour, symbol resolution) before they can be loaded. See [Plugin Development Guide](PluginDevelopmentGuide.md) for the trust model.
@@ -172,7 +172,7 @@ dologctl plugin remove <name>
 ```
 
 ```bash
-dologctl plugin remove fmt_json
+dologctl plugin remove formatter_json
 ```
 
 ### dologctl plugin verify
@@ -185,7 +185,7 @@ dologctl plugin verify [name] [--trust-store <dir>]
 
 ```bash
 dologctl plugin verify                     # verify all installed plugins
-dologctl plugin verify fmt_json            # verify one
+dologctl plugin verify formatter_json            # verify one
 # A --trust-store applies the committed trust store (active.pub + revoked.txt)
 # and is authoritative over the DO_LOG_PLUGIN_TRUST_ANCHOR env var:
 dologctl plugin verify --trust-store plugins/official/trust-anchors

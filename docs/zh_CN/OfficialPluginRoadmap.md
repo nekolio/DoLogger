@@ -25,7 +25,7 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 | 2 | FieldProvider | 内置核心：`host_info`；官方插件：`field_container` |
 | 3 | Assembly | 仅核心：LSN + Ed25519 签名 |
 | 4 | Processor | 内置核心：`secret_detector` |
-| 5 | Formatter | 官方插件：`fmt_json`、`fmt_text` |
+| 5 | Formatter | 官方插件：`formatter_json`、`formatter_text` |
 | 6 | Sink（核心内置） | 11 个 sink 内置核心 |
 | — | KeyProvider | 未实现——签名密钥由核心自行加载 |
 | — | ConfigProvider | 未实现 |
@@ -41,8 +41,8 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 | 插件 | 类型 | 阶段 | 说明 |
 |:-:|:-:|:-:|:-:|
 | `filter_level` | Filter | Filter（1） | 按可配置的严重级别丢弃日志记录，支持按域覆盖。 |
-| `fmt_json` | Formatter | Formatting（5） | 将 `Record` 字段序列化为结构化 JSON。 |
-| `fmt_text` | Formatter | Formatting（5） | 人类可读的文本输出。 |
+| `formatter_json` | Formatter | Formatting（5） | 将 `Record` 字段序列化为结构化 JSON。 |
+| `formatter_text` | Formatter | Formatting（5） | 人类可读的文本输出。 |
 | `field_container` | FieldProvider | FieldProvider（2） | 注入容器元数据：容器 ID、Pod 名、命名空间、节点名（Docker、Kubernetes、podman）。 |
 
 ### filter_level
@@ -57,7 +57,7 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 按可配置的严重级别丢弃日志记录，支持可选的按域覆盖。替代内置的
 `DropLevelPolicy`，用于领域特定场景。
 
-### fmt_json
+### formatter_json
 
 | 属性 | 值 |
 |:-:|:-:|
@@ -70,7 +70,7 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 序列化为 JSON 对象。配置解析（`pretty`、`include_ring3`、
 `timestamp_format`）尚未实现。
 
-### fmt_text
+### formatter_text
 
 | 属性 | 值 |
 |:-:|:-:|
@@ -100,14 +100,14 @@ Pod 名、命名空间与节点名。自动检测 Docker、Kubernetes 与 podman
 ```bash
 # 构建全部官方插件
 cargo build --release -p dologger-plugin-filter-level \
-                      -p dologger-plugin-fmt-json \
-                      -p dologger-plugin-fmt-text \
+                      -p dologger-plugin-formatter-json \
+                      -p dologger-plugin-formatter-text \
                       -p dologger-plugin-field-container
 
 # filter_level 使用全局静态变量——其测试必须单线程运行
 cargo test -p dologger-plugin-filter-level -- --test-threads=1
-cargo test -p dologger-plugin-fmt-json
-cargo test -p dologger-plugin-fmt-text
+cargo test -p dologger-plugin-formatter-json
+cargo test -p dologger-plugin-formatter-text
 cargo test -p dologger-plugin-field-container
 ```
 

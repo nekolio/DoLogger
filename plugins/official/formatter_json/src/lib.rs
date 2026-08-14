@@ -1,4 +1,4 @@
-//! Official DoLogger Formatter plugin — `fmt_json`.
+//! Official DoLogger Formatter plugin — `formatter_json`.
 //!
 //! Serializes log records to structured JSON with configurable field inclusion.
 //! Phase: Formatting (5), Trust: Blue.
@@ -75,7 +75,7 @@ fn format_timestamp(hi: u64, lo: u64) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// VTable function: fmt_json_format
+// VTable function: formatter_json_format
 // ---------------------------------------------------------------------------
 
 /// Serialize a Record to JSON and write into the output buffer.
@@ -310,7 +310,7 @@ static VTABLE: FormatterVTable = FormatterVTable {
     flush: None,
 };
 
-static PLUGIN_NAME: &[u8] = b"fmt-json\0";
+static PLUGIN_NAME: &[u8] = b"formatter-json\0";
 
 // ---------------------------------------------------------------------------
 // Plugin registry entry — aggregated by the official bundle.
@@ -378,7 +378,7 @@ mod tests {
             &VTABLE as *const FormatterVTable as *const std::ffi::c_void
         );
         let name = unsafe { CStr::from_ptr(info.name) }.to_str().unwrap();
-        assert_eq!(name, "fmt-json");
+        assert_eq!(name, "formatter-json");
     }
 
     #[test]

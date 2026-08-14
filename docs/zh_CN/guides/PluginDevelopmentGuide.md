@@ -55,7 +55,7 @@ sequenceDiagram
 
 ### 最小过滤器插件（C）
 
-（以下示例基于 `core/include/dologger_core.h` 的真实定义，已在 Windows 上以 MSVC 编译验证；完整可编译版见 `plugins/examples/filter/c/example_filter/example_filter.c`）：
+（以下示例基于 `core/include/dologger_core.h` 的真实定义，已在 Windows 上以 MSVC 编译验证；完整可编译版见 `plugins/examples/filter/c/example_filter/filter.c`）：
 
 ```c
 #include "dologger_core.h"
@@ -106,13 +106,13 @@ int plugin_shutdown(void) {
 
 ```bash
 # Linux
-cc -shared -fPIC -o dologger-plugin-filter-c.so example_filter.c -I/path/to/dologger/include
+cc -shared -fPIC -o dologger-plugin-filter-c.so filter.c -I/path/to/dologger/include
 
 # macOS
-cc -dynamiclib -o dologger-plugin-filter-c.dylib example_filter.c -I/path/to/dologger/include
+cc -dynamiclib -o dologger-plugin-filter-c.dylib filter.c -I/path/to/dologger/include
 
 # Windows（MSVC）
-cl /LD /Fe:example_filter.dll example_filter.c /I C:\path\to\dologger\include
+cl /LD /Fe:example_filter.dll filter.c /I C:\path\to\dologger\include
 ```
 
 ### 加载插件
@@ -285,8 +285,8 @@ int plugin_shutdown(void);
 ```
 
 `dologger_plugin_info_list_t` 携带 `{count, infos}` — 一个
-`dologger_plugin_info_t` 条目数组，每个官方插件对应一条（fmt-json、
-fmt-text、filter-level、field-container）。宿主
+`dologger_plugin_info_t` 条目数组，每个官方插件对应一条（formatter-json、
+formatter-text、filter-level、field-container）。宿主
 （`PluginManager::load_plugin`）优先解析 `plugin_query_multi`；若存在，
 则从同一个库句柄注册**每一个**条目。一个库**恰好**导出一种查询符号：
 `plugin_query`（单插件、第三方）或 `plugin_query_multi`（捆绑库、官方）。

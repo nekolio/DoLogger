@@ -6,12 +6,12 @@
  *
  * # Build (Linux)
  *
- *   gcc -shared -fPIC -o dologger-plugin-filter-c.so example_filter.c \
+ *   gcc -shared -fPIC -o dologger-plugin-filter-c.so filter.c \
  *       -I../../../../core/include
  *
  * # Build (macOS)
  *
- *   gcc -shared -fPIC -o dologger-plugin-filter-c.dylib example_filter.c \
+ *   gcc -shared -fPIC -o dologger-plugin-filter-c.dylib filter.c \
  *       -I../../../../core/include
  *
  * # C ABI symbols exported

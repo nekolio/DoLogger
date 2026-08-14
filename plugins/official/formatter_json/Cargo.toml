@@ -1,12 +1,12 @@
 [package]
-name = "dologger-plugin-fmt-json"
+name = "dologger-plugin-formatter-json"
 version = "0.1.0"
 edition = "2021"
 license.workspace = true
 description = "DoLogger official plugin: structured JSON formatter with configurable field inclusion"
 
 [lib]
-name = "fmt_json"
+name = "formatter_json"
 crate-type = ["rlib"]
 
 [dependencies]

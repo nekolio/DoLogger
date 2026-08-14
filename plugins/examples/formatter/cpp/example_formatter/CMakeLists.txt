@@ -3,7 +3,7 @@ project(dologger-formatter-cpp-example LANGUAGES CXX)
 
 # Shared library target — builds the DoLogger Formatter plugin.
 add_library(example_formatter SHARED
-    example_formatter.cpp
+    formatter.cpp
 )
 
 # Include path for dologger_core.h

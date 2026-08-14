@@ -1,4 +1,4 @@
-# smoke-test.ps1 — release artifact smoke test for Windows.
+# check-smoke.ps1 — release artifact smoke test for Windows.
 #
 # Verifies that the built release artifacts actually run:
 #   1. dologctl.exe starts and reports its version
@@ -8,7 +8,7 @@
 #      lifecycle — init, log, config, shutdown
 #
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File tests/release-smoke/smoke-test.ps1 [-ArtifactDir <dir>]
+#   powershell -ExecutionPolicy Bypass -File tests/smoke/check-smoke.ps1 [-ArtifactDir <dir>]
 param(
     [string]$ArtifactDir = ""
 )
@@ -86,7 +86,7 @@ if (Test-Path $Dll) {
     if (-not $py) { $py = (Get-Command python3 -ErrorAction SilentlyContinue) }
     if (-not $py) { $py = (Get-Command py -ErrorAction SilentlyContinue) }
     if ($py) {
-        $script = Join-Path $PSScriptRoot "cabi_smoke.py"
+        $script = Join-Path $PSScriptRoot "c_abi_smoke.py"
         & $py.Source $script $Dll
         if ($LASTEXITCODE -eq 0) {
             Pass "full C ABI lifecycle via ctypes"

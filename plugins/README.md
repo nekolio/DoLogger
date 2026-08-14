@@ -7,8 +7,8 @@ plugins/
 │   ├── bundle/                  ← THE official-plugins library: ONE cdylib
 │   │   └── src/lib.rs           ← hosting every official plugin
 │   ├── filter_level/            ← Filter: drop records by level (rlib logic)
-│   ├── fmt_json/                ← Formatter: structured JSON output (rlib)
-│   ├── fmt_text/                ← Formatter: human-readable text (rlib)
+│   ├── formatter_json/                ← Formatter: structured JSON output (rlib)
+│   ├── formatter_text/                ← Formatter: human-readable text (rlib)
 │   ├── field_container/         ← FieldProvider: container metadata (rlib)
 │   └── trust-anchors/           ← PUBLIC signing keys + revocation list (CRL)
 │
@@ -49,7 +49,7 @@ is the only official-plugin artifact per platform.
 | Rule | Package |
 |------|---------|
 | Official filter | `dologger-plugin-filter-level` |
-| Official formatter | `dologger-plugin-fmt-json` |
+| Official formatter | `dologger-plugin-formatter-json` |
 | Third-party (vendor prefix) | `dologger-plugin-filter-acme-sampler` |
 | Example/reference | `dologger-filter-example` |
 
@@ -72,7 +72,7 @@ Official plugins ship with every release as ONE bundle asset per OS/arch:
 Examples: `dologger-official-plugins-v0.1.0-linux-x86_64.so`,
 `dologger-official-plugins-v0.1.0-windows-x86_64.dll`.
 
-The bundle hosts every official plugin (fmt-json, fmt-text, filter-level,
+The bundle hosts every official plugin (formatter-json, formatter-text, filter-level,
 field-container); the host registers them all via `plugin_query_multi` (see
 `core/src/plugin/manager.rs`). Third-party plugins keep the single-plugin
 `plugin_query` contract and ship per-plugin libraries.

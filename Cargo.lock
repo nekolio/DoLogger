@@ -525,8 +525,8 @@ dependencies = [
  "dologger-core",
  "dologger-plugin-field-container",
  "dologger-plugin-filter-level",
- "dologger-plugin-fmt-json",
- "dologger-plugin-fmt-text",
+ "dologger-plugin-formatter-json",
+ "dologger-plugin-formatter-text",
  "libloading",
 ]
 
@@ -545,7 +545,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dologger-plugin-fmt-json"
+name = "dologger-plugin-formatter-json"
 version = "0.1.0"
 dependencies = [
  "dologger-core",
@@ -553,7 +553,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dologger-plugin-fmt-text"
+name = "dologger-plugin-formatter-text"
 version = "0.1.0"
 dependencies = [
  "dologger-core",

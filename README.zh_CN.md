@@ -80,7 +80,7 @@ CRC32C 通过 SSE 4.2(`_mm_crc32_u64`)硬件加速,并提供 Slicing-by-8
 附带 `dologctl-<版本>-<os>-<arch>` 二进制(Windows 上为 `.exe`)、对应架构的
 核心库以及官方插件。官方插件以单个捆绑库的形式随平台发布
 ——`dologger-official-plugins-<版本>-<os>-<arch>.{so|dll|dylib}`——
-包含全部官方插件(fmt-json、fmt-text、filter-level、field-container)。
+包含全部官方插件(formatter-json、formatter-text、filter-level、field-container)。
 请用随附的 `checksums-sha256.txt` 校验每个下载文件:
 
 ```bash
@@ -294,7 +294,7 @@ DoLogger/
 ├── adapters/                   # 语言 SDK（C、Rust、Python、Go）
 │   └── c/                      # 薄 C 适配器（dologger_adapter.h）
 ├── plugins/                    # 插件生态
-│   ├── official/               # 官方插件（fmt_json、fmt_text、filter_level、field_container）
+│   ├── official/               # 官方插件（formatter_json、formatter_text、filter_level、field_container）
 │   │   └── trust-anchors/      # 公共签名密钥（active.pub）+ 吊销列表（revoked.txt）
 │   └── examples/               # 多语言示例（Rust、C、C++、Go）
 ├── examples/                   # 最小宿主应用示例（C ABI 消费者）
@@ -303,7 +303,7 @@ DoLogger/
 ├── docker/                     # 容器镜像（Dockerfile.dev；运行时镜像在 v1.0.0）
 ├── docs/                       # 技术文档（中英双语，自动同步至 wiki）
 │   └── assets/                 # hero.svg、architecture.svg
-├── tests/                      # 测试套件（common/、release-smoke/、security/）
+├── tests/                      # 测试套件（common/、perf/、smoke/）
 ├── scripts/                    # 构建与开发环境脚本（本地 + CI）
 ├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）
 └── peripheral/                 # 非产品：营销站 + 维护工具

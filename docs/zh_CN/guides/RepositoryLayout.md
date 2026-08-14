@@ -28,7 +28,7 @@ DoLogger/
 ├── compliance/                    ← GDPR / HIPAA / PCI-DSS 模板
 ├── config/                        ← 示例配置
 ├── examples/                      ← 最小宿主应用示例（C ABI 消费者）
-├── tests/                         ← 测试套件（common / release-smoke / security）
+├── tests/                         ← 测试套件（common / smoke / perf）
 │
 │  ④ 文档（内容）
 ├── docs/                          ← 中英双语文档，自动同步至 wiki
@@ -80,7 +80,7 @@ DoLogger/
 | `scripts/build-site.sh` · `sync-wiki.sh` · `generate-release-notes.sh` | `peripheral/github/scripts/` | GitHub 发布自动化属外围，非构建基础设施 |
 | `scripts/ci-build.sh` · `ci-test.sh` · `*.ps1` | *（已删除）* | 死代码 / 孤儿 —— workflows 内联执行等价命令 |
 
-部署路径已同步更新：`pages.yml` / `wiki-sync.yml` 的 `paths:` 过滤器、`peripheral/github/scripts/build-site.sh`、`peripheral/github/scripts/sync-wiki.sh`、`peripheral/tools/hero-svg/hero_gen.py`。
+部署路径已同步更新：`pages.yml` / `wiki-sync.yml` 的 `paths:` 过滤器、`peripheral/github/scripts/build-site.sh`、`peripheral/github/scripts/sync-wiki.sh`、`peripheral/tools/hero-svg/hero_generator.py`。
 
 ## 5. 新增条目的判断准则
 

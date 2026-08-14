@@ -56,7 +56,12 @@ fn manager_registers_all_bundle_plugins_from_one_library() {
         4,
         "ONE library must register all 4 official plugins"
     );
-    for expected in ["fmt-json", "fmt-text", "filter-level", "field-container"] {
+    for expected in [
+        "formatter-json",
+        "formatter-text",
+        "filter-level",
+        "field-container",
+    ] {
         assert!(
             names.iter().any(|n| n == expected),
             "missing {expected}: {names:?}"

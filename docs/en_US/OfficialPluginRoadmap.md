@@ -28,7 +28,7 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 | 2 | FieldProvider | Built into the core: `host_info`; official plugin: `field_container` |
 | 3 | Assembly | Core-only: LSN + Ed25519 signature |
 | 4 | Processor | Built into the core: `secret_detector` |
-| 5 | Formatter | Official plugins: `fmt_json`, `fmt_text` |
+| 5 | Formatter | Official plugins: `formatter_json`, `formatter_text` |
 | 6 | Sink (core built-in) | 11 sinks built into the core |
 | — | KeyProvider | Not implemented — the core loads signing keys itself |
 | — | ConfigProvider | Not implemented |
@@ -44,8 +44,8 @@ ships a `PluginManifest.toml`.
 | Plugin | Type | Phase | Description |
 |:-:|:-:|:-:|:-:|
 | `filter_level` | Filter | Filter (1) | Drops records below a configurable severity level, with per-domain overrides. |
-| `fmt_json` | Formatter | Formatting (5) | Serializes `Record` fields to structured JSON. |
-| `fmt_text` | Formatter | Formatting (5) | Human-readable text output. |
+| `formatter_json` | Formatter | Formatting (5) | Serializes `Record` fields to structured JSON. |
+| `formatter_text` | Formatter | Formatting (5) | Human-readable text output. |
 | `field_container` | FieldProvider | FieldProvider (2) | Injects container metadata: container ID, pod name, namespace, node name (Docker, Kubernetes, podman). |
 
 ### filter_level
@@ -60,7 +60,7 @@ ships a `PluginManifest.toml`.
 Drops records below a configurable severity level, with optional per-domain
 overrides. Replaces the built-in `DropLevelPolicy` for domain-specific use.
 
-### fmt_json
+### formatter_json
 
 | Property | Value |
 |:-:|:-:|
@@ -73,7 +73,7 @@ Serializes a `Record`'s fields (level, message, timestamp, thread, process,
 source file/function/line) into a JSON object. Config parsing (`pretty`,
 `include_ring3`, `timestamp_format`) is not implemented yet.
 
-### fmt_text
+### formatter_text
 
 | Property | Value |
 |:-:|:-:|
@@ -104,14 +104,14 @@ not implemented yet.
 ```bash
 # Build all official plugins
 cargo build --release -p dologger-plugin-filter-level \
-                      -p dologger-plugin-fmt-json \
-                      -p dologger-plugin-fmt-text \
+                      -p dologger-plugin-formatter-json \
+                      -p dologger-plugin-formatter-text \
                       -p dologger-plugin-field-container
 
 # filter_level uses global statics — its tests must run single-threaded
 cargo test -p dologger-plugin-filter-level -- --test-threads=1
-cargo test -p dologger-plugin-fmt-json
-cargo test -p dologger-plugin-fmt-text
+cargo test -p dologger-plugin-formatter-json
+cargo test -p dologger-plugin-formatter-text
 cargo test -p dologger-plugin-field-container
 ```
 

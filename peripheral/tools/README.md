@@ -31,7 +31,7 @@ Regenerates the animated CRT-boot hero image used in the READMEs and the
 landing page. Pure decoration: the image has no effect on how DoLogger runs.
 
 ```
-python3 tools/hero-svg/hero_gen.py
+python3 tools/hero-svg/hero_generator.py
 ```
 
 - Writes `docs/assets/hero.svg` (source of truth).
@@ -41,4 +41,4 @@ python3 tools/hero-svg/hero_gen.py
 - Requires only the Python 3 standard library.
 
 Regenerate when the hero's text/visuals change (e.g. the typed lines in the
-`LINES` table at the top of `hero_gen.py`).
+`LINES` table at the top of `hero_generator.py`).

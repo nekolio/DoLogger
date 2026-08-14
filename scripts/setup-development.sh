@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # DoLogger Development Environment Setup
 # One-command setup for all required dev tools.
-# Usage: bash scripts/setup-dev.sh
+# Usage: bash scripts/setup-development.sh
 set -euo pipefail
 
 # Shared helpers (PROJECT_DIR, colours, die/info) — resolves the repo root
@@ -97,7 +97,7 @@ done
 
 echo ""
 echo "=========================================="
-echo " Run 'bash scripts/check-env.sh' to verify."
+echo " Run 'bash scripts/check-environment.sh' to verify."
 echo " Run 'bash scripts/setup-conan.sh' for C deps."
 echo " Run 'bash scripts/build-all.sh --release' to build."
 echo "=========================================="

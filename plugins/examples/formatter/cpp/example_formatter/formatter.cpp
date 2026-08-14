@@ -7,13 +7,13 @@
  * # Build (Linux)
  *
  *   g++ -shared -fPIC -o dologger-plugin-formatter-cpp.so \
- *       example_formatter.cpp \
+ *       formatter.cpp \
  *       -I../../../../../core/include
  *
  * # Build (macOS)
  *
  *   g++ -shared -fPIC -o dologger-plugin-formatter-cpp.dylib \
- *       example_formatter.cpp \
+ *       formatter.cpp \
  *       -I../../../../../core/include
  *
  * # C ABI symbols exported (via extern "C")

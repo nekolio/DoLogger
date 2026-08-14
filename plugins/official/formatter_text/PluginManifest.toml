@@ -1,10 +1,10 @@
-# fmt_text — Official DoLogger Formatter Plugin
+# formatter_text — Official DoLogger Formatter Plugin
 #
 # Human-readable colored text output with configurable field columns.
 # Phase: Formatting (5), Trust: Blue
 
 [plugin]
-name = "fmt-text"
+name = "formatter-text"
 version = "0.1.0"
 plugin_type = "formatter"
 mount_phase = ["format"]

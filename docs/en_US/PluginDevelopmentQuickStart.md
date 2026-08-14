@@ -67,10 +67,10 @@ One-command setup:
 
 ```bash
 # Linux / macOS
-bash scripts/setup-dev.sh
+bash scripts/setup-development.sh
 
 # Windows (the env check is a bash script — run it from Git Bash)
-bash scripts/check-env.sh
+bash scripts/check-environment.sh
 ```
 
 ---
@@ -565,7 +565,7 @@ flowchart TD
 
 ```bash
 # What's my platform?
-bash scripts/check-env.sh
+bash scripts/check-environment.sh
 
 # Is Conan ready?
 bash scripts/setup-conan.sh --detect

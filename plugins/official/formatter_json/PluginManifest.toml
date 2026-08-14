@@ -1,10 +1,10 @@
-# fmt_json — Official DoLogger Formatter Plugin
+# formatter_json — Official DoLogger Formatter Plugin
 #
 # Serializes log records to structured JSON with configurable field inclusion.
 # Phase: Formatting (5), Trust: Blue
 
 [plugin]
-name = "fmt-json"
+name = "formatter-json"
 version = "0.1.0"
 plugin_type = "formatter"
 mount_phase = ["format"]

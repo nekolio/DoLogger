@@ -455,7 +455,7 @@ flowchart LR
 | 控制保留哪些记录 | `Filter` | `filter_level` |
 | 为每条记录添加元数据 | `FieldProvider` | `field_container` |
 | 转换或脱敏内容 | `Processor` | —（尚未实现） |
-| 更改输出格式 | `Formatter` | `fmt_json`、`fmt_text` |
+| 更改输出格式 | `Formatter` | `formatter_json`、`formatter_text` |
 | 写入不同目标 | `Sink`（核心内置） | 11 个内置接收器 |
 | 使用外部签名密钥 | `KeyProvider` | —（尚未实现） |
 | 强制速率限制 | `PolicyProvider` | 内置速率限制器 |
@@ -465,25 +465,25 @@ flowchart LR
 **开发环境：**
 ```
 （伪代码 — 插件组合示意，非命令）
-fmt_text（人类可读的彩色输出）+ filter_level（在嘈杂模块中丢弃 DEBUG/TRACE）
+formatter_text（人类可读的彩色输出）+ filter_level（在嘈杂模块中丢弃 DEBUG/TRACE）
 ```
 
 **生产环境（吞吐量优先）：**
 ```
 （伪代码 — 插件组合示意，非命令）
-fmt_json（机器可解析）+ field_container（容器元数据）
+formatter_json（机器可解析）+ field_container（容器元数据）
 ```
 
 **生产环境（合规）：**
 ```
 （伪代码 — 插件组合示意，非命令）
-fmt_json + field_container\n（PII 自动掩码尚未实现）
+formatter_json + field_container\n（PII 自动掩码尚未实现）
 ```
 
 **审计/合规：**
 ```
 （伪代码 — 插件组合示意，非命令）
-fmt_json + field_container\n（带 LSN 签名的审计链为引擎内置能力）
+formatter_json + field_container\n（带 LSN 签名的审计链为引擎内置能力）
 ```
 
 ### 插件信任颜色
@@ -530,7 +530,7 @@ import ctypes
 import os
 import platform
 
-# 加载 DoLogger 核心库（与 tests/release-smoke/cabi_smoke.py 相同的 ctypes 模式）
+# 加载 DoLogger 核心库（与 tests/smoke/c_abi_smoke.py 相同的 ctypes 模式）
 # Windows 建议设置 DO_LOGGER_LIB_PATH 指向 dologger_core.dll 的完整路径；
 # Linux/macOS 通常可直接按库名加载。
 def _find_library():
@@ -574,7 +574,7 @@ lib.dologger_log(h, ctypes.byref(p))
 lib.dologger_shutdown(h)
 ```
 
-（上面的包装模式已通过 `tests/release-smoke/cabi_smoke.py` 验证；仓库自带更友好的封装见 `adapters/python/dologger.py`——其中的 `DoLogger` 类可直接 `from dologger import DoLogger` 使用，已随 v0.1.0 实测运行）
+（上面的包装模式已通过 `tests/smoke/c_abi_smoke.py` 验证；仓库自带更友好的封装见 `adapters/python/dologger.py`——其中的 `DoLogger` 类可直接 `from dologger import DoLogger` 使用，已随 v0.1.0 实测运行）
 
 ### Go
 

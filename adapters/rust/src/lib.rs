@@ -22,8 +22,8 @@
 //!
 //! - [`log_facade`] — the `log` crate (`install_log` / `impl log::Log`)
 //! - [`tracing_layer`] — a `tracing-subscriber` `Layer` (feature `tracing`)
-//! - [`slog_drain`] — a `slog` `Drain` (feature `slog`)
-//! - [`write_sink`] — a `std::io::Write` sink
+//! - [`slog_adapter`] — a `slog` `Drain` (feature `slog`)
+//! - [`sink_writer`] — a `std::io::Write` sink
 //! - [`sink_adapter`] — a closure-based `dologger_core::sink::Sink`
 //!
 //! # Cooperative Helping
@@ -46,11 +46,11 @@ use dologger_core::Engine;
 #[cfg(feature = "log-facade")]
 pub mod log_facade;
 pub mod sink_adapter;
+pub mod sink_writer;
 #[cfg(feature = "slog")]
-pub mod slog_drain;
+pub mod slog_adapter;
 #[cfg(feature = "tracing")]
 pub mod tracing_layer;
-pub mod write_sink;
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -115,7 +115,7 @@ impl Logger {
 
     /// Wrap this logger in an `Arc` so it can be shared across threads and
     /// handed to the frontend adapters ([`log_facade`], [`tracing_layer`],
-    /// [`slog_drain`], [`write_sink`]).
+    /// [`slog_adapter`], [`sink_writer`]).
     pub fn into_handle(self) -> LoggerHandle {
         Arc::new(self)
     }

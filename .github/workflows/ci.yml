@@ -120,17 +120,42 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
 
+  # ── Smoke (runs on every PR/push) ────────────────────────────────
+  # Builds release artifacts and drives them through the real C ABI —
+  # the CLI binary, the exported dologger_* symbols, and a full lifecycle
+  # via Python ctypes. Default features are empty, so no system deps.
+  smoke:
+    name: Smoke (release artifacts)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Rust toolchain (latest stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-smoke
+
+      - name: Build release artifacts (dologctl + core lib)
+        run: cargo build --release -p dologctl -p dologger-core
+
+      - name: Run smoke test
+        run: bash tests/smoke/check-smoke.sh
+
   # ── Cross-platform verification summary ──────────────────────────
   ci-summary:
     name: CI Summary
-    needs: [test, lint]
+    needs: [test, lint, smoke]
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Report CI status
         run: |
-          if [[ "${{ needs.test.result }}" == "success" && "${{ needs.lint.result }}" == "success" ]]; then
-            echo "✅ All platform builds and tests passed."
+          if [[ "${{ needs.test.result }}" == "success" && "${{ needs.lint.result }}" == "success" && "${{ needs.smoke.result }}" == "success" ]]; then
+            echo "✅ All platform builds, tests and smoke passed."
           else
             echo "❌ One or more platform builds failed."
             exit 1

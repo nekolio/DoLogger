@@ -6,7 +6,7 @@ public C ABI lifecycle: version query, init, log submission (INFO + AUDIT),
 last-error query, alloc/free, runtime config load, and shutdown.
 
 Usage:
-    python3 cabi_smoke.py <path-to-libdologger_core>
+    python3 c_abi_smoke.py <path-to-libdologger_core>
 
 Exit code 0 = all checks passed; 1 = failure (details on stdout).
 """
@@ -106,7 +106,7 @@ def main():
     params = RecordParams(
         level=DO_LOG_INFO,
         message=b"cabi-smoke-test info record",
-        source_file=b"cabi_smoke.py",
+        source_file=b"c_abi_smoke.py",
         source_function=b"main",
         source_line=123,
         source_column=4,

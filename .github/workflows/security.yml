@@ -80,5 +80,8 @@ jobs:
       - name: Run sandbox unit tests
         run: cargo test -p dologger-core sandbox
 
+      - name: Run sandbox integration tests (consolidated)
+        run: cargo test -p dologger-core --test plugin_sandbox
+
       - name: Run full security test suite
-        run: cargo test -p dologger-core --test security_tests
+        run: cargo test -p dologger-core --test security

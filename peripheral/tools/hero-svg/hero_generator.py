@@ -21,7 +21,7 @@ Effects (SMIL only, no scripts - runs in GitHub READMEs):
     phosphor afterglow); power-on mirrors it
 
 Usage:
-    python3 peripheral/tools/hero-svg/hero_gen.py
+    python3 peripheral/tools/hero-svg/hero_generator.py
 
 Output is deterministic (all randomness is seeded by fixed timeline values),
 so regenerating produces a byte-identical file unless the LINES/data above

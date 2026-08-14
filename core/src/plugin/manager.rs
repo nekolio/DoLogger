@@ -261,7 +261,7 @@ pub fn default_plugin_paths() -> Vec<PathBuf> {
 ///
 /// Examples:
 /// - `dologger-plugin-filter-level` — official filter plugin "level"
-/// - `dologger-plugin-fmt-json` — official formatter plugin "json"
+/// - `dologger-plugin-formatter-json` — official formatter plugin "json"
 /// - `dologger-plugin-field-container` — official FieldProvider plugin "container"
 ///
 /// Third-party plugins should use a vendor prefix:
@@ -853,7 +853,7 @@ mod tests {
     #[test]
     fn validate_plugin_name_accepts_valid_names() {
         for name in [
-            "fmt-json",
+            "formatter-json",
             "filter-level",
             "sink-kafka",
             "acme.csv_formatter",
@@ -877,14 +877,17 @@ mod tests {
     #[test]
     fn error_display_exposes_key_facts() {
         let abi = PluginError::IncompatibleAbi {
-            plugin: "fmt-json".into(),
+            plugin: "formatter-json".into(),
             core_abi: 0x000100,
             plugin_abi: 1,
         };
         let s = abi.to_string();
-        assert!(s.contains("fmt-json") && s.contains("0x100"), "got: {s}");
+        assert!(
+            s.contains("formatter-json") && s.contains("0x100"),
+            "got: {s}"
+        );
 
-        let dup = PluginError::AlreadyLoaded("fmt-json".into()).to_string();
+        let dup = PluginError::AlreadyLoaded("formatter-json".into()).to_string();
         assert!(dup.contains("already loaded"), "got: {dup}");
 
         let miss = PluginError::MissingSymbol("plugin_query".into()).to_string();

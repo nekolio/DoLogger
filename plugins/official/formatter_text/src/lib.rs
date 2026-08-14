@@ -1,4 +1,4 @@
-//! Official DoLogger Formatter plugin — `fmt_text`.
+//! Official DoLogger Formatter plugin — `formatter_text`.
 //!
 //! Human-readable colored text output with configurable field columns.
 //! Phase: Formatting (5), Trust: Blue.
@@ -73,7 +73,7 @@ static VTABLE: FormatterVTable = FormatterVTable {
     flush: None,
 };
 
-static PLUGIN_NAME: &[u8] = b"fmt-text\0";
+static PLUGIN_NAME: &[u8] = b"formatter-text\0";
 
 // ---------------------------------------------------------------------------
 // Plugin registry entry — aggregated by the official bundle.
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(info.abi_version, CORE_ABI_VERSION);
         assert_eq!(info.phase, PHASE_FORMATTING);
         let name = unsafe { CStr::from_ptr(info.name) }.to_str().unwrap();
-        assert_eq!(name, "fmt-text");
+        assert_eq!(name, "formatter-text");
     }
 
     #[test]

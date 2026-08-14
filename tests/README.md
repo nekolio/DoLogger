@@ -8,12 +8,16 @@ category physically lives.
 
 | Canonical category | Physical location | What it covers |
 |:-:|:-:|:-:|
-| **common** | [common/](common/) | Shared test utilities, mock plugins |
-| **integration / system** | [release-smoke/](release-smoke/) | C ABI smoke (`cabi_smoke.py`) + platform smoke runners |
-| **integration (in-crate)** | [../core/tests/](../core/tests/) | plugin bundle, plugin security, security tests |
-| **fuzz** | [../core/fuzz/](../core/fuzz/) | cargo-fuzz targets (ring buffer, SIF, TOML) |
-| **performance** | [../core/benches/](../core/benches/) | Criterion benches (latency, throughput, percentiles) |
-| **security** | [security/](security/) | sandbox isolation / BPF seccomp / policy tests |
+| **common** | [common/](common/) | Shared test utilities (`lib.sh`), mock plugins |
+| **integration / system** | [smoke/](smoke/) | C ABI smoke (`c_abi_smoke.py`) + platform smoke runners (`check-smoke.sh`/`.ps1`) |
+| **integration (in-crate)** | [../core/tests/](../core/tests/) | plugin bundle, plugin security, plugin sandbox, security, fanout sinks |
+| **fuzz** | [../core/fuzz/](../core/fuzz/) | cargo-fuzz targets (ring buffer, SIF, TOML config) |
+| **performance (Rust)** | [../core/benches/](../core/benches/) | Criterion benches (latency, throughput, percentiles) |
+| **performance (C ABI)** | [perf/c_abi/](perf/c_abi/) | C log-throughput harness (`c_abi_bench`) driving `libdologger_core` |
 
-> `tests/security/sandbox_escape/` documents how to wire its in-process tests
-> into the core crate — see its own README for the copy/symlink instructions.
+Rust integration suites in [`core/tests/`](../core/tests/) are named
+`{subject}.rs` and auto-discovered by Cargo (the core crate declares no
+`[[test]]` entries) — run any of them with
+`cargo test -p dologger-core --test <subject>`. The shared-memory and C ABI
+perf suites under [`perf/`](perf/) are CMake-built and pointed at built
+release artifacts, mirroring the smoke suite's artifact-driving model.

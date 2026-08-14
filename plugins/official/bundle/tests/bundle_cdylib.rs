@@ -122,7 +122,12 @@ fn dlopen_registers_all_official_plugins() {
     );
     assert_eq!(
         names,
-        ["fmt-json", "fmt-text", "filter-level", "field-container"]
+        [
+            "formatter-json",
+            "formatter-text",
+            "filter-level",
+            "field-container"
+        ]
     );
 }
 

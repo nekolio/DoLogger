@@ -75,7 +75,7 @@ export interface SiteData {
  * v0.1.0 fallback — the REAL release manifest (asset names match the
  * release.yml build matrix). Used offline / rate-limited / pre-release.
  * Includes the official-plugins bundle: ONE asset per OS/arch carrying
- * every official plugin (fmt-json, fmt-text, filter-level, field-container).
+ * every official plugin (formatter-json, formatter-text, filter-level, field-container).
  * ---------------------------------------------------------------- */
 export const ASSET_NAMES = [
   'dologctl-linux-x86_64', 'dologctl-linux-aarch64', 'dologctl-linux-i686',

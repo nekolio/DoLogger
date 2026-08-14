@@ -42,7 +42,7 @@ dl() { printf '[%s](%s/%s)' "$1" "$DL_BASE" "$1"; }
 # bundle_line <sig-note> — the official-plugins bundle row: short platform
 # labels linking to each of the 10 platform assets (release-asset rule:
 # dologger-official-plugins-{version}-{os}-{arch}.{ext}). ONE bundle library
-# hosts every official plugin (fmt-json, fmt-text, filter-level,
+# hosts every official plugin (formatter-json, formatter-text, filter-level,
 # field-container). `<sig-note>` is a localized line describing the Ed25519
 # `.sig` sidecar that ships next to each bundle.
 bundle_line() {
@@ -119,7 +119,7 @@ bundle_line() {
     echo 'Official plugins ship as ONE bundle library per platform'
     echo '(`dologger-official-plugins-{version}-{os}-{arch}`; `.so` Linux,'
     echo '`.dll` Windows, `.dylib` macOS). Each bundle hosts every official'
-    echo 'plugin — fmt-json, fmt-text, filter-level, field-container:'
+    echo 'plugin — formatter-json, formatter-text, filter-level, field-container:'
     echo
     bundle_line 'Each bundle ships with an Ed25519 `.sig` sidecar (bundle name + `.sig`). Set `DO_LOG_PLUGIN_TRUST_ANCHOR` to the project signing key and run `dologctl plugin verify` to confirm trust.'
     echo
@@ -194,7 +194,7 @@ bundle_line() {
     echo '官方插件以单个捆绑库的形式随平台发布'
     echo '（`dologger-official-plugins-{版本}-{os}-{arch}`；`.so` Linux、'
     echo '`.dll` Windows、`.dylib` macOS）。每个捆绑库包含全部官方插件'
-    echo '——fmt-json、fmt-text、filter-level、field-container：'
+    echo '——formatter-json、formatter-text、filter-level、field-container：'
     echo
     bundle_line '每个捆绑库随附一个 Ed25519 `.sig` 签名旁路文件（捆绑库名 + `.sig`）。将 `DO_LOG_PLUGIN_TRUST_ANCHOR` 设为项目签名公钥后运行 `dologctl plugin verify` 即可校验信任级别。'
     echo

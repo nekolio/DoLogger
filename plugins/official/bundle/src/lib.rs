@@ -5,7 +5,7 @@
 //! contract:
 //!
 //! - `plugin_query_multi(core_abi_version)` → `DologgerPluginInfoList`
-//!   carrying all 4 official plugin entries (fmt-json, fmt-text,
+//!   carrying all 4 official plugin entries (formatter-json, formatter-text,
 //!   filter-level, field-container). The host registers every entry from this
 //!   one library handle.
 //! - `plugin_init(config)` / `plugin_shutdown()` fan out to each member.
@@ -24,8 +24,8 @@ const DO_LOG_OK: i32 = 0;
 /// `DologgerPluginInfo` is immutable once constructed, and the two-pointer
 /// cast below yields the C-ABI list without copying.
 static INFOS: [&DologgerPluginInfo; 4] = [
-    &fmt_json::INFO,
-    &fmt_text::INFO,
+    &formatter_json::INFO,
+    &formatter_text::INFO,
     &filter_level::INFO,
     &field_container::INFO,
 ];
@@ -57,8 +57,8 @@ pub extern "C" fn plugin_query_multi(_core_abi_version: u32) -> *const DologgerP
 #[no_mangle]
 pub extern "C" fn plugin_init(config: *const std::ffi::c_void) -> i32 {
     let results = [
-        fmt_json::init(config),
-        fmt_text::init(config),
+        formatter_json::init(config),
+        formatter_text::init(config),
         filter_level::init(config),
         field_container::init(config),
     ];
@@ -72,8 +72,8 @@ pub extern "C" fn plugin_init(config: *const std::ffi::c_void) -> i32 {
 #[no_mangle]
 pub extern "C" fn plugin_shutdown() -> i32 {
     let results = [
-        fmt_json::shutdown(),
-        fmt_text::shutdown(),
+        formatter_json::shutdown(),
+        formatter_text::shutdown(),
         filter_level::shutdown(),
         field_container::shutdown(),
     ];
@@ -105,7 +105,12 @@ mod tests {
             .collect();
         assert_eq!(
             names,
-            ["fmt-json", "fmt-text", "filter-level", "field-container"]
+            [
+                "formatter-json",
+                "formatter-text",
+                "filter-level",
+                "field-container"
+            ]
         );
     }
 

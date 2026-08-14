@@ -11,8 +11,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 dologger-core = { path = "../../../core" }
-fmt-json = { package = "dologger-plugin-fmt-json", path = "../fmt_json" }
-fmt-text = { package = "dologger-plugin-fmt-text", path = "../fmt_text" }
+formatter-json = { package = "dologger-plugin-formatter-json", path = "../formatter_json" }
+formatter-text = { package = "dologger-plugin-formatter-text", path = "../formatter_text" }
 filter-level = { package = "dologger-plugin-filter-level", path = "../filter_level" }
 field-container = { package = "dologger-plugin-field-container", path = "../field_container" }
 

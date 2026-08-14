@@ -1,12 +1,12 @@
 //! `slog` Drain adapter.
 //!
 //! Bridges a `slog::Logger` into DoLogger. Attach the drain with
-//! `slog::Logger::root(dologger_sdk::slog_drain::SlogBridge::new(handle), o!())`.
+//! `slog::Logger::root(dologger_sdk::slog_adapter::SlogBridge::new(handle), o!())`.
 //!
 //! ```rust,no_run
 //! let handle = dologger_sdk::Logger::init_handle(None).expect("init");
 //! let slogger = slog::Logger::root(
-//!     dologger_sdk::slog_drain::SlogBridge::new(handle),
+//!     dologger_sdk::slog_adapter::SlogBridge::new(handle),
 //!     slog::o!(),
 //! );
 //! slog::info!(slogger, "hello from slog");

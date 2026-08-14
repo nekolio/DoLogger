@@ -1,4 +1,4 @@
-//! `std::io::Write` adapter.
+//! `std::io::Write` sink adapter.
 //!
 //! Lets any crate that writes to an `io::Write` (print macros, `eprintln!`
 //! redirection, serialization writers, etc.) route its bytes into DoLogger.

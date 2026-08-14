@@ -30,7 +30,7 @@ DoLogger/
 ├── compliance/                    ← GDPR / HIPAA / PCI-DSS templates
 ├── config/                        ← example configuration
 ├── examples/                      ← minimal host-app examples (C ABI consumers)
-├── tests/                         ← test suites (common / release-smoke / security)
+├── tests/                         ← test suites (common / smoke / perf)
 │
 │  ④ Documentation (content)
 ├── docs/                          ← EN + zh docs, auto-synced to the wiki
@@ -93,7 +93,7 @@ CI, or build tooling stop working — usually without an error.
 Deployment paths were updated in lockstep: `pages.yml` / `wiki-sync.yml`
 `paths:` filters, `peripheral/github/scripts/build-site.sh`,
 `peripheral/github/scripts/sync-wiki.sh`,
-`peripheral/tools/hero-svg/hero_gen.py`.
+`peripheral/tools/hero-svg/hero_generator.py`.
 
 ## 5. Rule of thumb for new entries
 

@@ -19,17 +19,17 @@ Drops log records whose severity level is **below** a configurable threshold.
 ```bash
 # Linux
 gcc -shared -fPIC -fvisibility=default -o dologger-plugin-filter-c.so \
-    example_filter.c \
+    filter.c \
     -I../../../../../core/include
 
 # macOS
 gcc -shared -fPIC -fvisibility=default -o dologger-plugin-filter-c.dylib \
-    example_filter.c \
+    filter.c \
     -I../../../../../core/include
 
 # Windows (MinGW)
 gcc -shared -o dologger-plugin-filter-c.dll \
-    example_filter.c \
+    filter.c \
     -I../../../../../core/include
 ```
 

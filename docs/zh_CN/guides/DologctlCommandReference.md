@@ -140,9 +140,9 @@ dologctl plugin install <source>
 ```
 
 ```bash
-dologctl plugin install ./target/release/fmt_json.dll
+dologctl plugin install ./target/release/formatter_json.dll
 # 伪代码/示意 — v0.1.0 的 install 仅接受本地文件路径（fs::copy），不支持 URL
-# dologctl plugin install https://plugins.example.com/fmt_json-v1.2.0.zip
+# dologctl plugin install https://plugins.example.com/formatter_json-v1.2.0.zip
 ```
 
 安装的插件在可被加载前必须通过验证(ABI 版本、信任颜色、符号解析)。信任模型见[插件开发指南](PluginDevelopmentGuide.md)。
@@ -171,7 +171,7 @@ dologctl plugin remove <name>
 ```
 
 ```bash
-dologctl plugin remove fmt_json
+dologctl plugin remove formatter_json
 ```
 
 ### dologctl plugin verify
@@ -184,7 +184,7 @@ dologctl plugin verify [name] [--trust-store <dir>]
 
 ```bash
 dologctl plugin verify                     # 验证全部已安装插件
-dologctl plugin verify fmt_json            # 验证单个插件
+dologctl plugin verify formatter_json            # 验证单个插件
 # 指定 --trust-store 应用已提交的信任库(active.pub + revoked.txt),
 # 优先于 DO_LOG_PLUGIN_TRUST_ANCHOR 环境变量:
 dologctl plugin verify --trust-store plugins/official/trust-anchors

@@ -2,7 +2,7 @@
 # ==============================================================================
 # DoLogger Development Environment Check
 # ==============================================================================
-# Usage: bash scripts/check-env.sh
+# Usage: bash scripts/check-environment.sh
 # Exit code 0 = all OK, 1 = some missing
 set -euo pipefail
 

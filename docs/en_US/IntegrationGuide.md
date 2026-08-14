@@ -472,33 +472,33 @@ flowchart LR
 | Control which records are kept | `Filter` | `filter_level` |
 | Add metadata to every record | `FieldProvider` | `field_container` |
 | Transform or redact content | `Processor` | — (not implemented yet) |
-| Change output format | `Formatter` | `fmt_json`, `fmt_text` |
+| Change output format | `Formatter` | `formatter_json`, `formatter_text` |
 | Write to a different destination | `Sink` (core built-in) | 11 built-in sinks |
 | Use external signing keys | `KeyProvider` | — (not implemented yet) |
 | Enforce rate limits | `PolicyProvider` | Built-in rate limiter |
 
 ### Recommended Plugin Set by Use Case
 
-(illustrative plugin lists — of the plugins named below, `fmt_text`, `fmt_json`, `filter_level`, and `field_container` are the official ones implemented today):
+(illustrative plugin lists — of the plugins named below, `formatter_text`, `formatter_json`, `filter_level`, and `field_container` are the official ones implemented today):
 
 **Development:**
 ```
-fmt_text (human-readable colored output) + filter_level (drop DEBUG/TRACE in noisy modules)
+formatter_text (human-readable colored output) + filter_level (drop DEBUG/TRACE in noisy modules)
 ```
 
 **Production (throughput-first):**
 ```
-fmt_json (machine-parseable) + field_container (container metadata)
+formatter_json (machine-parseable) + field_container (container metadata)
 ```
 
 **Production (compliance):**
 ```
-fmt_json + field_container\n(PII auto-masking is not implemented yet)
+formatter_json + field_container\n(PII auto-masking is not implemented yet)
 ```
 
 **Audit/Compliance:**
 ```
-fmt_json + field_container\n(the LSN-signed audit chain is built into the engine)
+formatter_json + field_container\n(the LSN-signed audit chain is built into the engine)
 ```
 
 ### Plugin Trust Colors
@@ -548,7 +548,7 @@ logger.info("Hello from Python")
 logger.shutdown()
 ```
 
-Uses `ctypes` to load `libdologger_core` (see `adapters/python/` and the C ABI smoke test at `tests/release-smoke/cabi_smoke.py`). Works as a context manager too: `with DoLogger() as logger: ...`
+Uses `ctypes` to load `libdologger_core` (see `adapters/python/` and the C ABI smoke test at `tests/smoke/c_abi_smoke.py`). Works as a context manager too: `with DoLogger() as logger: ...`
 
 ### Go
 
