@@ -737,7 +737,7 @@ mod tests {
         assert_eq!(new_result.unwrap(), 1);
 
         // Complete rotation (grace_period_days=0 so no delay)
-        let retired = manager.complete_rotation().unwrap();
+        let _retired = manager.complete_rotation().unwrap();
         assert_eq!(manager.active_key_count(), 1);
 
         // Old record should STILL verify (old key is Superseded, not revoked)
@@ -760,7 +760,7 @@ mod tests {
     fn test_revoke_key() {
         let sk = generate_key();
         let vk = sk.verifying_key();
-        let fp = fingerprint_key(&vk);
+        let _fp = fingerprint_key(&vk);
 
         // We need two keys so we can revoke one. Start a rotation,
         // then revoke the new key.
@@ -835,7 +835,7 @@ mod tests {
         );
 
         // Phase 4: Complete rotation
-        let retired_fp = manager.complete_rotation().unwrap();
+        let _retired_fp = manager.complete_rotation().unwrap();
         assert_eq!(manager.active_key_count(), 1);
         assert!(!manager.rotation_in_progress());
 
@@ -893,7 +893,7 @@ mod tests {
         manager.initiate_rotation().unwrap();
         assert_eq!(manager.active_key_count(), 2);
 
-        let cancelled_fp = manager.cancel_rotation().unwrap();
+        let _cancelled_fp = manager.cancel_rotation().unwrap();
         assert_eq!(manager.active_key_count(), 1);
 
         let last_event = manager.rotation_history.last().unwrap();

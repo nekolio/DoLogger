@@ -268,9 +268,19 @@ Shared Memory、OTel)在管道第 6 阶段运行,由核心直接驱动;插件在
 <details>
 <summary>仓库目录布局</summary>
 
+顶层目录映射三层架构 —— **核心**（稳定内核）/ **产品包**（基于 core C ABI 构建）/ **宿主应用**（消费 C ABI 的示例）：
+
+| 层 | 目录 |
+|:-:|:-:|
+| 稳定内核 | [`core/`](core/) |
+| 产品包 | [`cli/`](cli/)、[`adapters/`](adapters/)、[`plugins/`](plugins/)、[`compliance/`](compliance/) |
+| 宿主应用示例 | [`examples/`](examples/) |
+| 文档与营销 | [`Docs/`](Docs/)、[`site/`](site/) |
+| 构建 / CI / 基础设施 | `scripts/`、`cmake/`、`docker/`、`.github/`、`config/`、`tests/` |
+
 ```
 DoLogger/
-├── core/                       # 核心引擎（Rust cdylib + rlib，稳定 C ABI）
+├── core/                       # 稳定内核 — 核心引擎（Rust cdylib + rlib，稳定 C ABI）
 │   ├── src/                    # 50+ 模块 — 环形缓冲区、管道、11 个 sink、插件、安全
 │   ├── include/                # C ABI 公共头文件（dologger_core.h、dologger_shm.h）
 │   ├── benches/                # Criterion 基准测试（throughput、latency、percentiles）
@@ -280,23 +290,27 @@ DoLogger/
 │   └── tests/                  # 核心集成与安全测试
 ├── cli/                        # dologctl CLI 工具
 │   └── src/commands/           # 子命令（config、perf、plugin、record、run、shm、verify）
+├── adapters/                   # 语言 SDK（C、Rust、Python、Go）
+│   └── c/                      # 薄 C 适配器（dologger_adapter.h）
 ├── plugins/                    # 插件生态
 │   ├── official/               # 官方插件（fmt_json、fmt_text、filter_level、field_container）
 │   │   └── trust-anchors/      # 公共签名密钥（active.pub）+ 吊销列表（revoked.txt）
 │   └── examples/               # 多语言示例（Rust、C、C++、Go）
-├── adapters/                   # 语言 SDK（Rust、Python、Go）
+├── examples/                   # 最小宿主应用示例（C ABI 消费者）
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS 合规模板
+├── config/                     # 示例配置（dologger.example.toml）
+├── docker/                     # 容器镜像（Dockerfile.dev；运行时镜像在 v1.0.0）
 ├── site/                       # Vue 3 + TypeScript 落地页（GitHub Pages）
 ├── Docs/                       # 技术文档（中英双语，自动同步至 wiki）
 │   └── assets/                 # hero.svg、architecture.svg
-├── tests/                      # 集成、安全与发布冒烟测试
+├── tests/                      # 测试套件（common/、release-smoke/、security/）
 ├── scripts/                    # 构建、CI、发布与开发环境脚本
 ├── tools/                      # 仅维护者使用的辅助工具（不属于项目本体 — 见 tools/README.md）
 ├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）
 └── .github/workflows/          # CI/CD 流水线（test、bench、release、pages、wiki-sync）
 ```
 
-根目录关键文件：`Cargo.toml`（工作区）、`CMakeLists.txt`、`conanfile.py`、`dologger.example.toml`、`deny.toml`、`rustfmt.toml`、`SECURITY.md`、`LICENSE-APACHE`、`LICENSE-MIT`、`NOTICE`。
+根目录关键文件：`Cargo.toml`（工作区）、`CMakeLists.txt`、`conanfile.py`、`deny.toml`、`rustfmt.toml`、`SECURITY.md`、`LICENSE-APACHE`、`LICENSE-MIT`、`NOTICE`。示例配置位于 `config/dologger.example.toml`。
 
 </details>
 

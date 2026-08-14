@@ -23,7 +23,7 @@ const DO_LOG_OK: i32 = 0;
 /// Stored as `&'static` references (not raw pointers) so the array is `Sync`;
 /// `DologgerPluginInfo` is immutable once constructed, and the two-pointer
 /// cast below yields the C-ABI list without copying.
-static INFOS: [&'static DologgerPluginInfo; 4] = [
+static INFOS: [&DologgerPluginInfo; 4] = [
     &fmt_json::INFO,
     &fmt_text::INFO,
     &filter_level::INFO,
@@ -86,7 +86,7 @@ pub extern "C" fn plugin_shutdown() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::{c_void, CStr};
+    use std::ffi::CStr;
 
     #[test]
     fn test_query_multi_registers_all_plugins() {
@@ -140,6 +140,6 @@ mod tests {
         assert_eq!(plugin_init(std::ptr::null()), DO_LOG_OK);
         assert_eq!(plugin_shutdown(), DO_LOG_OK);
         // Idempotent — the host may call init once per registered name.
-        assert_eq!(plugin_init(std::ptr::null() as *const c_void), DO_LOG_OK);
+        assert_eq!(plugin_init(std::ptr::null()), DO_LOG_OK);
     }
 }

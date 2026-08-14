@@ -513,7 +513,7 @@ mod tests {
         let consumer = thread::spawn(move || {
             barrier_clone.wait();
             while !shutdown_clone.load(Ordering::Acquire) {
-                let drained = buf_consumer.drain(16, |item| {
+                let drained = buf_consumer.drain(16, |_item| {
                     consumed_clone.fetch_add(1, Ordering::Relaxed);
                 });
                 if drained == 0 {
@@ -522,7 +522,7 @@ mod tests {
                 }
             }
             // Final drain
-            buf_consumer.drain(usize::MAX, |item| {
+            buf_consumer.drain(usize::MAX, |_item| {
                 consumed_clone.fetch_add(1, Ordering::Relaxed);
             });
         });

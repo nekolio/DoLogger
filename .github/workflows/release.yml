@@ -627,7 +627,7 @@ jobs:
               cp "$bundle" "$STAGE/"
               if [ -n "$bundle_sig" ]; then cp "$bundle_sig" "$STAGE/"; fi
             fi
-            cp "$WS/dologger.example.toml" "$STAGE/dologger.example.toml"
+            cp "$WS/config/dologger.example.toml" "$STAGE/dologger.example.toml"
             ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=22 -ms=on -mmt=on -bso0 -bsp0 \
                 "$WS/release-artifacts/dologctl-${TAG}-${os}-${arch}.7z" * )
 
@@ -639,7 +639,7 @@ jobs:
                 cp "$bundle" "$STAGE/"
                 if [ -n "$bundle_sig" ]; then cp "$bundle_sig" "$STAGE/"; fi
               fi
-              cp "$WS/dologger.example.toml" "$STAGE/dologger.example.toml"
+              cp "$WS/config/dologger.example.toml" "$STAGE/dologger.example.toml"
               libbase="$(basename "$lib")"
               ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=22 -ms=on -mmt=on -bso0 -bsp0 \
                   "$WS/release-artifacts/${libbase%.*}.7z" * )

@@ -202,6 +202,8 @@ pub struct PluginManager {
 // the inert registry embedded in an `Engine`. This matches the existing
 // `unsafe impl Send/Sync` pattern for the ring buffer and record pool.
 unsafe impl Send for PluginManager {}
+// SAFETY: see Send impl — the registry is inert until the Engine wires its
+// concurrency; accessor/loader methods are serialized by the caller.
 unsafe impl Sync for PluginManager {}
 
 /// Current core ABI version (major.minor.patch → 32-bit).
@@ -501,12 +503,13 @@ impl PluginManager {
 
         // 1) Multi-plugin registry — the official plugins bundle. One dlopen
         // registers every member; all of them share this library handle.
-        // SAFETY: plugin_query_multi is an optional export. When present we
-        // bound the unsoundness by validating each entry's ABI version and
-        // reading its C strings immediately.
-        if let Ok(multi) =
-            unsafe { library.get::<Symbol<'_, PluginQueryMultiFn>>(b"plugin_query_multi") }
-        {
+        // SAFETY: `plugin_query_multi` is an optional export; `library.get`
+        // binds the C-ABI function pointer of the declared type.
+        let multi_symbol =
+            unsafe { library.get::<Symbol<'_, PluginQueryMultiFn>>(b"plugin_query_multi") };
+        if let Ok(multi) = multi_symbol {
+            // SAFETY: `multi` is a C-ABI function pointer; the library is
+            // alive (held in `library`) and returns a pointer we null-check.
             let list_ptr = unsafe { multi(self.core_abi_version) };
             if list_ptr.is_null() {
                 return Err(PluginError::QueryRejected(format!(
@@ -517,6 +520,8 @@ impl PluginManager {
             // SAFETY: plugin_query_multi returned a non-null pointer to a
             // static DologgerPluginInfoList owned by the library.
             let list = unsafe { &*list_ptr };
+            // SAFETY: `infos` is an array of `count` static DologgerPluginInfo
+            // entries owned by the library, valid for its lifetime.
             let infos = unsafe { std::slice::from_raw_parts(list.infos, list.count as usize) };
             let lib = Arc::new(library);
             let mut names = Vec::with_capacity(infos.len());

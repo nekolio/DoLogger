@@ -275,9 +275,21 @@ output.
 <details>
 <summary>Repository layout</summary>
 
+The top-level layout mirrors the three-layer architecture — **core** (stable
+kernel) / **product packages** (built on the core C ABI) / **host apps**
+(examples consuming the C ABI):
+
+| Layer | Directory |
+|:-:|:-:|
+| Stable kernel | [`core/`](core/) |
+| Product packages | [`cli/`](cli/), [`adapters/`](adapters/), [`plugins/`](plugins/), [`compliance/`](compliance/) |
+| Host app examples | [`examples/`](examples/) |
+| Docs & marketing | [`Docs/`](Docs/), [`site/`](site/) |
+| Build / CI / infra | `scripts/`, `cmake/`, `docker/`, `.github/`, `config/`, `tests/` |
+
 ```
 DoLogger/
-├── core/                       # Core engine (Rust cdylib + rlib, stable C ABI)
+├── core/                       # Stable kernel — Core engine (Rust cdylib + rlib, stable C ABI)
 │   ├── src/                    # 50+ modules — ring buffer, pipeline, 11 sinks, plugins, security
 │   ├── include/                # C ABI public headers (dologger_core.h, dologger_shm.h)
 │   ├── benches/                # Criterion benchmarks (throughput, latency, percentiles)
@@ -287,23 +299,27 @@ DoLogger/
 │   └── tests/                  # Core integration + security suites
 ├── cli/                        # dologctl CLI tool
 │   └── src/commands/           # Subcommands (config, perf, plugin, record, run, shm, verify)
+├── adapters/                   # Language SDKs (C, Rust, Python, Go)
+│   └── c/                      # Thin C adapter (dologger_adapter.h)
 ├── plugins/                    # Plugin ecosystem
 │   ├── official/               # Official plugins (fmt_json, fmt_text, filter_level, field_container)
 │   │   └── trust-anchors/      # Public signing keys (active.pub) + revocation list (revoked.txt)
 │   └── examples/               # Multi-language examples (Rust, C, C++, Go)
-├── adapters/                   # Language SDKs (Rust, Python, Go)
+├── examples/                   # Minimal host-app examples (C ABI consumers)
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS compliance templates
+├── config/                     # Example configuration (dologger.example.toml)
+├── docker/                     # Container images (Dockerfile.dev; runtime in v1.0.0)
 ├── site/                       # Vue 3 + TypeScript landing page (GitHub Pages)
 ├── Docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
 │   └── assets/                 # hero.svg, architecture.svg
-├── tests/                      # Integration, security, and release-smoke suites
+├── tests/                      # Test suites (common/, release-smoke/, security/)
 ├── scripts/                    # Build, CI, release, and setup scripts
 ├── tools/                      # Maintainer-only aux tools (NOT part of the project — see tools/README.md)
 ├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
 └── .github/workflows/          # CI/CD pipelines (test, bench, release, pages, wiki-sync)
 ```
 
-Key files at the root: `Cargo.toml` (workspace), `CMakeLists.txt`, `conanfile.py`, `dologger.example.toml`, `deny.toml`, `rustfmt.toml`, `SECURITY.md`, `LICENSE-APACHE`, `LICENSE-MIT`, `NOTICE`.
+Key files at the root: `Cargo.toml` (workspace), `CMakeLists.txt`, `conanfile.py`, `deny.toml`, `rustfmt.toml`, `SECURITY.md`, `LICENSE-APACHE`, `LICENSE-MIT`, `NOTICE`. Example config lives in `config/dologger.example.toml`.
 
 </details>
 

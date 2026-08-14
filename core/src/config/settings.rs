@@ -27,9 +27,9 @@ pub struct DologgerConfig {
     /// ≥90% capacity, producer threads help drain a small batch inline.
     /// Enabled by default for prod-performance; disabled otherwise.
     pub ring_buffer_coop_helping: bool,
-    /// Directory containing the committed plugin trust store (`active.pub`
-    /// + `revoked.txt`). When set it is authoritative and
-    /// `plugin_trust_anchor` is ignored.
+    /// Directory containing the committed plugin trust store (`active.pub` +
+    /// `revoked.txt`). When set it is authoritative and the legacy
+    /// `plugin_trust_anchor` field is ignored.
     pub plugin_trust_store: Option<String>,
     /// Legacy single trust anchor — 64-hex Ed25519 public key. Used only
     /// when no trust store is configured.
@@ -1121,7 +1121,7 @@ level = "INFO"
             ("../compliance/pci-dss.toml", ComplianceProfile::PciDss),
         ];
 
-        for (path, profile) in &templates {
+        for (path, _profile) in &templates {
             let full_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
             assert!(
                 full_path.exists(),

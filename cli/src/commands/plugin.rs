@@ -747,7 +747,7 @@ fn verify_totp(secret: &[u8], code: &str) -> Result<bool, String> {
     }
     // Also accept the previous window (drift/typing lag).
     for offset in 1..=2u64 {
-        if totp_code(secret, counter.checked_sub(offset).unwrap_or(0))? == code {
+        if totp_code(secret, counter.saturating_sub(offset))? == code {
             return Ok(true);
         }
     }
@@ -835,7 +835,7 @@ pub fn cmd_plugin_totp(secret_arg: Option<&str>, uri: bool) {
     stdout!("Current TOTP code: {b}{code:06}{reset}");
     stdout!(
         "{d}Valid for ~{} seconds. Use it to authorize a guarded `plugin sign`.{reset}",
-        30 - (now % 30) as u64
+        30 - (now % 30)
     );
 }
 

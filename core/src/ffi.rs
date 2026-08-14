@@ -70,6 +70,8 @@ pub struct DologgerPluginInfoList {
 // plugin library. They are constructed once, immutably, and remain valid for
 // the library's lifetime — sharing across threads is safe.
 unsafe impl Sync for DologgerPluginInfo {}
+// SAFETY: the list holds `count` pointers to the same static info entries as
+// DologgerPluginInfo — valid for the library's lifetime, no internal mutability.
 unsafe impl Sync for DologgerPluginInfoList {}
 
 // Thread-local error storage

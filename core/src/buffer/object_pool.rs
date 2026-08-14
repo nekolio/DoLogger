@@ -195,8 +195,8 @@ mod tests {
 
         let r1 = pool.alloc().unwrap();
         let r2 = pool.alloc().unwrap();
-        let r3 = pool.alloc().unwrap();
-        let r4 = pool.alloc().unwrap();
+        let _r3 = pool.alloc().unwrap();
+        let _r4 = pool.alloc().unwrap();
 
         assert!(pool.alloc().is_none()); // exhausted
 
@@ -209,7 +209,7 @@ mod tests {
 
         // Should be able to allocate again
         let r5 = pool.alloc().unwrap();
-        let r6 = pool.alloc().unwrap();
+        let _r6 = pool.alloc().unwrap();
         assert!(r5 == r2 || r5 == r1); // Reuses freed slot
         assert!(pool.alloc().is_none());
     }

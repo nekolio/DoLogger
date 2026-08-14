@@ -1,0 +1,41 @@
+# DoLogger — full development/build environment.
+#
+# Provides every toolchain needed to build the core, the CLI, the official
+# plugins, and the C/C++/Go plugin examples from source:
+#   - Rust (stable, via rustup)
+#   - CMake ≥ 3.20
+#   - Conan 2 (for librdkafka / C plugin dependency management)
+#   - pkg-config + OpenSSL (sink-webhook / sink-kafka transitive deps)
+#
+# Build:  docker build -f docker/Dockerfile.dev -t dologger-dev .
+# Run:    docker run --rm -it -v "$PWD":/src -w /src dologger-dev cargo build --workspace
+
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:/usr/local/go/bin:$PATH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        curl \
+        git \
+        pkg-config \
+        libssl-dev \
+        python3 \
+        python3-pip \
+        python3-venv \
+        libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust (stable)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+
+# Conan 2
+RUN python3 -m pip install --no-cache-dir conan
+
+WORKDIR /src
+
+CMD ["bash"]

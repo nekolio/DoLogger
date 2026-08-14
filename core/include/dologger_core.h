@@ -514,7 +514,7 @@ typedef struct {
 
 /* =========================================================================
  * Plugin lifecycle symbols
- * ======================================================================== */
+ * ========================================================================
  * A library MUST export exactly ONE of the two query contracts:
  *
  *   1. Single-plugin libraries (third-party / standalone):
