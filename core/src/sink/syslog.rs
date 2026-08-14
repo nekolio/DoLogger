@@ -13,7 +13,6 @@ use std::io::Write;
 use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
 
-use crate::record::Record;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// Syslog transport protocol.
@@ -78,21 +77,6 @@ impl SyslogFacility {
     }
 }
 
-/// Map DoLogger LogLevel to Syslog severity (per RFC 5424).
-#[allow(dead_code)]
-fn to_syslog_severity(level: &crate::record::LogLevel) -> u8 {
-    use crate::record::LogLevel;
-    match level {
-        LogLevel::Trace => 7, // Debug
-        LogLevel::Debug => 7, // Debug
-        LogLevel::Info => 6,  // Informational
-        LogLevel::Warn => 4,  // Warning
-        LogLevel::Error => 3, // Error
-        LogLevel::Fatal => 2, // Critical
-        LogLevel::Audit => 2, // Critical
-    }
-}
-
 /// Syslog Sink configuration.
 #[derive(Debug, Clone)]
 pub struct SyslogSinkConfig {
@@ -143,38 +127,6 @@ impl SyslogSink {
             tcp_stream: None,
             is_open: false,
         }
-    }
-
-    /// Format a record as an RFC 5424 syslog message.
-    #[allow(dead_code)]
-    fn format_rfc5424(&self, record: &Record, formatted: &str) -> Vec<u8> {
-        let pri = self.config.facility.code() * 8 + to_syslog_severity(&record.level);
-        let timestamp = format!(
-            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-            // Simplified timestamp from formatted prefix
-            1970,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0
-        );
-
-        // RFC 5424: <PRI>VERSION TIMESTAMP HOSTNAME APP-NAME PROCID MSGID STRUCTURED-DATA MSG
-        // For simplicity, extract message from formatted output
-        let message = extract_message(formatted);
-
-        format!(
-            "<{pri}>1 {ts} {host} {app} {pid} - - {msg}\n",
-            pri = pri,
-            ts = timestamp,
-            host = self.config.hostname,
-            app = self.config.app_name,
-            pid = std::process::id(),
-            msg = message
-        )
-        .into_bytes()
     }
 }
 

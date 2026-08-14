@@ -11,7 +11,7 @@ pub mod file;
 pub mod kafka;
 #[cfg(feature = "sink-webhook")]
 pub mod otel;
-pub mod security_sink;
+pub mod security;
 pub mod shm;
 #[cfg(feature = "sink-sqlite")]
 pub mod sqlite;
@@ -27,7 +27,7 @@ pub use file::{FileSink, FileSinkConfig};
 pub use kafka::{KafkaSink, KafkaSinkConfig, KafkaSinkStats};
 #[cfg(feature = "sink-webhook")]
 pub use otel::{OtelSink, OtelSinkConfig};
-pub use security_sink::{SecuritySink, SecuritySinkConfig};
+pub use security::{SecuritySink, SecuritySinkConfig};
 pub use shm::{ShmFullPolicy, ShmSink, ShmSinkConfig, ShmSinkStats};
 #[cfg(feature = "sink-sqlite")]
 pub use sqlite::{SqliteSink, SqliteSinkConfig};

@@ -129,11 +129,14 @@ Deep dive into the full specification?
 |:-:|:-:|
 | [README.md](../README.md) | Project overview, quick start, architecture diagram |
 | [README.zh_CN.md](../README.zh_CN.md) | 中文项目概述 |
-| [GitHub Releases](../releases) | Release history — each release page is the changelog |
+| [GitHub Releases](https://github.com/Nekolio/DoLogger/releases) | Release history — each release page is the changelog |
 | [adapters/README.md](../adapters/README.md) | Language adapter SDKs (Rust, Python, Go) |
 | [compliance/README.md](../compliance/README.md) | GDPR / HIPAA / PCI-DSS compliance templates |
 | [conanfile.py](../conanfile.py) | Conan 2.x C dependency recipe |
+| [cmake/](../cmake/) | CMake helper modules (cross-compilation, Conan toolchain) |
 | [scripts/](../scripts/) | Build, setup, and CI automation scripts |
+| [tools/](../tools/) | Maintainer-only auxiliary tools — **not part of the project**; see [tools/README.md](../tools/README.md) |
+| [site/](../site/) | Vue 3 + TypeScript landing page (GitHub Pages) |
 | [.conan/profiles/](../.conan/profiles/) | Pre-built Conan cross-compilation profiles |
 
 ---

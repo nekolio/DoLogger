@@ -277,24 +277,33 @@ output.
 
 ```
 DoLogger/
-├── core/                       # Core engine (Rust cdylib)
-│   ├── src/                    # 40+ modules
-│   ├── include/                # C ABI public headers
-│   └── benches/                # Criterion benchmarks
+├── core/                       # Core engine (Rust cdylib + rlib, stable C ABI)
+│   ├── src/                    # 50+ modules — ring buffer, pipeline, 11 sinks, plugins, security
+│   ├── include/                # C ABI public headers (dologger_core.h, dologger_shm.h)
+│   ├── benches/                # Criterion benchmarks (throughput, latency, percentiles)
+│   ├── examples/               # C-FFI usage examples (file, simple, sqlite)
+│   ├── fuzz/                   # Fuzz targets (ring buffer, SIF, TOML config)
+│   ├── sif/                    # SIF record schema (FlatBuffers)
+│   └── tests/                  # Core integration + security suites
 ├── cli/                        # dologctl CLI tool
-│   └── src/commands/           # Subcommand implementations
+│   └── src/commands/           # Subcommands (config, perf, plugin, record, run, shm, verify)
 ├── plugins/                    # Plugin ecosystem
-│   ├── official/               # Official plugins (fmt_json, filter_level, fmt_text, field_container)
+│   ├── official/               # Official plugins (fmt_json, fmt_text, filter_level, field_container)
+│   │   └── trust-anchors/      # Public signing keys (active.pub) + revocation list (revoked.txt)
 │   └── examples/               # Multi-language examples (Rust, C, C++, Go)
 ├── adapters/                   # Language SDKs (Rust, Python, Go)
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS compliance templates
-├── Docs/                       # Technical documentation
-│   ├── assets/                 # Static assets (architecture diagram, images)
-│   ├── zh_CN/                  # Chinese docs
-│   └── en_US/                  # English docs (auto-synced to the GitHub wiki)
-├── tests/                      # Integration and security tests
-└── scripts/                    # Dev environment setup scripts
+├── site/                       # Vue 3 + TypeScript landing page (GitHub Pages)
+├── Docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
+│   └── assets/                 # hero.svg, architecture.svg
+├── tests/                      # Integration, security, and release-smoke suites
+├── scripts/                    # Build, CI, release, and setup scripts
+├── tools/                      # Maintainer-only aux tools (NOT part of the project — see tools/README.md)
+├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
+└── .github/workflows/          # CI/CD pipelines (test, bench, release, pages, wiki-sync)
 ```
+
+Key files at the root: `Cargo.toml` (workspace), `CMakeLists.txt`, `conanfile.py`, `dologger.example.toml`, `deny.toml`, `rustfmt.toml`, `SECURITY.md`, `LICENSE-APACHE`, `LICENSE-MIT`, `NOTICE`.
 
 </details>
 

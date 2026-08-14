@@ -136,7 +136,7 @@ flowchart TD
 
 ### 入队算法（生产者）
 
-（伪代码 — 仅示意，未编译。实际实现见 `core/src/buffer/ring.rs`）
+（伪代码 — 仅示意，未编译。实际实现见 `core/src/buffer/ring_buffer.rs`）
 
 ```
 producer_push(record):

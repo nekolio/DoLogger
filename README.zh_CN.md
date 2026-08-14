@@ -270,24 +270,33 @@ Shared Memory、OTel)在管道第 6 阶段运行,由核心直接驱动;插件在
 
 ```
 DoLogger/
-├── core/                       # 核心引擎（Rust cdylib）
-│   ├── src/                    # 40+ 模块
-│   ├── include/                # C ABI 公共头文件
-│   └── benches/                # Criterion 基准测试
+├── core/                       # 核心引擎（Rust cdylib + rlib，稳定 C ABI）
+│   ├── src/                    # 50+ 模块 — 环形缓冲区、管道、11 个 sink、插件、安全
+│   ├── include/                # C ABI 公共头文件（dologger_core.h、dologger_shm.h）
+│   ├── benches/                # Criterion 基准测试（throughput、latency、percentiles）
+│   ├── examples/               # C-FFI 使用示例（file、simple、sqlite）
+│   ├── fuzz/                   # 模糊测试目标（环形缓冲区、SIF、TOML 配置）
+│   ├── sif/                    # SIF 记录格式 schema（FlatBuffers）
+│   └── tests/                  # 核心集成与安全测试
 ├── cli/                        # dologctl CLI 工具
-│   └── src/commands/           # 子命令实现
+│   └── src/commands/           # 子命令（config、perf、plugin、record、run、shm、verify）
 ├── plugins/                    # 插件生态
-│   ├── official/               # 官方插件（fmt_json、filter_level、fmt_text、field_container）
+│   ├── official/               # 官方插件（fmt_json、fmt_text、filter_level、field_container）
+│   │   └── trust-anchors/      # 公共签名密钥（active.pub）+ 吊销列表（revoked.txt）
 │   └── examples/               # 多语言示例（Rust、C、C++、Go）
 ├── adapters/                   # 语言 SDK（Rust、Python、Go）
 ├── compliance/                 # GDPR/HIPAA/PCI-DSS 合规模板
-├── Docs/                       # 技术文档
-│   ├── assets/                 # 静态资源（架构图、图片）
-│   ├── zh_CN/                  # 中文文档
-│   └── en_US/                  # 英文文档（自动同步至 GitHub wiki）
-├── tests/                      # 集成与安全测试
-└── scripts/                    # 开发环境搭建脚本
+├── site/                       # Vue 3 + TypeScript 落地页（GitHub Pages）
+├── Docs/                       # 技术文档（中英双语，自动同步至 wiki）
+│   └── assets/                 # hero.svg、architecture.svg
+├── tests/                      # 集成、安全与发布冒烟测试
+├── scripts/                    # 构建、CI、发布与开发环境脚本
+├── tools/                      # 仅维护者使用的辅助工具（不属于项目本体 — 见 tools/README.md）
+├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）
+└── .github/workflows/          # CI/CD 流水线（test、bench、release、pages、wiki-sync）
 ```
+
+根目录关键文件：`Cargo.toml`（工作区）、`CMakeLists.txt`、`conanfile.py`、`dologger.example.toml`、`deny.toml`、`rustfmt.toml`、`SECURITY.md`、`LICENSE-APACHE`、`LICENSE-MIT`、`NOTICE`。
 
 </details>
 

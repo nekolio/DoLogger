@@ -53,19 +53,10 @@ const MIN_AUDIT_SLOTS: usize = 1024;
 pub struct AuditPipeline {
     /// Dedicated ring buffer for AUDIT records
     ring_buffer: Arc<RingBuffer<*mut Record>>,
-    /// Reference to shared record pool
-    #[allow(dead_code)]
-    pool: Arc<RecordPool>,
     /// Consumer thread handle
     consumer_thread: Option<thread::JoinHandle<()>>,
     /// Shutdown flag
     shutdown: Arc<AtomicBool>,
-    /// Ed25519 signature engine (AUDIT signing is mandatory)
-    #[allow(dead_code)]
-    signature_engine: Arc<SignatureEngine>,
-    /// External anchor manager for periodic chain anchoring
-    #[allow(dead_code)]
-    external_anchor: Option<Arc<Mutex<ExternalAnchor>>>,
 }
 
 impl AuditPipeline {
@@ -123,11 +114,8 @@ impl AuditPipeline {
 
         Ok(Self {
             ring_buffer,
-            pool,
             consumer_thread: Some(consumer_thread),
             shutdown,
-            signature_engine,
-            external_anchor,
         })
     }
 

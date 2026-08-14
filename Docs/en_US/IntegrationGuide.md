@@ -261,6 +261,8 @@ dologctl config validate --config dologger.toml --strict
 
 Domains let you define separate logging configurations for different subsystems of your application. Child domains inherit from parents and can only tighten security settings.
 
+> **v0.1.0 note**: The `[domains]` TOML syntax below is the **planned** configuration surface. The v0.1.0 config loader parses `[dologger]` keys only — domains are registered programmatically via `DomainManager::add_domain` (see `core/src/config/domain.rs`). TOML-driven domains arrive in a later release. The runtime behavior described here (inheritance, non-downgradable tightening) applies to domains regardless of how they are registered.
+
 ### Diagram
 
 (illustrative diagram):

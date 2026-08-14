@@ -260,7 +260,7 @@ pub fn default_plugin_paths() -> Vec<PathBuf> {
 /// Examples:
 /// - `dologger-plugin-filter-level` — official filter plugin "level"
 /// - `dologger-plugin-fmt-json` — official formatter plugin "json"
-/// - `dologger-plugin-sink-kafka` — official sink plugin "kafka"
+/// - `dologger-plugin-field-container` — official FieldProvider plugin "container"
 ///
 /// Third-party plugins should use a vendor prefix:
 /// - `dologger-plugin-fmt-acme-csv` — Acme Corp's CSV formatter

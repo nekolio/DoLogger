@@ -119,13 +119,6 @@ impl DependencyValidator {
     /// rather than rejecting plugins. A full enforcement is planned
     /// when the plugin dependency graph is formalised.
     pub fn validate_pipeline_ordering(&self) {
-        // Build a map: plugin_name -> stage index
-        let plugin_stages: HashMap<&str, u32> = self
-            .plugins
-            .iter()
-            .filter_map(|d| d.pipeline_stage.map(|s| (d.plugin_name.as_str(), s)))
-            .collect();
-
         // Build a map: field_name -> Vec<(provider_name, stage_index)>
         let mut field_providers: HashMap<&str, Vec<(&str, u32)>> = HashMap::new();
         for dep in &self.plugins {

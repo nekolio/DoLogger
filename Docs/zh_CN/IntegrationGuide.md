@@ -250,6 +250,8 @@ dologctl config validate --config dologger.toml --strict
 
 域允许您为应用程序的不同子系统定义独立的日志配置。子域从父域继承，且只能收紧安全设置。
 
+> **v0.1.0 注记**：下文 `[domains]` TOML 语法是**规划中**的配置面。v0.1.0 的配置加载器仅解析 `[dologger]` 键——域通过 `DomainManager::add_domain` 以编程方式注册（见 `core/src/config/domain.rs`）。由 TOML 驱动的域将在后续版本提供。此处描述的运行时行为（继承、不可降级收紧）对任何注册方式的域均适用。
+
 ### 图示
 
 ```mermaid

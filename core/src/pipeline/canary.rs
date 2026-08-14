@@ -270,9 +270,6 @@ impl CanaryProber {
 pub struct CanaryManager {
     /// All registered canary probers
     probers: Mutex<Vec<Arc<CanaryProber>>>,
-    /// Whether the canary manager is running
-    #[allow(dead_code)]
-    running: AtomicBool,
 }
 
 impl CanaryManager {
@@ -280,7 +277,6 @@ impl CanaryManager {
     pub fn new() -> Self {
         Self {
             probers: Mutex::new(Vec::new()),
-            running: AtomicBool::new(false),
         }
     }
 

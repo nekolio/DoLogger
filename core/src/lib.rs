@@ -9,9 +9,6 @@
     unsafe_op_in_unsafe_fn,
     clippy::undocumented_unsafe_blocks
 )]
-// Allow unused variables during active development; dead_code is
-// permitted only on specific items via #[allow(dead_code)].
-#![allow(unused_variables)]
 
 pub mod audit;
 pub mod buffer;
@@ -78,7 +75,7 @@ pub use sink::file as sink_file;
 pub use sink::kafka as sink_kafka;
 #[cfg(feature = "sink-webhook")]
 pub use sink::otel as sink_otel;
-pub use sink::security_sink as sink_security;
+pub use sink::security as sink_security;
 pub use sink::shm as sink_shm;
 #[cfg(feature = "sink-sqlite")]
 pub use sink::sqlite as sink_sqlite;

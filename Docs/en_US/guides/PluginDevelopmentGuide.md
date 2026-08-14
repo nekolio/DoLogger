@@ -223,7 +223,7 @@ max_engine_version = "0.1.0"
 |:-:|:-:|:-:|:-:|
 | `name`           | Yes      | string   | Unique plugin identifier. Lowercase kebab-case recommended. |
 | `version`        | Yes      | string   | Semantic version (semver 2.0). |
-| `plugin_type`    | Yes      | string   | One of the 10 types listed in [Plugin Types](#plugin-types). |
+| `plugin_type`    | Yes      | string   | One of the 9 types listed in [Plugin Types](#plugin-types). |
 | `mount_phase`    | Yes      | string[] | Pipeline phase(s) the plugin attaches to. |
 | `abi_version`    | Yes      | integer  | ABI version this plugin was compiled against. |
 | `description`    | No       | string   | Short human-readable description (max 200 chars). |

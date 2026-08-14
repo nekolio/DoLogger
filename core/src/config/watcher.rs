@@ -149,9 +149,6 @@ pub struct ConfigWatcher {
     files: Arc<Mutex<Vec<WatchedFile>>>,
     /// Reload callback
     on_reload: Arc<Mutex<Option<ReloadCallback>>>,
-    /// Watcher configuration
-    #[allow(dead_code)]
-    config: WatcherConfig,
     /// Shutdown flag
     shutdown: Arc<AtomicBool>,
     /// Background watcher thread
@@ -174,7 +171,6 @@ impl ConfigWatcher {
             return Ok(Self {
                 files: Arc::new(Mutex::new(Vec::new())),
                 on_reload: Arc::new(Mutex::new(None)),
-                config,
                 shutdown: Arc::new(AtomicBool::new(false)),
                 _watcher_thread: None,
                 history: Arc::new(Mutex::new(Vec::new())),
@@ -235,7 +231,6 @@ impl ConfigWatcher {
         Ok(Self {
             files,
             on_reload,
-            config,
             shutdown,
             _watcher_thread: Some(watcher_thread),
             history,

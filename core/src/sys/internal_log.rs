@@ -39,8 +39,6 @@ impl DiagLevel {
 /// Thread-safe: uses a Mutex for the file handle.
 pub struct InternalLog {
     file: Mutex<Option<File>>,
-    #[allow(dead_code)]
-    path: String,
 }
 
 impl InternalLog {
@@ -49,18 +47,19 @@ impl InternalLog {
     pub fn new(path: &str) -> Self {
         let file = OpenOptions::new().create(true).append(true).open(path).ok();
 
+        // Restrictive permissions — owner-only. POSIX chmod 0600; on Windows
+        // the owner-only ACL is enforced at file creation, so no extra step.
+        #[cfg(not(windows))]
         if let Some(ref f) = file {
-            // Restrictive permissions — owner-only
-            #[cfg(not(windows))]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(metadata) = f.metadata() {
-                    let mut perms = metadata.permissions();
-                    perms.set_mode(0o600);
-                    let _ = f.set_permissions(perms);
-                }
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = f.metadata() {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o600);
+                let _ = f.set_permissions(perms);
             }
-        } else {
+        }
+
+        if file.is_none() {
             io::stderr_line(&format!(
                 "[DoLogger] WARN: Cannot open internal log '{path}', falling back to stderr"
             ));
@@ -68,49 +67,6 @@ impl InternalLog {
 
         Self {
             file: Mutex::new(file),
-            path: path.to_string(),
-        }
-    }
-
-    /// Check if rotation is needed and perform it.
-    /// Size-based rotation, default 10MB, keep 5 historical files.
-    pub fn check_rotation(&self, max_size_mb: u64) {
-        if let Ok(mut guard) = self.file.lock() {
-            if let Some(ref f) = *guard {
-                if let Ok(meta) = f.metadata() {
-                    if meta.len() > max_size_mb * 1024 * 1024 {
-                        // Rotate: rename current, create new, keep 5 historical
-                        for i in (1..=5).rev() {
-                            let old = format!("{}.{}", self.path, i);
-                            let new = format!("{}.{}", self.path, i + 1);
-                            if i == 5 {
-                                let _ = std::fs::remove_file(&old);
-                            } else if std::path::Path::new(&old).exists() {
-                                let _ = std::fs::rename(&old, &new);
-                            }
-                        }
-                        let rotated = format!("{}.1", self.path);
-                        let _ = std::fs::rename(&self.path, &rotated);
-                        // Re-open new file
-                        if let Ok(new_file) = OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(&self.path)
-                        {
-                            #[cfg(not(windows))]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                if let Ok(metadata) = new_file.metadata() {
-                                    let mut perms = metadata.permissions();
-                                    perms.set_mode(0o600);
-                                    let _ = new_file.set_permissions(perms);
-                                }
-                            }
-                            *guard = Some(new_file);
-                        }
-                    }
-                }
-            }
         }
     }
 

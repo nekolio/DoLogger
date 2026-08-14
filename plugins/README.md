@@ -14,12 +14,15 @@ plugins/
 │
 ├── examples/                    ← Reference implementations
 │   ├── filter/
-│   │   └── rust/
-│   │       └── example_filter/  ← Filter in Rust (C ABI cdylib)
-│   ├── formatter/
-│   │   └── rust/                ← Future: formatter examples
-│   └── processor/
-│       └── rust/                ← Future: processor examples
+│   │   ├── c/                   ← Filter in C (C ABI cdylib)
+│   │   │   └── example_filter/
+│   │   ├── go/                  ← Filter in Go (cgo)
+│   │   │   └── example_filter/
+│   │   └── rust/                ← Filter in Rust (C ABI cdylib)
+│   │       └── example_filter/
+│   └── formatter/
+│       └── cpp/                 ← Formatter in C++ (C ABI cdylib)
+│           └── example_formatter/
 │
 ├── community/                   ← Third-party plugin workspace (gitkeep)
 │   └── .gitkeep
@@ -47,7 +50,7 @@ is the only official-plugin artifact per platform.
 |------|---------|
 | Official filter | `dologger-plugin-filter-level` |
 | Official formatter | `dologger-plugin-fmt-json` |
-| Third-party (vendor prefix) | `dologger-plugin-sink-acme-kafka` |
+| Third-party (vendor prefix) | `dologger-plugin-filter-acme-sampler` |
 | Example/reference | `dologger-filter-example` |
 
 - Only lowercase `[a-z0-9-_.]` characters allowed

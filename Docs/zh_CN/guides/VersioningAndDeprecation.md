@@ -58,7 +58,7 @@ flowchart TD
 
 - 在现有 VTable 结构体的**末尾**添加新的 VTable 函数指针（向后兼容——现有插件该位置为 `NULL`）
 - 添加新的 C ABI 函数（例如 `dologger_record_set_tags()`）
-- 引入新的插件类型（例如插件类型 #11）
+- 引入新的插件类型（例如插件类型 #10）
 - 添加具有安全默认值的新配置键
 - 不改变公共接口的性能改进
 - 标记某个符号为废弃并附警告（仅在下一个 MAJOR 中移除）
@@ -314,7 +314,7 @@ DoLogger 承诺以下向后兼容性窗口：
 | WORM 文件格式 | 无限期 | 新引擎能够读取旧的 WORM 文件 |
 | SIF 二进制格式 | 无限期 | 新引擎能够解析旧的 SIF 记录 |
 | 插件 VTable（核心类型 1-7） | 直到下一个 MAJOR | VTable 布局在同一 MAJOR 内稳定 |
-| 插件 VTable（支持类型 8-10） | 直到下一个 MAJOR | VTable 布局在同一 MAJOR 内稳定 |
+| 插件 VTable（支持类型 8-9） | 直到下一个 MAJOR | VTable 布局在同一 MAJOR 内稳定 |
 
 ---
 
@@ -362,7 +362,7 @@ DoLogger 承诺以下向后兼容性窗口：
 ```bash
 # 标签遵循以下模式：
 git tag -a v1.4.2 -m "Release v1.4.2 — CVE-2026-XXXXX 安全补丁"
-git tag -a v1.5.0 -m "Release v1.5.0 — 新增 sink_webhook 插件类型"
+git tag -a v1.5.0 -m "Release v1.5.0 — 新增内置 sink"
 git tag -a v2.0.0 -m "Release v2.0.0 — ABI 版本 2，请参阅迁移指南"
 ```
 

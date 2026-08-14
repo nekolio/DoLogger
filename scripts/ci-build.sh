@@ -41,7 +41,7 @@ build_all() {
     cargo build --release
 
     run_step "Building with all feature gates..."
-    cargo build --release --features sink-kafka,sink-webhook,sink-sqlite,sink-otel 2>&1 || true
+    cargo build --release --features sink-kafka,sink-webhook,sink-sqlite 2>&1 || true
     echo "  (feature-gated build may fail if C libraries are missing — this is expected in CI)"
 }
 
@@ -51,7 +51,7 @@ check_all() {
     cargo check --workspace --all-targets
 
     run_step "cargo check (all feature gates)..."
-    cargo check --workspace --all-targets --features sink-kafka,sink-webhook,sink-sqlite,sink-otel 2>&1 || true
+    cargo check --workspace --all-targets --features sink-kafka,sink-webhook,sink-sqlite 2>&1 || true
 }
 
 # --- Clippy lints ---

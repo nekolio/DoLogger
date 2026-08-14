@@ -142,7 +142,7 @@ flowchart TD
 
 ### Enqueue Algorithm (Producer)
 
-(pseudocode — illustrative, not compiled. The actual implementation is in `core/src/buffer/ring.rs`):
+(pseudocode — illustrative, not compiled. The actual implementation is in `core/src/buffer/ring_buffer.rs`):
 
 ```
 producer_push(record):

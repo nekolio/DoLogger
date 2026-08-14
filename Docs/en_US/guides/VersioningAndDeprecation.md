@@ -58,7 +58,7 @@ flowchart TD
 
 - Add a new VTable function pointer at the **end** of an existing VTable struct (backward compatible — existing plugins have `NULL` there)
 - Add a new C ABI function (e.g., `dologger_record_set_tags()`)
-- Introduce a new plugin type (e.g., plugin type #11)
+- Introduce a new plugin type (e.g., plugin type #10)
 - Add a new configuration key with a safe default
 - Performance improvements that do not change public interfaces
 - Deprecate a symbol with a warning (removal only in next MAJOR)
@@ -322,7 +322,7 @@ DoLogger commits to the following backward compatibility windows:
 | WORM file format | Indefinite | New engines can read old WORM files |
 | SIF binary format | Indefinite | New engines can parse old SIF records |
 | Plugin VTable (core types 1-7) | Until next MAJOR | VTable layout stable within MAJOR |
-| Plugin VTable (support types 8-10) | Until next MAJOR | VTable layout stable within MAJOR |
+| Plugin VTable (support types 8-9) | Until next MAJOR | VTable layout stable within MAJOR |
 
 ---
 
@@ -370,7 +370,7 @@ Every release must pass:
 # (illustrative examples — do not run; the tag names are placeholders)
 # Tags follow the pattern:
 git tag -a v1.4.2 -m "Release v1.4.2 — security patch for CVE-2026-XXXXX"
-git tag -a v1.5.0 -m "Release v1.5.0 — new sink_webhook plugin type"
+git tag -a v1.5.0 -m "Release v1.5.0 — new built-in sink"
 git tag -a v2.0.0 -m "Release v2.0.0 — ABI version 2, see migration guide"
 ```
 

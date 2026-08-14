@@ -35,6 +35,7 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::record::Record;
+use crate::sink::DurabilityLevel;
 use crate::sys::diag;
 use crate::sys::Sysmon;
 
@@ -403,20 +404,6 @@ pub struct ShmSinkConfig {
     pub auto_cleanup: bool,
     /// Allowed consumer paths (empty = allow all)
     pub allowed_consumers: Vec<String>,
-}
-
-/// Durability level — matches sink.rs but minimal copy for sink_shm independence.
-/// sink_shm is forced to Unsafe.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DurabilityLevel {
-    /// No durability — data lost on crash
-    Unsafe = 0,
-    /// OS cache flush only
-    OsCache = 1,
-    /// Media flush per write
-    Media = 2,
-    /// Media flush with FUA
-    MediaWithFua = 3,
 }
 
 impl Default for ShmSinkConfig {

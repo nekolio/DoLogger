@@ -26,15 +26,6 @@ pub fn print_banner(cfg: &OutputConfig) {
     print_info();
 }
 
-/// Return `true` when ANSI colour escapes should be emitted.
-///
-/// This delegates to the global `output::color_enabled()` which is
-/// initialised from the CLI's `--color` flag in `main()`.
-#[allow(dead_code)]
-pub fn use_color() -> bool {
-    output::color_enabled()
-}
-
 fn print_logo() {
     let bright_cyan = output::when_color(color::BRIGHT_CYAN);
     let cyan = output::when_color(color::CYAN);
@@ -103,9 +94,9 @@ fn print_info() {
   {bold}Author{reset}      {bright_magenta}@Nekolio{reset} {dim}<https://github.com/Nekolio>{reset}
   {bold}Contact{reset}     nekoliowork+DoLogger@gmail.com
 
-  {dim}Plugins: 10 VTable types | Sinks: 9 built-in | Audit: Ed25519 + LSN chain{reset}
-  {dim}Performance: 102ns P50 submit | 13.3M rec/s batch throughput{reset}
-  {dim}Security: 115 tests | 0 clippy | Sandbox isolation framework{reset}
+  {dim}Plugins: 9 VTable types | Sinks: 11 built-in | Audit: Ed25519 + LSN chain{reset}
+  {dim}Pipeline: lock-free ring buffer | zero-alloc hot path | 7 stages{reset}
+  {dim}Sandbox: seccomp / AppContainer / seatbelt framework | Blue/Red trust tiers{reset}
 "#,
         bold = bold,
         dim = dim,

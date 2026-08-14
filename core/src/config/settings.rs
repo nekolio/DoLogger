@@ -806,6 +806,22 @@ impl DologgerConfig {
             if let Some(sig) = dologger.get("enable_signature").and_then(|v| v.as_bool()) {
                 config.enable_signature = sig;
             }
+            if let Some(policy) = dologger.get("shutdown_policy").and_then(|v| v.as_str()) {
+                if policy == "graceful" || policy == "immediate" {
+                    config.shutdown_policy = policy.to_string();
+                } else {
+                    warnings.push(format!(
+                        "shutdown_policy '{policy}' must be 'graceful' or 'immediate', using default '{}'",
+                        config.shutdown_policy
+                    ));
+                }
+            }
+            if let Some(timeout) = dologger
+                .get("shutdown_timeout_ms")
+                .and_then(|v| v.as_integer())
+            {
+                config.shutdown_timeout_ms = timeout.max(0) as u64;
+            }
             if let Some(days) = dologger
                 .get("key_rotation_grace_period_days")
                 .and_then(|v| v.as_integer())

@@ -345,9 +345,6 @@ pub struct SandboxEngine {
     enabled: AtomicBool,
     /// Detected backend
     backend: SandboxBackend,
-    /// Number of sandboxes applied
-    #[allow(dead_code)]
-    applied_count: AtomicBool, // Tracks if we've applied at least one
 }
 
 impl SandboxEngine {
@@ -356,7 +353,6 @@ impl SandboxEngine {
         Self {
             enabled: AtomicBool::new(true),
             backend: SandboxBackend::detect(),
-            applied_count: AtomicBool::new(false),
         }
     }
 
