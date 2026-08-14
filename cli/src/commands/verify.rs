@@ -16,6 +16,8 @@ use std::fs;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
+use dologger_core::sif::decode_record;
+
 use crate::output::{self, color, OutputFormat};
 use crate::EXIT_VERIFY_FAILED;
 use crate::{stderr, stdout};
@@ -53,16 +55,16 @@ fn bright_cyan() -> &'static str {
 // SIF binary record parsing
 // ---------------------------------------------------------------------------
 
-/// Magic bytes at the start of each SIF record ("SIF1").
-const SIF_MAGIC: &[u8; 4] = b"SIF1";
-
 /// Parsed SIF record fields relevant to audit verification.
 #[derive(Debug, Clone)]
 struct SifRecord {
+    id_hi: u64,
+    id_lo: u64,
     lsn: u64,
     timestamp_hi: u64,
     timestamp_lo: u64,
     level: u8,
+    /// Presence bitmask: bit0 = has signature, bit1 = has prev_hash.
     flags: u8,
     thread_id: u64,
     process_id: u32,
@@ -71,6 +73,8 @@ struct SifRecord {
     source_file: String,
     #[allow(dead_code)]
     host_name: String,
+    source_line: u32,
+    source_column: u32,
     signature: [u8; 64],
     prev_hash: [u8; 32],
     /// Byte offset in the source file where this record begins (length prefix).
@@ -79,86 +83,33 @@ struct SifRecord {
 
 /// Parse a single SIF record from a byte slice.
 ///
-/// Returns `None` if the data is too short or magic is wrong.
+/// Returns `None` if the frame is not a valid canonical SIF record.
 fn parse_sif(data: &[u8]) -> Option<SifRecord> {
-    if data.len() < 44 {
-        return None;
-    }
-    if &data[0..4] != SIF_MAGIC {
-        return None;
-    }
+    let rec = decode_record(data).ok()?;
 
-    let total_len = u32::from_le_bytes([data[4], data[5], data[6], data[7]]) as usize;
-    if data.len() < 8 + total_len {
-        return None;
-    }
-
-    let lsn = u64::from_le_bytes(data[8..16].try_into().unwrap());
-    let timestamp_hi = u64::from_le_bytes(data[16..24].try_into().unwrap());
-    let timestamp_lo = u64::from_le_bytes(data[24..32].try_into().unwrap());
-    let level = data[32];
-    let flags = data[33];
-    let thread_id = u64::from_le_bytes(data[34..42].try_into().unwrap());
-    let process_id = u32::from_le_bytes(data[42..46].try_into().unwrap());
-
-    let mut pos: usize = 46;
-
-    // Variable-length fields: 2B LE length + UTF-8 data
-    let message = read_varlen(data, &mut pos).unwrap_or_default();
-    let source_file = read_varlen(data, &mut pos).unwrap_or_default();
-    let host_name = read_varlen(data, &mut pos).unwrap_or_default();
-
-    // Optional signature (64 bytes)
-    let mut signature = [0u8; 64];
-    if flags & 0x01 != 0 {
-        if pos + 64 > data.len() {
-            return None;
-        }
-        signature.copy_from_slice(&data[pos..pos + 64]);
-        pos += 64;
-    }
-
-    // Optional prev_hash (32 bytes)
-    let mut prev_hash = [0u8; 32];
-    if flags & 0x02 != 0 {
-        if pos + 32 > data.len() {
-            return None;
-        }
-        prev_hash.copy_from_slice(&data[pos..pos + 32]);
-    }
+    // Presence flags: bit0 = signature present, bit1 = prev_hash present.
+    let flags: u8 = (rec.signature.iter().any(|&b| b != 0) as u8)
+        | ((rec.prev_hash.iter().any(|&b| b != 0) as u8) << 1);
 
     Some(SifRecord {
-        lsn,
-        timestamp_hi,
-        timestamp_lo,
-        level,
+        id_hi: rec.id.hi,
+        id_lo: rec.id.lo,
+        lsn: rec.lsn,
+        timestamp_hi: rec.timestamp.hi,
+        timestamp_lo: rec.timestamp.lo,
+        level: rec.level as u8,
         flags,
-        thread_id,
-        process_id,
-        message,
-        source_file,
-        host_name,
-        signature,
-        prev_hash,
+        thread_id: rec.thread_id,
+        process_id: rec.process_id,
+        message: rec.message.as_str().to_string(),
+        source_file: rec.source_file.as_str().to_string(),
+        host_name: rec.host_name.as_str().to_string(),
+        source_line: rec.source_line,
+        source_column: rec.source_column,
+        signature: rec.signature,
+        prev_hash: rec.prev_hash,
         file_offset: 0,
     })
-}
-
-/// Read a variable-length field: 2B LE length + UTF-8 data.
-fn read_varlen(data: &[u8], pos: &mut usize) -> Option<String> {
-    if *pos + 2 > data.len() {
-        return None;
-    }
-    let len = u16::from_le_bytes([data[*pos], data[*pos + 1]]) as usize;
-    *pos += 2;
-    if *pos + len > data.len() {
-        return None;
-    }
-    let s = std::str::from_utf8(&data[*pos..*pos + len])
-        .unwrap_or("")
-        .to_string();
-    *pos += len;
-    Some(s)
 }
 
 /// Read SIF records from a framed binary file.
@@ -206,13 +157,15 @@ fn read_sif_file(path: &str) -> Result<Vec<SifRecord>, String> {
 // Signature verification helpers
 // ===========================================================================
 
-/// Build the signing payload from a SIF record (matching
-/// `SignatureEngine::build_signing_payload_static` in the core crate).
+/// Build the signing payload from a SIF record — byte-for-byte identical to
+/// `SignatureEngine::build_signing_payload_static` in the core crate, so
+/// `verify-log` accepts records signed by the core.
 fn build_signing_payload(rec: &SifRecord) -> Vec<u8> {
     let mut data = Vec::with_capacity(256);
 
-    // For SIF-parsed records we don't have the 128-bit id; use timestamp as proxy.
-    // Ring 0: timestamp
+    // Ring 0: id, timestamp (signature and origin_lsn are excluded)
+    data.extend_from_slice(&rec.id_hi.to_le_bytes());
+    data.extend_from_slice(&rec.id_lo.to_le_bytes());
     data.extend_from_slice(&rec.timestamp_hi.to_le_bytes());
     data.extend_from_slice(&rec.timestamp_lo.to_le_bytes());
 
@@ -223,6 +176,10 @@ fn build_signing_payload(rec: &SifRecord) -> Vec<u8> {
     // Ring 1: level + message
     data.push(rec.level);
     data.extend_from_slice(rec.message.as_bytes());
+
+    // Source location
+    data.extend_from_slice(&rec.source_line.to_le_bytes());
+    data.extend_from_slice(&rec.source_column.to_le_bytes());
 
     // Thread/process
     data.extend_from_slice(&rec.thread_id.to_le_bytes());

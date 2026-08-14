@@ -677,8 +677,11 @@ impl ShmSink {
     }
 
     /// Write a Record as SIF to the shared memory buffer.
+    ///
+    /// Uses the canonical [`crate::sif`] FlatBuffer encoding — the same wire
+    /// format produced by the SIF pipeline stage and consumed by `dologctl`.
     pub fn write_record(&self, record: &Record) -> bool {
-        let sif = record_to_sif(record);
+        let sif = crate::sif::encode_record(record);
         self.write(&sif)
     }
 
@@ -778,77 +781,12 @@ impl Drop for ShmSink {
 }
 
 // ---------------------------------------------------------------------------
-// Record → SIF binary format
+// Record → SIF
 // ---------------------------------------------------------------------------
 
-/// Convert a Record to a simplified SIF binary blob.
-///
-/// Format: `SIF1` + total_len(u32 LE) + lsn(u64) + timestamp_hi(u64) +
-/// timestamp_lo(u64) + level(u8) + flags(u8) + thread_id(u64) +
-/// process_id(u32) + message(varlen) + source_file(varlen) +
-/// host_name(varlen) + [signature(64B)] + [prev_hash(32B)]
-pub fn record_to_sif(record: &Record) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(512);
-
-    // Magic
-    buf.extend_from_slice(b"SIF1");
-
-    // Placeholder for total length (patched at end)
-    let len_pos = buf.len();
-    buf.extend_from_slice(&[0u8; 4]);
-
-    // LSN
-    buf.extend_from_slice(&record.lsn.to_le_bytes());
-
-    // Timestamp
-    buf.extend_from_slice(&record.timestamp.hi.to_le_bytes());
-    buf.extend_from_slice(&record.timestamp.lo.to_le_bytes());
-
-    // Level
-    buf.push(record.level as u8);
-
-    // Flags: bit0=has_signature, bit1=has_prev_hash
-    let mut flags: u8 = 0;
-    if record.signature.iter().any(|&b| b != 0) {
-        flags |= 0x01;
-    }
-    if record.prev_hash.iter().any(|&b| b != 0) {
-        flags |= 0x02;
-    }
-    buf.push(flags);
-
-    // Thread + Process IDs
-    buf.extend_from_slice(&record.thread_id.to_le_bytes());
-    buf.extend_from_slice(&record.process_id.to_le_bytes());
-
-    // Variable-length fields (2B LE length + UTF-8)
-    for field in [
-        record.message.as_str(),
-        record.source_file.as_str(),
-        record.host_name.as_str(),
-    ] {
-        let bytes = field.as_bytes();
-        let len = bytes.len().min(u16::MAX as usize) as u16;
-        buf.extend_from_slice(&len.to_le_bytes());
-        buf.extend_from_slice(&bytes[..len as usize]);
-    }
-
-    // Optional: signature
-    if flags & 0x01 != 0 {
-        buf.extend_from_slice(&record.signature);
-    }
-
-    // Optional: prev_hash
-    if flags & 0x02 != 0 {
-        buf.extend_from_slice(&record.prev_hash);
-    }
-
-    // Patch total length
-    let total = (buf.len() - len_pos - 4) as u32;
-    buf[len_pos..len_pos + 4].copy_from_slice(&total.to_le_bytes());
-
-    buf
-}
+// Records are serialised with the canonical [`crate::sif::encode_record`]
+// FlatBuffer encoding (see `write_record`). The one-time hand-rolled "SIF1"
+// compact blob was removed when the shm sink unified on `core::sif`.
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -897,9 +835,14 @@ mod tests {
     #[test]
     fn test_record_to_sif() {
         let rec = make_test_record();
-        let sif = record_to_sif(&rec);
+        let sif = crate::sif::encode_record(&rec);
         assert!(sif.len() >= 32);
         assert_eq!(&sif[..4], b"SIF1");
+        // Canonical SIF frame — magic/header validate and decode round-trips.
+        assert!(crate::sif::validate_frame(&sif).is_ok());
+        let decoded = crate::sif::decode_record(&sif).expect("valid frame decodes");
+        assert_eq!(decoded.lsn, rec.lsn);
+        assert_eq!(decoded.message.as_str(), "test message");
     }
 
     #[test]
@@ -926,7 +869,7 @@ mod tests {
         // Write some records
         let rec = make_test_record();
         assert!(sink.write_record(&rec));
-        assert!(sink.write(&record_to_sif(&rec)));
+        assert!(sink.write(&crate::sif::encode_record(&rec)));
 
         // Flush is no-op but shouldn't error
         assert!(sink.flush().is_ok());

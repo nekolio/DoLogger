@@ -1,6 +1,6 @@
 //! SIF recording and replay commands for `dologctl`.
 //!
-//! SIF (Standard Interchange Format) record generation, replay,
+//! SIF (Standard Intermediate Format) record generation, replay,
 //! and recording session control for offline analysis and testing.
 //!
 //! # Commands
@@ -15,6 +15,10 @@ use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+use dologger_core::ffi::dologger_uint128_t;
+use dologger_core::record::{LogLevel, Record};
+use dologger_core::sif::{decode_record, encode_record};
 
 use crate::output::{self, color, OutputFormat};
 use crate::{stderr, stdout};
@@ -55,64 +59,30 @@ fn bright_magenta() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// SIF binary format constants
+// SIF record generation
 // ---------------------------------------------------------------------------
-
-/// SIF magic bytes.
-const SIF_MAGIC: &[u8; 4] = b"SIF1";
 
 /// Default records per second when generating synthetic data.
 const DEFAULT_RECORDS_PER_SEC: u64 = 100;
 
-// ---------------------------------------------------------------------------
-// SIF record generation (matching `record_to_sif` in sink_shm.rs)
-// ---------------------------------------------------------------------------
-
 /// Generate a synthetic SIF record with the given LSN, timestamp, level, and message.
+///
+/// Uses the canonical [`dologger_core::sif::encode_record`] FlatBuffer encoding —
+/// the same wire format the core shm sink emits and `dologctl replay`/`verify-log`
+/// consume.
 fn generate_sif_record(lsn: u64, timestamp_ms: u64, level: u8, message: &str) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(512);
-
-    // Magic
-    buf.extend_from_slice(SIF_MAGIC);
-
-    // Placeholder for total length (patched at end)
-    let len_pos = buf.len();
-    buf.extend_from_slice(&[0u8; 4]);
-
-    // LSN
-    buf.extend_from_slice(&lsn.to_le_bytes());
-
-    // Timestamp: upper 64 bits = seconds, lower 64 bits = nanos
-    let ts_secs = timestamp_ms / 1000;
-    let ts_nanos = (timestamp_ms % 1000) * 1_000_000;
-    buf.extend_from_slice(&ts_secs.to_le_bytes());
-    buf.extend_from_slice(&ts_nanos.to_le_bytes());
-
-    // Level
-    buf.push(level);
-
-    // Flags (no signature or prev_hash for synthetic records)
-    buf.push(0u8);
-
-    // Thread ID + Process ID
-    let tid: u64 = 1;
-    let pid: u32 = std::process::id();
-    buf.extend_from_slice(&tid.to_le_bytes());
-    buf.extend_from_slice(&pid.to_le_bytes());
-
-    // Variable-length fields: message, source_file, host_name
-    for field in [message, "dologctl-record", "localhost"] {
-        let bytes = field.as_bytes();
-        let len = bytes.len().min(u16::MAX as usize) as u16;
-        buf.extend_from_slice(&len.to_le_bytes());
-        buf.extend_from_slice(&bytes[..len as usize]);
-    }
-
-    // Patch total length
-    let total = (buf.len() - len_pos - 4) as u32;
-    buf[len_pos..len_pos + 4].copy_from_slice(&total.to_le_bytes());
-
-    buf
+    let mut rec = Record::new(0);
+    rec.lsn = lsn;
+    // Timestamp layout: hi = seconds, lo = nanoseconds.
+    rec.timestamp = dologger_uint128_t {
+        hi: timestamp_ms / 1000,
+        lo: (timestamp_ms % 1000) * 1_000_000,
+    };
+    rec.level = LogLevel::from_u8(level).unwrap_or(LogLevel::Info);
+    rec.thread_id = 1;
+    rec.process_id = std::process::id();
+    rec.message.set(message);
+    encode_record(&rec)
 }
 
 // ===========================================================================
@@ -378,25 +348,24 @@ pub fn cmd_replay(input: &str, speed: &str, format: OutputFormat) {
 
         let payload = &data[payload_start..payload_end];
 
-        // Parse SIF header fields for display
-        if payload.len() < 46 || &payload[0..4] != SIF_MAGIC {
-            offset = payload_end;
-            continue;
-        }
+        // Decode the canonical SIF frame for display.
+        let rec = match decode_record(payload) {
+            Ok(r) => r,
+            Err(_) => {
+                offset = payload_end;
+                continue;
+            }
+        };
 
-        let lsn = u64::from_le_bytes(payload[8..16].try_into().unwrap());
-        let ts_hi = u64::from_le_bytes(payload[16..24].try_into().unwrap());
-        let ts_lo = u64::from_le_bytes(payload[24..32].try_into().unwrap());
-        let level = payload[32] as usize;
-        let _flags = payload[33];
-        let tid = u64::from_le_bytes(payload[34..42].try_into().unwrap());
-        let pid = u32::from_le_bytes(payload[42..46].try_into().unwrap());
-
-        // Variable-length: message
-        let mut pos: usize = 46;
-        let message = read_varlen_field(payload, &mut pos).unwrap_or_default();
-        let source_file = read_varlen_field(payload, &mut pos).unwrap_or_default();
-        let host_name = read_varlen_field(payload, &mut pos).unwrap_or_default();
+        let lsn = rec.lsn;
+        let ts_hi = rec.timestamp.hi;
+        let ts_lo = rec.timestamp.lo;
+        let level = rec.level as usize;
+        let tid = rec.thread_id;
+        let pid = rec.process_id;
+        let message = rec.message.as_str().to_string();
+        let source_file = rec.source_file.as_str().to_string();
+        let host_name = rec.host_name.as_str().to_string();
 
         let timestamp_ms = ts_hi * 1000 + ts_lo / 1_000_000;
         let level_name = level_names.get(level).copied().unwrap_or("?");
@@ -491,23 +460,6 @@ fn cmd_replay_json(input: &str, speed: &str) {
         "replay_rate_rec_per_sec": if count > 0 { count as f64 / elapsed.as_secs_f64() } else { 0.0 }
     });
     output::stdout_line(&obj.to_string());
-}
-
-/// Read a variable-length UTF-8 field from binary data (2B LE length prefix).
-fn read_varlen_field(data: &[u8], pos: &mut usize) -> Option<String> {
-    if *pos + 2 > data.len() {
-        return None;
-    }
-    let len = u16::from_le_bytes([data[*pos], data[*pos + 1]]) as usize;
-    *pos += 2;
-    if *pos + len > data.len() {
-        return None;
-    }
-    let s = std::str::from_utf8(&data[*pos..*pos + len])
-        .unwrap_or("")
-        .to_string();
-    *pos += len;
-    Some(s)
 }
 
 // ===========================================================================
