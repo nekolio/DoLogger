@@ -46,3 +46,45 @@ ring_buffer_coop_helping = true
 
 # Allow unsigned (Red) plugins outside dev mode (not recommended).
 plugin_allow_red_plugins = false
+
+# ---------------------------------------------------------------------------
+# Sinks — one [sinks.<name>] table per output destination. The `type` tag
+# selects the backend; the remaining fields configure it. Unknown fields are
+# rejected (a typo surfaces as a config error, not a silently ignored option).
+#
+# Multiple sinks are fanned out: every record is written to each configured
+# sink (FanoutSink). When [sinks.*] is absent or empty, a default console sink
+# to stdout is applied.
+#
+# Feature-gated backends (kafka / sqlite / webhook / otel) are constructible
+# only when the matching Cargo feature is enabled at build time.
+# ---------------------------------------------------------------------------
+
+[sinks.stdout]
+type = "console"
+# use_stderr = true              # write to stderr instead of stdout
+
+[sinks.applog]
+type = "file"
+path = "/var/log/dologger/app.log"
+max_size = 104857600            # bytes; 0 = unlimited (100 MiB here)
+durability_level = "os_cache"   # unsafe | os_cache | media | media_with_fua
+fsync_on_write = false
+
+[sinks.audit]
+type = "worm"
+path = "/var/log/dologger/audit.worm"
+durability = "media_with_fua"   # os_cache | media | media_with_fua
+max_size = 0                    # 0 = unlimited
+
+[sinks.security]
+type = "security"
+path = "/var/log/dologger/security.log"
+
+[sinks.remote]
+type = "syslog"
+host = "127.0.0.1"
+port = 514
+protocol = "udp"                # udp | tcp | tls
+facility = "user"               # RFC 5424 facility code
+app_name = "dologger"
