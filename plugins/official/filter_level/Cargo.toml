@@ -7,7 +7,7 @@ description = "DoLogger official plugin: drop records below a configurable log l
 
 [lib]
 name = "filter_level"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 dologger-core = { path = "../../../core" }

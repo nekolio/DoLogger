@@ -12,5 +12,23 @@ name = "dologger_sdk"
 
 [dependencies]
 dologger-core = { path = "../../core" }
+# `std` is required for log::set_boxed_logger; log ≥ 0.4.33 no longer enables
+# it by default.
+log = { version = "0.4", features = ["std"], optional = true }
+slog = { version = "2", optional = true }
+tracing = { version = "0.1", optional = true }
+# default-features = false: the `tracing-log` default installs a global `log`
+# logger on init(), which would collide with the log-facade adapter's
+# set_boxed_logger. The Layer adapter only needs the registry traits.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"], optional = true }
+
+[features]
+default = ["log-facade"]
+# `log` crate facade adapter (`log_facade::install_log`).
+log-facade = ["dep:log"]
+# `tracing-subscriber` Layer adapter (`tracing_layer::TracingBridge`).
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
+# `slog` Drain adapter (`slog_drain::SlogBridge`).
+slog = ["dep:slog"]
 
 [dev-dependencies]

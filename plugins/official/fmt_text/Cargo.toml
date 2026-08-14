@@ -7,7 +7,7 @@ description = "DoLogger official plugin: human-readable colored text formatter w
 
 [lib]
 name = "fmt_text"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 dologger-core = { path = "../../../core" }

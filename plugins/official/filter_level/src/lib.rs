@@ -1,15 +1,14 @@
 //! Official DoLogger Filter plugin — `filter_level`.
 //!
 //! Drops log records below a configurable severity level with per-domain
-//! override support. Phase: Filter (1), Trust: Blue.
+//! override support. Phase: Filter. Always passes AUDIT level records.
 //!
-//! Always passes AUDIT level records (they are never filtered).
+//! # Bundle member
 //!
-//! # C ABI symbols exported
-//!
-//! - `plugin_query()` → returns PluginInfo with Filter VTable
-//! - `plugin_init(config)` → parses config (min_level, drop_debug, drop_trace)
-//! - `plugin_shutdown()` → cleanup
+//! This crate provides the plugin LOGIC (VTable + metadata) as an rlib. It is
+//! aggregated by the `dologger-official-plugins` bundle crate, which exposes
+//! the C ABI (`plugin_query_multi` / `plugin_init` / `plugin_shutdown`) for
+//! all official plugins in ONE dynamic library.
 //!
 //! # Configuration format (JSON string)
 //!
@@ -17,10 +16,10 @@
 //! {"min_level": "WARN", "drop_debug": true, "drop_trace": true}
 //! ```
 
-use std::ffi::CStr;
-use std::os::raw::c_char;
+use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
+use dologger_core::ffi::DologgerPluginInfo;
 use dologger_core::LogLevel;
 use dologger_core::Record;
 
@@ -31,15 +30,10 @@ const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
 // Plugin mount phase — Filter stage
 const PHASE_FILTER: u32 = 0x0002;
 
-// Plugin info versioning
-const CORE_ABI_VERSION: u32 = 1;
+// Plugin info versioning — abi_version MUST match the core's declared ABI
+// (0.1.0); the host validates it when the bundle is loaded.
+const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
 const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
-
-// Trust level: Blue (official, signed)
-const TRUST_BLUE: u32 = 0;
-
-// Plugin type: Filter
-const PLUGIN_TYPE_FILTER: u32 = 0;
 
 // ---------------------------------------------------------------------------
 // Plugin state (init-time defaults, mutable via plugin_init)
@@ -86,30 +80,9 @@ struct FilterVTable {
 unsafe impl Sync for FilterVTable {}
 
 // ---------------------------------------------------------------------------
-// PluginInfo (C ABI struct)
+// Plugin info — canonical `dologger_plugin_info_t` (see core/src/ffi.rs).
+// Registered by the official bundle via `plugin_query_multi`.
 // ---------------------------------------------------------------------------
-
-/// Plugin information returned by plugin_query.
-#[repr(C)]
-pub struct PluginInfo {
-    /// Plugin type identifier (0 = Filter)
-    plugin_type: u32,
-    /// Core ABI version this plugin was compiled against
-    abi_version: u32,
-    /// Plugin version (packed: major<<16 | minor<<8 | patch)
-    version: u32,
-    /// Human-readable plugin name
-    name: *const c_char,
-    /// Mount phase(s) bitmask
-    phase: u32,
-    /// Trust level (0=Blue, 1=Yellow, 2=Red)
-    trust_level: u32,
-    /// Pointer to the VTable (cast to appropriate type)
-    vtable: *const std::ffi::c_void,
-}
-
-// SAFETY: All raw pointers point to static data.
-unsafe impl Sync for PluginInfo {}
 
 // ---------------------------------------------------------------------------
 // JSON config parsing (lightweight, no serde dependency)
@@ -279,29 +252,28 @@ static VTABLE: FilterVTable = FilterVTable {
 static PLUGIN_NAME: &[u8] = b"filter-level\0";
 
 // ---------------------------------------------------------------------------
-// C ABI: plugin_query
+// Plugin registry entry — aggregated by the official bundle.
 // ---------------------------------------------------------------------------
 
-#[no_mangle]
-pub extern "C" fn plugin_query() -> *const PluginInfo {
-    static INFO: PluginInfo = PluginInfo {
-        plugin_type: PLUGIN_TYPE_FILTER,
-        abi_version: CORE_ABI_VERSION,
-        version: PLUGIN_VERSION,
-        name: PLUGIN_NAME.as_ptr() as *const c_char,
-        phase: PHASE_FILTER,
-        trust_level: TRUST_BLUE,
-        vtable: &VTABLE as *const FilterVTable as *const std::ffi::c_void,
-    };
-    &INFO as *const PluginInfo
+/// Canonical plugin info for this crate, as it appears in the bundle registry.
+pub static INFO: DologgerPluginInfo = DologgerPluginInfo {
+    name: PLUGIN_NAME.as_ptr() as *const c_char,
+    version: PLUGIN_VERSION,
+    abi_version: CORE_ABI_VERSION,
+    phase: PHASE_FILTER,
+    vtable: &VTABLE as *const FilterVTable as *const std::ffi::c_void,
+};
+
+/// Accessor for the registry entry (used by tests and the bundle crate).
+pub fn plugin_info() -> &'static DologgerPluginInfo {
+    &INFO
 }
 
 // ---------------------------------------------------------------------------
-// C ABI: plugin_init
+// Lifecycle — called by the bundle's `plugin_init` fan-out
 // ---------------------------------------------------------------------------
 
-#[no_mangle]
-pub extern "C" fn plugin_init(config: *const std::ffi::c_void) -> i32 {
+pub fn init(config: *const std::ffi::c_void) -> i32 {
     if config.is_null() {
         return DO_LOG_OK; // Use defaults (min_level = INFO)
     }
@@ -337,11 +309,10 @@ pub extern "C" fn plugin_init(config: *const std::ffi::c_void) -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// C ABI: plugin_shutdown
+// Lifecycle — called by the bundle's `plugin_shutdown` fan-out
 // ---------------------------------------------------------------------------
 
-#[no_mangle]
-pub extern "C" fn plugin_shutdown() -> i32 {
+pub fn shutdown() -> i32 {
     DO_LOG_OK
 }
 
@@ -388,13 +359,13 @@ mod tests {
     }
 
     #[test]
-    fn test_plugin_query_returns_valid_info() {
+    fn test_plugin_info_returns_valid_entry() {
         let _guard = lock_globals();
-        let info = unsafe { &*plugin_query() };
-        assert_eq!(info.plugin_type, PLUGIN_TYPE_FILTER);
+        let info = plugin_info();
         assert_eq!(info.abi_version, CORE_ABI_VERSION);
         assert_eq!(info.phase, PHASE_FILTER);
-        assert_eq!(info.trust_level, TRUST_BLUE);
+        let name = unsafe { CStr::from_ptr(info.name) }.to_str().unwrap();
+        assert_eq!(name, "filter-level");
     }
 
     #[test]
@@ -573,10 +544,7 @@ mod tests {
     fn test_init_parses_min_level() {
         let _guard = lock_globals();
         let config = CString::new(r#"{"min_level":"DEBUG"}"#).unwrap();
-        assert_eq!(
-            plugin_init(config.as_ptr() as *const std::ffi::c_void),
-            DO_LOG_OK
-        );
+        assert_eq!(init(config.as_ptr() as *const std::ffi::c_void), DO_LOG_OK);
         assert_eq!(
             LogLevel::from_u8(MIN_LEVEL.load(Ordering::Relaxed)),
             Some(LogLevel::Debug)
@@ -590,10 +558,7 @@ mod tests {
         let _guard = lock_globals();
         let config =
             CString::new(r#"{"min_level":"INFO","drop_debug":true,"drop_trace":true}"#).unwrap();
-        assert_eq!(
-            plugin_init(config.as_ptr() as *const std::ffi::c_void),
-            DO_LOG_OK
-        );
+        assert_eq!(init(config.as_ptr() as *const std::ffi::c_void), DO_LOG_OK);
         assert!(DROP_DEBUG.load(Ordering::Relaxed));
         assert!(DROP_TRACE.load(Ordering::Relaxed));
         // Reset
@@ -609,7 +574,7 @@ mod tests {
         MIN_LEVEL.store(LogLevel::Warn as u8, Ordering::Relaxed);
 
         // Null config should NOT change the state
-        assert_eq!(plugin_init(std::ptr::null()), DO_LOG_OK);
+        assert_eq!(init(std::ptr::null()), DO_LOG_OK);
         assert_eq!(
             LogLevel::from_u8(MIN_LEVEL.load(Ordering::Relaxed)),
             Some(LogLevel::Warn)
@@ -624,7 +589,7 @@ mod tests {
         let _guard = lock_globals();
         let config = CString::new(r#"{"min_level":"GARBAGE"}"#).unwrap();
         assert_eq!(
-            plugin_init(config.as_ptr() as *const std::ffi::c_void),
+            init(config.as_ptr() as *const std::ffi::c_void),
             DO_LOG_ERR_INVALID_ARG
         );
     }
@@ -632,6 +597,6 @@ mod tests {
     #[test]
     fn test_shutdown_returns_ok() {
         let _guard = lock_globals();
-        assert_eq!(plugin_shutdown(), DO_LOG_OK);
+        assert_eq!(shutdown(), DO_LOG_OK);
     }
 }

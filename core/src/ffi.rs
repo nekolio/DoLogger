@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use std::ffi::CStr;
+use std::ffi::{c_char, c_void, CStr};
 
 use crate::config::DologgerConfig;
 use crate::error::{DologgerError, DO_LOG_ERR_INVALID_ARG, DO_LOG_ERR_NOT_SUPPORTED, DO_LOG_OK};
@@ -35,6 +35,42 @@ pub struct dologger_uint128_t {
     pub hi: u64,
     pub lo: u64,
 }
+
+/// Canonical plugin info struct — matches `dologger_plugin_info_t` in
+/// `core/include/dologger_core.h`. Returned by `plugin_query` (single-plugin
+/// libraries) and by each entry of `plugin_query_multi` (bundle libraries).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct DologgerPluginInfo {
+    /// Unique plugin identifier (UTF-8, null-terminated)
+    pub name: *const c_char,
+    /// Encoded binary-compat version
+    pub version: u32,
+    /// Declared core ABI version (e.g. `0x000100` = 0.1.0)
+    pub abi_version: u32,
+    /// Mount phase bitmask (DO_LOG_PHASE_*)
+    pub phase: u32,
+    /// Pointer to the VTable for this phase
+    pub vtable: *const c_void,
+}
+
+/// Multi-plugin info list — matches `dologger_plugin_info_list_t`. Returned by
+/// `plugin_query_multi` so a single dynamic library can host several plugins
+/// (the official plugins bundle) instead of one plugin per file.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct DologgerPluginInfoList {
+    /// Number of entries in `infos`
+    pub count: u32,
+    /// Array of `count` pointers to `DologgerPluginInfo`
+    pub infos: *const *const DologgerPluginInfo,
+}
+
+// SAFETY: both structs only carry raw pointers to *static* data owned by the
+// plugin library. They are constructed once, immutably, and remain valid for
+// the library's lifetime — sharing across threads is safe.
+unsafe impl Sync for DologgerPluginInfo {}
+unsafe impl Sync for DologgerPluginInfoList {}
 
 // Thread-local error storage
 std::thread_local! {

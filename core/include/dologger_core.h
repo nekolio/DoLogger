@@ -527,15 +527,39 @@ typedef struct {
 } dologger_syscall_broker_vtable_t;
 
 /* =========================================================================
- * Plugin lifecycle symbols (every plugin MUST export these)
+ * Plugin lifecycle symbols
+ * ======================================================================== *
+ * A library MUST export exactly ONE of the two query contracts:
+ *
+ *   1. Single-plugin libraries (third-party / standalone):
+ *        plugin_query(core_abi_version)                     [required]
+ *        plugin_init(config) / plugin_shutdown()            [required]
+ *
+ *   2. Bundle libraries (official plugins, one library hosts N plugins):
+ *        plugin_query_multi(core_abi_version)               [required]
+ *        plugin_init(config) / plugin_shutdown()            [required, fan-out]
+ *
+ * The bundle contract lets a single dynamic library ship every official
+ * plugin instead of one plugin per file — see the `dologger-official-plugins`
+ * crate. The host registers each entry of `dologger_plugin_info_list_t` from
+ * one library handle.
  * ======================================================================== */
 
 /**
- * @brief Query plugin capabilities (required export).
+ * @brief Query plugin capabilities (single-plugin libraries, required export).
  * @param core_abi_version  The core's ABI version for compatibility check.
  * @return PluginInfo pointer, or NULL if incompatible.
  */
 typedef dologger_plugin_info_t *(*dologger_plugin_query_fn)(uint32_t core_abi_version);
+
+/**
+ * @brief Query every plugin hosted by a bundle library (required export).
+ * @param core_abi_version  The core's ABI version for compatibility check.
+ * @return Pointer to a static plugin info list owned by the library, or NULL
+ *         if incompatible. The list is valid for the library's lifetime.
+ */
+typedef dologger_plugin_info_list_t *(*dologger_plugin_query_multi_fn)(
+    uint32_t core_abi_version);
 
 /**
  * @brief Initialize the plugin (required export).

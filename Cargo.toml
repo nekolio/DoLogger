@@ -7,6 +7,7 @@ members = [
     "plugins/official/fmt_text",
     "plugins/official/filter_level",
     "plugins/official/field_container",
+    "plugins/official/bundle",
     "adapters/rust",
 ]
 resolver = "2"

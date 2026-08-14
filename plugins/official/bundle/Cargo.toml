@@ -1,0 +1,20 @@
+[package]
+name = "dologger-official-plugins"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "DoLogger official plugins bundle — ONE dynamic library hosting every official plugin"
+
+[lib]
+name = "dologger_official_plugins"
+crate-type = ["cdylib"]
+
+[dependencies]
+dologger-core = { path = "../../../core" }
+fmt-json = { package = "dologger-plugin-fmt-json", path = "../fmt_json" }
+fmt-text = { package = "dologger-plugin-fmt-text", path = "../fmt_text" }
+filter-level = { package = "dologger-plugin-filter-level", path = "../filter_level" }
+field-container = { package = "dologger-plugin-field-container", path = "../field_container" }
+
+[dev-dependencies]
+libloading = "0.8"

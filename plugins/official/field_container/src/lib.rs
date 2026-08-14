@@ -3,16 +3,18 @@
 //! Injects container orchestration metadata into every log record:
 //! container ID (from /proc/self/cgroup or $CONTAINER_ID), pod name,
 //! namespace, node name (from Kubernetes downward API).
-//! Phase: FieldProvider (2), Trust: Blue.
+//! Phase: FieldProvider (host info injection).
 //!
-//! # C ABI symbols exported
+//! # Bundle member
 //!
-//! - `plugin_query()` → returns PluginInfo with FieldProvider VTable
-//! - `plugin_init(config)` → parses config (source: auto/docker/k8s/podman)
-//! - `plugin_shutdown()` → cleanup
+//! This crate provides the plugin LOGIC (VTable + metadata) as an rlib. It is
+//! aggregated by the `dologger-official-plugins` bundle crate, which exposes
+//! the C ABI (`plugin_query_multi` / `plugin_init` / `plugin_shutdown`) for
+//! all official plugins in ONE dynamic library.
 
-use std::ffi::CStr;
-use std::os::raw::c_char;
+use std::ffi::{c_char, CStr};
+
+use dologger_core::ffi::DologgerPluginInfo;
 
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
@@ -23,15 +25,10 @@ const DO_LOG_ERR_NOT_SUPPORTED: i32 = -0x0103;
 // Plugin mount phase — FieldProvider stage (host info injection)
 const PHASE_HOSTINFO: u32 = 0x0100;
 
-// Plugin info versioning
-const CORE_ABI_VERSION: u32 = 1;
+// Plugin info versioning — abi_version MUST match the core's declared ABI
+// (0.1.0); the host validates it when the bundle is loaded.
+const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
 const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
-
-// Trust level: Blue (official, signed)
-const TRUST_BLUE: u32 = 0;
-
-// Plugin type: FieldProvider
-const PLUGIN_TYPE_FIELD_PROVIDER: u32 = 2;
 
 // ---------------------------------------------------------------------------
 // VTable: FieldProvider
@@ -61,30 +58,9 @@ struct FieldProviderVTable {
 unsafe impl Sync for FieldProviderVTable {}
 
 // ---------------------------------------------------------------------------
-// PluginInfo (C ABI struct)
+// Plugin info — canonical `dologger_plugin_info_t` (see core/src/ffi.rs).
+// Registered by the official bundle via `plugin_query_multi`.
 // ---------------------------------------------------------------------------
-
-/// Plugin information returned by plugin_query.
-#[repr(C)]
-pub struct PluginInfo {
-    /// Plugin type identifier (2 = FieldProvider)
-    plugin_type: u32,
-    /// Core ABI version this plugin was compiled against
-    abi_version: u32,
-    /// Plugin version (packed: major<<16 | minor<<8 | patch)
-    version: u32,
-    /// Human-readable plugin name
-    name: *const c_char,
-    /// Mount phase(s) bitmask
-    phase: u32,
-    /// Trust level (0=Blue, 1=Yellow, 2=Red)
-    trust_level: u32,
-    /// Pointer to the VTable (cast to appropriate type)
-    vtable: *const std::ffi::c_void,
-}
-
-// SAFETY: All raw pointers point to static data.
-unsafe impl Sync for PluginInfo {}
 
 // ---------------------------------------------------------------------------
 // VTable function stubs
@@ -107,29 +83,28 @@ static VTABLE: FieldProviderVTable = FieldProviderVTable {
 static PLUGIN_NAME: &[u8] = b"field-container\0";
 
 // ---------------------------------------------------------------------------
-// C ABI: plugin_query
+// Plugin registry entry — aggregated by the official bundle.
 // ---------------------------------------------------------------------------
 
-#[no_mangle]
-pub extern "C" fn plugin_query() -> *const PluginInfo {
-    static INFO: PluginInfo = PluginInfo {
-        plugin_type: PLUGIN_TYPE_FIELD_PROVIDER,
-        abi_version: CORE_ABI_VERSION,
-        version: PLUGIN_VERSION,
-        name: PLUGIN_NAME.as_ptr() as *const c_char,
-        phase: PHASE_HOSTINFO,
-        trust_level: TRUST_BLUE,
-        vtable: &VTABLE as *const FieldProviderVTable as *const std::ffi::c_void,
-    };
-    &INFO as *const PluginInfo
+/// Canonical plugin info for this crate, as it appears in the bundle registry.
+pub static INFO: DologgerPluginInfo = DologgerPluginInfo {
+    name: PLUGIN_NAME.as_ptr() as *const c_char,
+    version: PLUGIN_VERSION,
+    abi_version: CORE_ABI_VERSION,
+    phase: PHASE_HOSTINFO,
+    vtable: &VTABLE as *const FieldProviderVTable as *const std::ffi::c_void,
+};
+
+/// Accessor for the registry entry (used by tests and the bundle crate).
+pub fn plugin_info() -> &'static DologgerPluginInfo {
+    &INFO
 }
 
 // ---------------------------------------------------------------------------
-// C ABI: plugin_init
+// Lifecycle — called by the bundle's `plugin_init` fan-out
 // ---------------------------------------------------------------------------
 
-#[no_mangle]
-pub extern "C" fn plugin_init(config: *const std::ffi::c_void) -> i32 {
+pub fn init(config: *const std::ffi::c_void) -> i32 {
     if config.is_null() {
         return DO_LOG_OK; // Use defaults (source = "auto")
     }
@@ -145,11 +120,10 @@ pub extern "C" fn plugin_init(config: *const std::ffi::c_void) -> i32 {
 }
 
 // ---------------------------------------------------------------------------
-// C ABI: plugin_shutdown
+// Lifecycle — called by the bundle's `plugin_shutdown` fan-out
 // ---------------------------------------------------------------------------
 
-#[no_mangle]
-pub extern "C" fn plugin_shutdown() -> i32 {
+pub fn shutdown() -> i32 {
     DO_LOG_OK
 }
 
@@ -162,21 +136,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_plugin_query_returns_valid_info() {
-        let info = unsafe { &*plugin_query() };
-        assert_eq!(info.plugin_type, PLUGIN_TYPE_FIELD_PROVIDER);
+    fn test_plugin_info_returns_valid_entry() {
+        let info = plugin_info();
         assert_eq!(info.abi_version, CORE_ABI_VERSION);
         assert_eq!(info.phase, PHASE_HOSTINFO);
-        assert_eq!(info.trust_level, TRUST_BLUE);
+        let name = unsafe { CStr::from_ptr(info.name) }.to_str().unwrap();
+        assert_eq!(name, "field-container");
     }
 
     #[test]
     fn test_init_with_null_config() {
-        assert_eq!(plugin_init(std::ptr::null()), DO_LOG_OK);
+        assert_eq!(init(std::ptr::null()), DO_LOG_OK);
     }
 
     #[test]
     fn test_shutdown_returns_ok() {
-        assert_eq!(plugin_shutdown(), DO_LOG_OK);
+        assert_eq!(shutdown(), DO_LOG_OK);
     }
 }

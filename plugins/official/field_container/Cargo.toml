@@ -7,7 +7,7 @@ description = "DoLogger official plugin: inject container orchestration metadata
 
 [lib]
 name = "field_container"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 dologger-core = { path = "../../../core" }

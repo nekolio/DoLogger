@@ -34,6 +34,32 @@ DL_BASE="https://github.com/Nekolio/DoLogger/releases/download/${TAG}"
 # dl <asset> — markdown link to a release asset on this release.
 dl() { printf '[%s](%s/%s)' "$1" "$DL_BASE" "$1"; }
 
+# bundle_line <sig-note> — the official-plugins bundle row: short platform
+# labels linking to each of the 10 platform assets (release-asset rule:
+# dologger-official-plugins-{version}-{os}-{arch}.{ext}). ONE bundle library
+# hosts every official plugin (fmt-json, fmt-text, filter-level,
+# field-container). `<sig-note>` is a localized line describing the Ed25519
+# `.sig` sidecar that ships next to each bundle.
+bundle_line() {
+    local note="$1"
+    local spec a label first=1
+    for spec in \
+        linux-x86_64.so linux-aarch64.so linux-i686.so linux-armv7.so linux-riscv64.so \
+        windows-x86_64.dll windows-aarch64.dll windows-i686.dll \
+        macos-aarch64.dylib macos-x86_64.dylib; do
+        a="dologger-official-plugins-${TAG}-${spec}"
+        label="${spec%.*}"
+        if [ "$first" = 1 ]; then
+            printf -- '- **`dologger-official-plugins`** · [%s](%s/%s)' "$label" "$DL_BASE" "$a"
+            first=0
+        else
+            printf ' · [%s](%s/%s)' "$label" "$DL_BASE" "$a"
+        fi
+    done
+    echo
+    echo "$note"
+}
+
 {
     echo "# DoLogger ${TAG}"
     echo
@@ -82,6 +108,15 @@ dl() { printf '[%s](%s/%s)' "$1" "$DL_BASE" "$1"; }
     echo "| Windows | i686 (32-bit) | $(dl dologctl-${TAG}-windows-i686.exe) | $(dl dologger_core-${TAG}-windows-i686.dll) |"
     echo "| macOS | aarch64 (Apple Silicon) | $(dl dologctl-${TAG}-macos-aarch64) | $(dl libdologger_core-${TAG}-macos-aarch64.dylib) |"
     echo "| macOS | x86_64 (Intel) | $(dl dologctl-${TAG}-macos-x86_64) | $(dl libdologger_core-${TAG}-macos-x86_64.dylib) |"
+    echo
+    echo '### Official Plugins'
+    echo
+    echo 'Official plugins ship as ONE bundle library per platform'
+    echo '(`dologger-official-plugins-{version}-{os}-{arch}`; `.so` Linux,'
+    echo '`.dll` Windows, `.dylib` macOS). Each bundle hosts every official'
+    echo 'plugin — fmt-json, fmt-text, filter-level, field-container:'
+    echo
+    bundle_line 'Each bundle ships with an Ed25519 `.sig` sidecar (bundle name + `.sig`). Set `DO_LOG_PLUGIN_TRUST_ANCHOR` to the project signing key and run `dologctl plugin verify` to confirm trust.'
     echo
     echo "SHA-256 of every asset: [checksums-sha256.txt](${DL_BASE}/checksums-sha256.txt)"
     echo
@@ -148,6 +183,15 @@ dl() { printf '[%s](%s/%s)' "$1" "$DL_BASE" "$1"; }
     echo "| Windows | i686（32 位） | $(dl dologctl-${TAG}-windows-i686.exe) | $(dl dologger_core-${TAG}-windows-i686.dll) |"
     echo "| macOS | aarch64（Apple Silicon） | $(dl dologctl-${TAG}-macos-aarch64) | $(dl libdologger_core-${TAG}-macos-aarch64.dylib) |"
     echo "| macOS | x86_64（Intel） | $(dl dologctl-${TAG}-macos-x86_64) | $(dl libdologger_core-${TAG}-macos-x86_64.dylib) |"
+    echo
+    echo '### 官方插件'
+    echo
+    echo '官方插件以单个捆绑库的形式随平台发布'
+    echo '（`dologger-official-plugins-{版本}-{os}-{arch}`；`.so` Linux、'
+    echo '`.dll` Windows、`.dylib` macOS）。每个捆绑库包含全部官方插件'
+    echo '——fmt-json、fmt-text、filter-level、field-container：'
+    echo
+    bundle_line '每个捆绑库随附一个 Ed25519 `.sig` 签名旁路文件（捆绑库名 + `.sig`）。将 `DO_LOG_PLUGIN_TRUST_ANCHOR` 设为项目签名公钥后运行 `dologctl plugin verify` 即可校验信任级别。'
     echo
     echo "所有资产的 SHA-256：[checksums-sha256.txt](${DL_BASE}/checksums-sha256.txt)"
     echo

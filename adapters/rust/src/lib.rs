@@ -14,6 +14,18 @@
 //! logger.shutdown();
 //! ```
 //!
+//! # Shared Handles & Frontend Adapters
+//!
+//! `Logger::log` takes `&self`, so a `Logger` can be shared across threads
+//! behind an [`LoggerHandle`] (`Arc<Logger>`). The SDK ships adapters that
+//! route popular logging frontends into DoLogger:
+//!
+//! - [`log_facade`] — the `log` crate (`install_log` / `impl log::Log`)
+//! - [`tracing_layer`] — a `tracing-subscriber` `Layer` (feature `tracing`)
+//! - [`slog_drain`] — a `slog` `Drain` (feature `slog`)
+//! - [`write_sink`] — a `std::io::Write` sink
+//! - [`sink_adapter`] — a closure-based `dologger_core::sink::Sink`
+//!
 //! # Cooperative Helping
 //!
 //! When the ring buffer reaches ≥90% capacity, the calling thread will
@@ -21,13 +33,37 @@
 //! indefinite blocking while maintaining low latency under backpressure
 //! (cooperative helping).
 
+use std::sync::Arc;
+
 use dologger_core::config::DologgerConfig;
 use dologger_core::record::{thread_id_u64, LogLevel};
 use dologger_core::Engine;
 
 // ---------------------------------------------------------------------------
+// Adapter modules (feature-gated where an external frontend crate is needed)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "log-facade")]
+pub mod log_facade;
+pub mod sink_adapter;
+#[cfg(feature = "slog")]
+pub mod slog_drain;
+#[cfg(feature = "tracing")]
+pub mod tracing_layer;
+pub mod write_sink;
+
+// ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------
+
+/// A shared, cloneable handle to a [`Logger`].
+///
+/// Log calls take `&self`, so any number of threads can clone this handle and
+/// log concurrently through the lock-free ring buffer. Obtain one via
+/// [`Logger::into_handle`] or [`Logger::init_handle`]. Graceful shutdown still
+/// requires exclusive access: call [`Logger::shutdown`] on the underlying
+/// logger (or use the engine's own lifecycle) before the last handle drops.
+pub type LoggerHandle = Arc<Logger>;
 
 /// High-level logging interface around the DoLogger core engine.
 ///
@@ -65,40 +101,59 @@ impl Logger {
         Engine::init(config).map(|engine| Self { engine })
     }
 
+    /// Initialize the engine and return a shared [`LoggerHandle`].
+    ///
+    /// Shorthand for `Logger::init(...)` followed by [`Logger::into_handle`].
+    pub fn init_handle(config_path: Option<&str>) -> Result<LoggerHandle, String> {
+        Logger::init(config_path).map(Logger::into_handle)
+    }
+
+    /// Initialize with a pre-built config and return a shared [`LoggerHandle`].
+    pub fn init_handle_with_config(config: DologgerConfig) -> Result<LoggerHandle, String> {
+        Logger::init_with_config(config).map(Logger::into_handle)
+    }
+
+    /// Wrap this logger in an `Arc` so it can be shared across threads and
+    /// handed to the frontend adapters ([`log_facade`], [`tracing_layer`],
+    /// [`slog_drain`], [`write_sink`]).
+    pub fn into_handle(self) -> LoggerHandle {
+        Arc::new(self)
+    }
+
     // --- Convenience level methods -------------------------------------
 
     /// Log at TRACE level.
-    pub fn trace(&mut self, msg: &str) {
+    pub fn trace(&self, msg: &str) {
         self.log(LogLevel::Trace, msg);
     }
 
     /// Log at DEBUG level.
-    pub fn debug(&mut self, msg: &str) {
+    pub fn debug(&self, msg: &str) {
         self.log(LogLevel::Debug, msg);
     }
 
     /// Log at INFO level.
-    pub fn info(&mut self, msg: &str) {
+    pub fn info(&self, msg: &str) {
         self.log(LogLevel::Info, msg);
     }
 
     /// Log at WARN level.
-    pub fn warn(&mut self, msg: &str) {
+    pub fn warn(&self, msg: &str) {
         self.log(LogLevel::Warn, msg);
     }
 
     /// Log at ERROR level.
-    pub fn error(&mut self, msg: &str) {
+    pub fn error(&self, msg: &str) {
         self.log(LogLevel::Error, msg);
     }
 
     /// Log at FATAL level.
-    pub fn fatal(&mut self, msg: &str) {
+    pub fn fatal(&self, msg: &str) {
         self.log(LogLevel::Fatal, msg);
     }
 
     /// Log at AUDIT level (non-repudiable, WORM write, Ed25519 signed).
-    pub fn audit(&mut self, msg: &str) {
+    pub fn audit(&self, msg: &str) {
         self.log(LogLevel::Audit, msg);
     }
 
@@ -109,11 +164,15 @@ impl Logger {
     /// buffer.  Returns immediately; the background pipeline handles
     /// filtering, formatting, and sink output asynchronously.
     ///
+    /// Safe to call concurrently from any thread via a shared [`LoggerHandle`]:
+    /// the pool allocator and ring buffer use lock-free atomic operations and
+    /// take `&self`.
+    ///
     /// If the ring buffer is full and cooperative helping is enabled,
     /// this call may perform a small inline drain before retrying.
     /// If the buffer remains full after helping, the record is silently
     /// dropped and a diagnostic warning is emitted.
-    pub fn log(&mut self, level: LogLevel, msg: &str) {
+    pub fn log(&self, level: LogLevel, msg: &str) {
         // Allocate a record from the pool
         let record_ptr = match self.engine.pool.alloc() {
             Some(r) => r,
@@ -247,6 +306,39 @@ mod tests {
         let mut logger = Logger::init(None).expect("init");
         let _ = logger.engine();
         let _ = logger.engine_mut();
+        logger.shutdown();
+    }
+
+    #[test]
+    fn shared_handle_logs_from_threads() {
+        let logger = Logger::init_handle(None).expect("init handle");
+        let t1_logger = logger.clone();
+        let t2_logger = logger.clone();
+        // The main thread no longer needs its own reference.
+        drop(logger);
+
+        let t1 = std::thread::spawn(move || {
+            for i in 0..1_000 {
+                t1_logger.info(&format!("thread-1 #{i}"));
+            }
+            t1_logger
+        });
+        let t2 = std::thread::spawn(move || {
+            for i in 0..1_000 {
+                t2_logger.warn(&format!("thread-2 #{i}"));
+            }
+            t2_logger
+        });
+
+        let l1 = t1.join().expect("t1");
+        let l2 = t2.join().expect("t2");
+        // Both joins return the SAME allocation (clones of one Arc). Drop one,
+        // then unwrap the sole remaining owner for exclusive shutdown.
+        drop(l2);
+        let mut logger = match Arc::try_unwrap(l1) {
+            Ok(l) => l,
+            Err(_) => panic!("logger handle still shared after join"),
+        };
         logger.shutdown();
     }
 }

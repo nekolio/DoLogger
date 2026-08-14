@@ -7,7 +7,7 @@ description = "DoLogger official plugin: structured JSON formatter with configur
 
 [lib]
 name = "fmt_json"
-crate-type = ["cdylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 dologger-core = { path = "../../../core" }
