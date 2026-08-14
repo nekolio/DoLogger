@@ -1,0 +1,61 @@
+name: Leak hygiene
+
+# Scans every push and pull request for accidentally-committed private keys
+# and signing seeds. Belt-and-suspenders behind the .gitignore rules and
+# GitHub secret-scanning: the default secret scanner does not recognize raw
+# 64-hex Ed25519 seeds, so this job is the practical backstop for the plugin
+# signing key (DOLOGGER_PLUGIN_SIGNING_KEY).
+#
+# Hardening: no third-party actions (checkout is SHA-pinned), read-only token,
+# and the scan only inspects `git ls-files` (tracked content), so a key that is
+# merely lying untracked in a working copy can never be published by this job.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan tracked files for private keys and seeds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Scan for private keys and signing seeds
+        shell: bash
+        run: |
+          set -u
+          FAILED=0
+
+          # 1. PEM-style private-key blocks — no tracked file should ever
+          #    contain one. "PRIVATE KEY", "ENCRYPTED PRIVATE KEY", etc.
+          KEYFILES="$(git ls-files -z | tr '\0' '\n' \
+            | xargs -r grep -lE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' 2>/dev/null || true)"
+          if [ -n "$KEYFILES" ]; then
+            echo "::error::private-key block found in tracked file(s):"
+            printf '%s\n' "$KEYFILES"
+            FAILED=1
+          fi
+
+          # 2. 64-hex seeds/wrapped blobs in files whose name advertises a key
+          #    (seed / signing-key / signing.key / .enc). Public material such
+          #    as plugins/official/trust-anchors/active.pub holds 64-hex PUBLIC
+          #    keys but never matches this pattern, so it is NOT flagged.
+          SEEDFILES="$(git ls-files -z | tr '\0' '\n' \
+            | grep -E '(seed|signing-key|signing\.key|\.enc)$' \
+            | xargs -r grep -lE '[0-9a-fA-F]{64}' 2>/dev/null || true)"
+          if [ -n "$SEEDFILES" ]; then
+            echo "::error::64-hex seed/blob in key-named tracked file(s):"
+            printf '%s\n' "$SEEDFILES"
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::possible signing-key leak — remove the file(s), add a .gitignore rule, and rotate the secret."
+            exit 1
+          fi
+          echo "clean: no private keys or signing seeds in tracked files"

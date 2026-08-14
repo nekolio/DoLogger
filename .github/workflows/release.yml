@@ -7,6 +7,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# Least-privilege token: read-only at the workflow level. Only the
+# create-release job re-scopes its own token to `contents: write` — no other
+# job can touch releases or secrets even if it is compromised.
+permissions:
+  contents: read
+
 # Releases must never be torn down mid-publish — cancel-in-progress: false
 # only dedupes overlapping runs of the SAME tag, letting both finish whole.
 concurrency:
@@ -24,7 +30,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macOS-latest]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -35,10 +41,10 @@ jobs:
 
       # No rustfmt/clippy here — this job only runs tests (CI owns linting).
       - name: Setup Rust toolchain (latest stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable (mutable — pinned 2026-08-14; re-resolve on toolchain bump)
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: ${{ runner.os }}-release
 
@@ -70,11 +76,19 @@ jobs:
           # all building libdologger_core.so would otherwise overwrite each
           # other (only the last one would survive in the release).
           #
-          # Asset names embed the tag (`dologctl-v0.2.0-linux-x86_64`):
+          # Asset names embed the tag (`dologctl-v0.1.0-linux-x86_64`):
           # github.ref_name is the pushed tag, so every version's assets
           # carry its version and the site can match them by suffix.
-          # (v0.1.0's published assets predate this and stay unversioned —
-          # the site's matcher accepts both schemes.)
+          # (Pre-v0.1.0 published assets were unversioned — the site's
+          # matcher accepts both schemes.)
+          #
+          # Official plugins ship as ONE bundle library per platform
+          # (dologger-official-plugins-{tag}-{os}-{arch}.{so|dll|dylib})
+          # hosting every official plugin (fmt-json, fmt-text, filter-level,
+          # field-container) via the plugin_query_multi registry. The asset
+          # embeds its os-arch, so the 10-job merge never collides; the
+          # site's ASSET_TAIL parser reads it with no extra handling. See the
+          # "Prepare official plugin artifacts" step below and plugins/README.md.
           #
           # ── Linux ───────────────────────────────────────────────
           - os: ubuntu-latest
@@ -83,6 +97,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-linux-x86_64
             lib_name: libdologger_core.so
             lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-x86_64.so
+            os_short: linux
+            lib_ext: so
 
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
@@ -90,6 +106,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-linux-aarch64
             lib_name: libdologger_core.so
             lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-aarch64.so
+            os_short: linux
+            lib_ext: so
 
           - os: ubuntu-latest
             target: i686-unknown-linux-gnu
@@ -97,6 +115,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-linux-i686
             lib_name: libdologger_core.so
             lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-i686.so
+            os_short: linux
+            lib_ext: so
 
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
@@ -104,6 +124,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-linux-armv7
             lib_name: libdologger_core.so
             lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-armv7.so
+            os_short: linux
+            lib_ext: so
 
           - os: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
@@ -111,6 +133,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-linux-riscv64
             lib_name: libdologger_core.so
             lib_asset_name: libdologger_core-${{ github.ref_name }}-linux-riscv64.so
+            os_short: linux
+            lib_ext: so
 
           # ── Windows ─────────────────────────────────────────────
           - os: windows-latest
@@ -121,6 +145,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-windows-x86_64.exe
             lib_name: dologger_core.dll
             lib_asset_name: dologger_core-${{ github.ref_name }}-windows-x86_64.dll
+            os_short: windows
+            lib_ext: dll
 
           - os: windows-latest
             target: aarch64-pc-windows-msvc
@@ -128,6 +154,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-windows-aarch64.exe
             lib_name: dologger_core.dll
             lib_asset_name: dologger_core-${{ github.ref_name }}-windows-aarch64.dll
+            os_short: windows
+            lib_ext: dll
 
           - os: windows-latest
             target: i686-pc-windows-msvc
@@ -135,6 +163,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-windows-i686.exe
             lib_name: dologger_core.dll
             lib_asset_name: dologger_core-${{ github.ref_name }}-windows-i686.dll
+            os_short: windows
+            lib_ext: dll
 
           # ── macOS ───────────────────────────────────────────────
           - os: macOS-latest
@@ -143,6 +173,8 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-macos-aarch64
             lib_name: libdologger_core.dylib
             lib_asset_name: libdologger_core-${{ github.ref_name }}-macos-aarch64.dylib
+            os_short: macos
+            lib_ext: dylib
 
           - os: macOS-latest
             target: x86_64-apple-darwin
@@ -150,10 +182,12 @@ jobs:
             asset_name: dologctl-${{ github.ref_name }}-macos-x86_64
             lib_name: libdologger_core.dylib
             lib_asset_name: libdologger_core-${{ github.ref_name }}-macos-x86_64.dylib
+            os_short: macos
+            lib_ext: dylib
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system dependencies (Linux)
         if: runner.os == 'Linux'
@@ -186,12 +220,12 @@ jobs:
           sudo apt-get install -y $PACKAGES
 
       - name: Setup Rust toolchain (latest stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable (mutable — pinned 2026-08-14; re-resolve on toolchain bump)
         with:
           targets: ${{ matrix.target }}
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: ${{ runner.os }}-${{ matrix.target }}-release
 
@@ -245,8 +279,66 @@ jobs:
                "release-artifacts/${{ matrix.lib_asset_name }}"
           fi
 
+      # Official plugins — ONE bundle library per platform
+      # (dologger-official-plugins-{tag}-{os}-{arch}.{ext}) hosting every
+      # official plugin. The 10-job merge stays collision-free because the
+      # bundle asset embeds its os-arch. On Windows the cdylib drops the Unix
+      # `lib` prefix (dologger_official_plugins.dll); Linux/macOS keep it
+      # (libdologger_official_plugins.so / .dylib). The host registers all 4
+      # official plugins from this one file via plugin_query_multi.
+      - name: Prepare official plugin artifacts
+        shell: bash
+        run: |
+          set -e
+          # arch = last dash-separated token of the CLI asset name (strip .exe)
+          ARCH="$(echo "${{ matrix.asset_name }}" | sed -E 's/\.exe$//' | rev | cut -d- -f1 | rev)"
+          LIB="libdologger_official_plugins.${{ matrix.lib_ext }}"
+          if [ "${{ matrix.os_short }}" == "windows" ]; then LIB="dologger_official_plugins.dll"; fi
+          SRC="target/${{ matrix.target }}/release/${LIB}"
+          if [ -f "$SRC" ]; then
+            cp "$SRC" "release-artifacts/dologger-official-plugins-${{ github.ref_name }}-${{ matrix.os_short }}-${ARCH}.${{ matrix.lib_ext }}"
+          else
+            echo "::warning::plugin bundle not found: $SRC"
+          fi
+
+      # Sign the official bundle with the project Ed25519 key so production
+      # mode (which rejects unsigned plugins) can load it as BLUE. The key
+      # seed is a hex string in the DOLOGGER_PLUGIN_SIGNING_KEY secret; its
+      # public half is the trust anchor shipped in docs. Without the secret
+      # the bundle ships unsigned (RED) — still valid for dev/allow-red use.
+      # Sign the official bundle with the project Ed25519 seed (secret
+      # DOLOGGER_PLUGIN_SIGNING_KEY). The public half of that key is the
+      # trust anchor committed at plugins/official/trust-anchors/active.pub.
+      # The seed is written to a 0600 file for dologctl (which reads a seed
+      # file), and a trap guarantees the file is wiped even if the step fails
+      # mid-sign — it never survives into a later step or an artifact.
+      - name: Sign official plugin artifacts
+        shell: bash
+        run: |
+          set -e
+          trap 'rm -f /tmp/dologger-plugin-signing-key.txt' EXIT
+          ARCH="$(echo "${{ matrix.asset_name }}" | sed -E 's/\.exe$//' | rev | cut -d- -f1 | rev)"
+          BUNDLE="release-artifacts/dologger-official-plugins-${{ github.ref_name }}-${{ matrix.os_short }}-${ARCH}.${{ matrix.lib_ext }}"
+          if [ ! -f "$BUNDLE" ]; then
+            echo "::warning::no bundle to sign: $BUNDLE"
+            exit 0
+          fi
+          if [ -z "$DOLOGGER_PLUGIN_SIGNING_KEY" ]; then
+            echo "::warning::DOLOGGER_PLUGIN_SIGNING_KEY not set — official bundle ships unsigned (trust RED)."
+            exit 0
+          fi
+          DOLOGCTL="target/${{ matrix.target }}/release/dologctl"
+          [ "${{ matrix.os_short }}" == "windows" ] && DOLOGCTL="${DOLOGCTL}.exe"
+          chmod 600 /tmp/dologger-plugin-signing-key.txt 2>/dev/null || true
+          printf '%s\n' "$DOLOGGER_PLUGIN_SIGNING_KEY" > /tmp/dologger-plugin-signing-key.txt
+          # dologctl plugin sign writes <bundle>.sig next to the library.
+          "$DOLOGCTL" plugin sign "$BUNDLE" /tmp/dologger-plugin-signing-key.txt
+          rm -f /tmp/dologger-plugin-signing-key.txt
+        env:
+          DOLOGGER_PLUGIN_SIGNING_KEY: ${{ secrets.DOLOGGER_PLUGIN_SIGNING_KEY }}
+
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-${{ matrix.asset_name }}
           path: release-artifacts/*
@@ -258,7 +350,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install system dependencies (Linux)
         run: |
@@ -266,10 +358,10 @@ jobs:
           sudo apt-get install -y cmake libssl-dev libsasl2-dev libcurl4-openssl-dev zlib1g-dev
 
       - name: Setup Rust toolchain (latest stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable (mutable — pinned 2026-08-14; re-resolve on toolchain bump)
 
       - name: Cache cargo registry and build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           shared-key: benchmarks-release
 
@@ -437,7 +529,7 @@ jobs:
           cat benchmark-results.json
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: benchmark-results
           path: |
@@ -455,12 +547,12 @@ jobs:
 
     steps:
       - name: Checkout repository (full history for release notes)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: release-artifacts
           pattern: release-*
@@ -469,7 +561,7 @@ jobs:
       # Benchmark results are notes content, not release assets — keep them
       # out of release-artifacts/ (that directory is attached to the release).
       - name: Download benchmark results
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: bench
           pattern: benchmark-results
@@ -487,6 +579,76 @@ jobs:
         run: |
           echo "Release artifacts:"
           ls -la release-artifacts/
+
+      # Out-of-box archives — one per product category (CLI and LIB), per
+      # platform, compressed to the extreme with 7-Zip + ZSTD at the method's
+      # maximum (level 22, solid, multithreaded). Each archive bundles the
+      # official plugin bundle + its .sig (so the plugins verify BLUE on
+      # unpack) + the example config, so a user extracts one file and has a
+      # ready-to-run setup. The official 7-Zip binary (7zz) is downloaded and
+      # SHA-256-verified because Ubuntu's p7zip predates ZSTD support.
+      - name: Build out-of-box archives (7z + ZSTD max)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SEVENZ_URL="https://www.7-zip.org/a/7z2501-linux-x64.tar.xz"
+          SEVENZ_SHA="4ca3b7c6f2f67866b92622818b58233dc70367be2f36b498eb0bdeaaa44b53f4"
+          SEVENZ_DIR="$RUNNER_TEMP/7z"
+          mkdir -p "$SEVENZ_DIR"
+          curl -fsSL -o "$SEVENZ_DIR/7z.tar.xz" "$SEVENZ_URL"
+          echo "$SEVENZ_SHA  $SEVENZ_DIR/7z.tar.xz" | sha256sum -c -
+          tar -xJf "$SEVENZ_DIR/7z.tar.xz" -C "$SEVENZ_DIR" 7zz
+          SEVEN_Z="$SEVENZ_DIR/7zz"
+          chmod +x "$SEVEN_Z"
+
+          TAG="${{ github.ref_name }}"
+          STAGE="$RUNNER_TEMP/box"
+          WS="${{ github.workspace }}"
+
+          # Enumerate platforms from the CLI assets (one per os-arch); the
+          # .7z archives we produce must be skipped by the same glob.
+          for cli in release-artifacts/dologctl-${TAG}-*; do
+            [ -f "$cli" ] || continue
+            case "$cli" in *.7z) continue ;; esac
+            base="$(basename "$cli")"
+            stem="${base%.exe}"
+            suffix="${stem#dologctl-${TAG}-}"   # e.g. linux-x86_64
+            os="${suffix%-*}"; arch="${suffix##*-}"
+
+            lib="$(ls release-artifacts/*dologger_core-${TAG}-${os}-${arch}.* 2>/dev/null | head -1 || true)"
+            bundle="$(ls release-artifacts/dologger-official-plugins-${TAG}-${os}-${arch}.* 2>/dev/null | head -1 || true)"
+            bundle_sig="${bundle}.sig"
+            [ -f "$bundle_sig" ] || bundle_sig=""
+
+            # CLI category archive: dologctl + official plugins (+sig) + config.
+            rm -rf "$STAGE"; mkdir -p "$STAGE"
+            cp "$cli" "$STAGE/"
+            if [ -n "$bundle" ]; then
+              cp "$bundle" "$STAGE/"
+              if [ -n "$bundle_sig" ]; then cp "$bundle_sig" "$STAGE/"; fi
+            fi
+            cp "$WS/dologger.example.toml" "$STAGE/dologger.example.toml"
+            ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=22 -ms=on -mmt=on -bso0 -bsp0 \
+                "$WS/release-artifacts/dologctl-${TAG}-${os}-${arch}.7z" * )
+
+            # LIB category archive: core library + official plugins (+sig) + config.
+            if [ -n "$lib" ]; then
+              rm -rf "$STAGE"; mkdir -p "$STAGE"
+              cp "$lib" "$STAGE/"
+              if [ -n "$bundle" ]; then
+                cp "$bundle" "$STAGE/"
+                if [ -n "$bundle_sig" ]; then cp "$bundle_sig" "$STAGE/"; fi
+              fi
+              cp "$WS/dologger.example.toml" "$STAGE/dologger.example.toml"
+              libbase="$(basename "$lib")"
+              ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=22 -ms=on -mmt=on -bso0 -bsp0 \
+                  "$WS/release-artifacts/${libbase%.*}.7z" * )
+            else
+              echo "::warning::no core library for ${os}-${arch} — LIB archive skipped"
+            fi
+          done
+          echo "--- out-of-box archives ---"
+          ls -lh release-artifacts/*.7z
 
       - name: Generate checksums
         shell: bash
@@ -524,7 +686,7 @@ jobs:
           head -30 release-notes.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           name: DoLogger ${{ github.ref_name }}
           body_path: release-notes.md
