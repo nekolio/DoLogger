@@ -21,6 +21,15 @@
 //!
 //! The `ConfigWatcher` trait-based design allows swapping the backend
 //! without changing the hot-reload integration.
+//!
+//! # Wiring status — v0.1.0
+//!
+//! **NOT wired into [`crate::Engine`] at v0.1.0** — this isolation is
+//! deliberate. The engine does not reload its configuration automatically,
+//! and nothing calls [`ConfigWatcher::start`] outside this module's tests.
+//! The watcher is complete and tested, ready to wire behind an explicit,
+//! default-off config gate in a later milestone; this note keeps the
+//! isolation explicit so it is not mistaken for a live hot-reload path.
 
 use std::fs;
 use std::path::{Path, PathBuf};

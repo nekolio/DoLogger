@@ -11,6 +11,15 @@
 //! | GET | /status | Engine status + metrics |
 //! | POST | /level | Set log level for a domain |
 //! | POST | /reload | Trigger config reload |
+//!
+//! # Wiring status — v0.1.0
+//!
+//! **NOT started by [`crate::Engine`] at v0.1.0** — this isolation is
+//! deliberate. The control plane is a listening HTTP surface (a security
+//! boundary), so it is disabled by default: nothing binds its port and it is
+//! not wired into `Engine::init`. A later milestone must gate it behind an
+//! explicit, default-off configuration option before it can run. `enable_tls`
+//! (mTLS) is likewise planned, not yet enabled.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
