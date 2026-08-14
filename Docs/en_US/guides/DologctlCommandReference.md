@@ -152,12 +152,15 @@ Installed plugins are verified (ABI version, trust colour, symbol resolution) be
 List installed plugins with trust colours and versions.
 
 ```text
-dologctl plugin list
+dologctl plugin list [--trust-store <dir>]
 ```
 
 ```bash
 dologctl plugin list
 dologctl plugin list --output json        # machine-readable inventory
+# A --trust-store applies the committed trust store and is authoritative over
+# the DO_LOG_PLUGIN_TRUST_ANCHOR env var:
+dologctl plugin list --trust-store plugins/official/trust-anchors
 ```
 
 ### dologctl plugin remove
@@ -177,12 +180,15 @@ dologctl plugin remove fmt_json
 Verify plugin integrity: ABI version match, signature/trust colour, and symbol resolution.
 
 ```text
-dologctl plugin verify [name]
+dologctl plugin verify [name] [--trust-store <dir>]
 ```
 
 ```bash
 dologctl plugin verify                     # verify all installed plugins
 dologctl plugin verify fmt_json            # verify one
+# A --trust-store applies the committed trust store (active.pub + revoked.txt)
+# and is authoritative over the DO_LOG_PLUGIN_TRUST_ANCHOR env var:
+dologctl plugin verify --trust-store plugins/official/trust-anchors
 ```
 
 Exit `0` = all verified; exit `2` = verification failed (tampered or incompatible plugin).
@@ -193,6 +199,74 @@ Scan installed plugins for suspicious symbols (e.g. raw socket, `system()`, unbo
 
 ```text
 dologctl plugin scan
+```
+
+### dologctl plugin keygen
+
+Generate a new Ed25519 signing key pair (a 64-hex seed file) and print the
+public key (the trust anchor). The seed is written with `0600` permissions on
+POSIX systems.
+
+```text
+dologctl plugin keygen <path>
+```
+
+```bash
+dologctl plugin keygen signing.key        # prints the public key (64 hex)
+```
+
+The printed public key is added to `plugins/official/trust-anchors/active.pub`;
+the seed becomes the `DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions secret (see
+OperationsAndSecurity.md → Key Management).
+
+### dologctl plugin sign
+
+Sign a plugin library, writing a detached Ed25519 `<library>.sig` sidecar.
+The seed is read from `--key <seed-file>`, `--wrapped-key <enc>` (prompts for
+the AES-256-GCM passphrase), or `DO_LOG_PLUGIN_SIGNING_KEY`.
+
+```text
+dologctl plugin sign <library> [--key <seed> | --wrapped-key <enc>] [--require-2fa]
+```
+
+```bash
+dologctl plugin sign libfoo.so signing.key
+dologctl plugin sign libfoo.so --wrapped-key signing.key.enc
+dologctl plugin sign libfoo.so --require-2fa      # force the TOTP gate
+```
+
+When `DO_LOG_PLUGIN_TOTP_SECRET` (base32) is set, every signature requires a
+TOTP code from your authenticator app; `--require-2fa` forces the gate even
+without the env var.
+
+### dologctl plugin wrap-key / unwrap-key
+
+Encrypt / decrypt a signing seed with AES-256-GCM under an SSH-style
+passphrase. The passphrase comes from `DO_LOG_PLUGIN_KEY_PASSPHRASE` or an
+interactive prompt; the wrapped file begins with the `DOLOGKEY1` magic.
+
+```text
+dologctl plugin wrap-key <seed> <out>
+dologctl plugin unwrap-key <enc> <out>
+```
+
+```bash
+dologctl plugin wrap-key signing.key signing.key.enc   # SSH-style passphrase
+dologctl plugin unwrap-key signing.key.enc signing.key
+```
+
+### dologctl plugin totp
+
+Show the current TOTP code for the plugin-signing 2FA secret, or print an
+`otpauth://` URI to provision an authenticator app.
+
+```text
+dologctl plugin totp [secret] [--uri]
+```
+
+```bash
+dologctl plugin totp --uri               # provisioning URI (from DO_LOG_PLUGIN_TOTP_SECRET)
+dologctl plugin totp                     # current 6-digit code
 ```
 
 ---

@@ -182,16 +182,76 @@ enum PluginAction {
     /// Install a plugin
     Install { source: String },
     /// List installed plugins
-    List,
+    List {
+        /// Directory of a committed trust store (active.pub + revoked.txt).
+        /// Authoritative — overrides DO_LOG_PLUGIN_TRUST_ANCHOR.
+        #[arg(long)]
+        trust_store: Option<String>,
+    },
     /// Remove a plugin
     Remove { name: String },
     /// Verify plugin integrity (ABI, trust, symbol resolution)
     Verify {
         /// Plugin name to verify (omit to verify all)
         name: Option<String>,
+        /// Directory of a committed trust store (active.pub + revoked.txt).
+        /// Authoritative — overrides DO_LOG_PLUGIN_TRUST_ANCHOR.
+        #[arg(long)]
+        trust_store: Option<String>,
     },
     /// Scan plugins for suspicious symbols
     Scan,
+    /// Generate an Ed25519 signing key pair for plugin signatures
+    Keygen {
+        /// Output path for the new 64-hex-char seed file (0600 perms)
+        path: String,
+    },
+    /// Sign a plugin library, writing an Ed25519 `<library>.sig` sidecar.
+    ///
+    /// Key sources, in order: `--key <seed-file>` (positional `<key>`
+    /// alias, unchanged), `--wrapped-key <enc>` (prompts for the AES-256-GCM
+    /// passphrase), or `DO_LOG_PLUGIN_SIGNING_KEY`. When
+    /// `DO_LOG_PLUGIN_TOTP_SECRET` is set, every signature is gated behind a
+    /// TOTP (2FA) code from your authenticator app.
+    Sign {
+        /// Plugin library to sign (.so/.dll/.dylib)
+        library: String,
+        /// Path to the seed file created by `plugin keygen` (optional —
+        /// otherwise wrapped-key/env sources are used)
+        key: Option<String>,
+        /// Path to an AES-256-GCM-wrapped seed (prompts for the passphrase)
+        #[arg(long)]
+        wrapped_key: Option<String>,
+        /// Force the TOTP (2FA) gate even without DO_LOG_PLUGIN_TOTP_SECRET
+        #[arg(long)]
+        require_2fa: bool,
+    },
+    /// Encrypt a signing seed with AES-256-GCM (SSH-style passphrase).
+    /// Passphrase from DO_LOG_PLUGIN_KEY_PASSPHRASE, or a prompt.
+    WrapKey {
+        /// Path to the seed file created by `plugin keygen`
+        key: String,
+        /// Output path for the wrapped (encrypted) file
+        out: String,
+    },
+    /// Decrypt a wrapped signing seed.
+    /// Passphrase from DO_LOG_PLUGIN_KEY_PASSPHRASE, or a prompt.
+    UnwrapKey {
+        /// Path to the wrapped (encrypted) file
+        enc: String,
+        /// Output path for the recovered seed file
+        out: String,
+    },
+    /// Show the current TOTP code for the plugin-signing 2FA secret
+    /// (DO_LOG_PLUGIN_TOTP_SECRET, base32) or an otpauth:// URI for
+    /// provisioning an authenticator app.
+    Totp {
+        /// Optional base32 secret (defaults to DO_LOG_PLUGIN_TOTP_SECRET)
+        secret: Option<String>,
+        /// Print an otpauth:// provisioning URI instead of the code
+        #[arg(long)]
+        uri: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -465,10 +525,31 @@ fn validate_config(config_path: Option<&str>) {
 fn cmd_plugin(action: PluginAction) {
     match action {
         PluginAction::Install { source } => commands::plugin::cmd_plugin_install(&source),
-        PluginAction::List => commands::plugin::cmd_plugin_list(),
+        PluginAction::List { trust_store } => {
+            commands::plugin::cmd_plugin_list(trust_store.as_deref())
+        }
         PluginAction::Remove { name } => commands::plugin::cmd_plugin_remove(&name),
-        PluginAction::Verify { name } => commands::plugin::cmd_plugin_verify(name.as_deref()),
+        PluginAction::Verify { name, trust_store } => {
+            commands::plugin::cmd_plugin_verify(name.as_deref(), trust_store.as_deref())
+        }
         PluginAction::Scan => commands::plugin::cmd_plugin_scan(),
+        PluginAction::Keygen { path } => commands::plugin::cmd_plugin_keygen(&path),
+        PluginAction::Sign {
+            library,
+            key,
+            wrapped_key,
+            require_2fa,
+        } => commands::plugin::cmd_plugin_sign(
+            &library,
+            key.as_deref(),
+            wrapped_key.as_deref(),
+            require_2fa,
+        ),
+        PluginAction::WrapKey { key, out } => commands::plugin::cmd_plugin_wrap_key(&key, &out),
+        PluginAction::UnwrapKey { enc, out } => commands::plugin::cmd_plugin_unwrap_key(&enc, &out),
+        PluginAction::Totp { secret, uri } => {
+            commands::plugin::cmd_plugin_totp(secret.as_deref(), uri)
+        }
     }
 }
 

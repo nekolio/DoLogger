@@ -262,7 +262,7 @@ Capabilities declared `true` are only granted if the trust color permits them. A
 
 ### Required Exports
 
-Every plugin **MUST** export the following symbols:
+Every single-plugin library **MUST** export the following symbols:
 
 ```c
 // (v0.1.0 actual signatures — see core/include/dologger_core.h)
@@ -276,6 +276,92 @@ int plugin_init(const void *config);
 // Shut down the plugin and release all resources (must export).
 int plugin_shutdown(void);
 ```
+
+### Bundle Libraries (official plugins)
+
+The official plugins ship as **ONE** dynamic library per platform —
+`dologger-official-plugins` (`libdologger_official_plugins.so` / `.dylib` /
+`dologger_official_plugins.dll`) — instead of one plugin per file. A bundle
+library exports the multi-plugin registry contract **instead of**
+`plugin_query`:
+
+```c
+// (v0.1.0 actual — see core/include/dologger_core.h)
+// Query every plugin hosted by a bundle library (must export for bundles).
+dologger_plugin_info_list_t *plugin_query_multi(uint32_t core_abi_version);
+
+// Initialize / shut down every member of the bundle (must export, fan-out).
+int plugin_init(const void *config);
+int plugin_shutdown(void);
+```
+
+`dologger_plugin_info_list_t` carries `{count, infos}` — an array of
+`dologger_plugin_info_t` entries, one per official plugin (fmt-json,
+fmt-text, filter-level, field-container). The host
+(`PluginManager::load_plugin`) resolves `plugin_query_multi` first; when it is
+present, **every** entry is registered from the single library handle. A
+library exports exactly ONE query symbol: `plugin_query` (single-plugin,
+third-party) **or** `plugin_query_multi` (bundle, official). Each bundle
+member crate is an rlib that contributes `static INFO: DologgerPluginInfo`
+plus `init()` / `shutdown()`; the bundle crate links them into one cdylib.
+See `plugins/official/bundle` and `plugins/README.md` for the asset naming.
+
+### Signature Verification & Trust Anchors
+
+At load time the host verifies an Ed25519 **signature sidecar** before a
+plugin is granted Blue trust. The sidecar is named after the library with a
+`.sig` suffix appended to the full file name:
+
+| Library | Sidecar |
+| :- | :- |
+| `libfoo.so` | `libfoo.so.sig` |
+| `dologger_official_plugins.dll` | `dologger_official_plugins.dll.sig` |
+
+The trust decision made by `PluginManager::register_plugin`:
+
+| Condition | Result |
+| :- | :- |
+| No trust anchor configured | `Red` (nothing to verify against) |
+| Sidecar verifies against any active, non-revoked anchor | `Blue` |
+| Sidecar verifies only against a *revoked* anchor | Rejected (`SignatureInvalid` — "signature is from a revoked key") |
+| Sidecar present but verifies against no anchor | Rejected (`SignatureInvalid`) |
+| Anchor set, no sidecar | `Red` |
+
+**Multi-anchor trust store** — the loader holds a *set* of active public keys
+(`trust_anchors`) plus a revocation list (`revoked`, keyed by the SHA-256 key
+fingerprint). A signature grants Blue if it verifies against **any** active,
+non-revoked anchor. The store is loaded from a committed directory —
+`plugins/official/trust-anchors/` — containing `active.pub` (one 64-hex public
+key per line) and `revoked.txt` (one `<64-hex fingerprint> [reason] [unix-ts]`
+per line, `reason ∈ {compromised, superseded, deactivated}`). The CRL **wins**:
+a key listed in `revoked.txt` can never grant Blue even if its public key is
+still in `active.pub`, and this holds even in dev mode.
+
+| Config key | Effect |
+| :- | :- |
+| `plugin_trust_store = "plugins/official/trust-anchors"` | Load both files (recommended — enables revocation) |
+| `plugin_trust_anchor = "<64-hex public key>"` | Single-anchor shorthand (no revocation) |
+| `plugin_allow_red_plugins = false` | Reject `Red` plugins outside dev mode |
+
+**Red gate** — outside dev mode, unsigned (`Red`) plugins are rejected unless
+the host explicitly calls `PluginManager::set_allow_red_plugins(true)`.
+
+Signing keys are Ed25519 seeds (64 hex chars). Generate, sign, and verify with
+`dologctl`:
+
+```console
+$ dologctl plugin keygen signing-key.txt          # prints the public key (trust anchor)
+$ dologctl plugin sign libfoo.so signing-key.txt  # writes libfoo.so.sig
+$ dologctl plugin verify --trust-store plugins/official/trust-anchors
+$ dologctl plugin list   --trust-store plugins/official/trust-anchors
+```
+
+The release workflow signs the official bundle when the
+`DOLOGGER_PLUGIN_SIGNING_KEY` secret is configured and ships the `.sig`
+alongside it. Rotating or revoking an anchor is a documented runbook (see
+`plugins/official/trust-anchors/README.md` and the Key Management section of
+OperationsAndSecurity.md); both scheduled rotation and emergency revocation
+boil down to editing `active.pub` / `revoked.txt` and replacing the secret.
 
 ### Optional Exports
 
@@ -651,30 +737,37 @@ my-plugin-1.0.0/
 ### Signing Blue Plugins
 
 ```bash
-# (planned — no `dologctl sign` command ships in v0.1.0)
-# Generate a detached Ed25519 signature
-dologctl sign plugin \
-    --plugin ./my-plugin-1.0.0/libmy_plugin.so \
-    --key    /secure/dologger-signing.key \
-    --output ./my-plugin-1.0.0/libmy_plugin.so.sig
+# Generate an Ed25519 signing key pair; prints the public key (trust anchor)
+dologctl plugin keygen /secure/dologger-signing.key
+
+# Sign a plugin library — writes a detached `<library>.sig` sidecar
+dologctl plugin sign ./my-plugin-1.0.0/libmy_plugin.so /secure/dologger-signing.key
 
 # The .sig file must accompany the .so file in the distribution
 ```
 
+The loader verifies the sidecar against the **trust store** (every active,
+non-revoked anchor) at load time; a plugin whose signature verifies against any
+of them is granted **Blue** trust, and an unsigned plugin is rejected outside
+dev mode (see [Signature Verification & Trust Anchors](#signature-verification--trust-anchors)).
+Protect the seed on your machine with `dologctl plugin wrap-key` and sign with
+`--wrapped-key`; verify against the committed store with
+`dologctl plugin verify --trust-store plugins/official/trust-anchors`.
+
 ### Plugin Distribution (v0.1.0)
 
-v0.1.0 ships local plugin management only — there is no remote registry,
-and no `dologctl sign` command yet. Blue-trust plugins are therefore not
-publishable yet; the signing and distribution pipeline has no target
-version.
+v0.1.0 ships local plugin management only — there is no remote registry.
+Signing, load-time verification, and the Red gate (unsigned plugins rejected
+in production) are implemented; Blue-trust plugins are signed locally and
+distributed with their `.sig` sidecar.
 
-The commands that exist today:
+The commands available today:
 
 ```bash
 # Install a plugin library into ./plugins/
 dologctl plugin install ./my-plugin-1.0.0/libmy_plugin.so
 
-# List installed plugins
+# List installed plugins (honours DO_LOG_PLUGIN_TRUST_ANCHOR)
 dologctl plugin list
 
 # Remove a plugin
@@ -685,6 +778,10 @@ dologctl plugin verify my-plugin
 
 # Scan for suspicious exported symbols (fork, exec, system, dlopen)
 dologctl plugin scan
+
+# Generate a signing key pair / sign a plugin library
+dologctl plugin keygen signing.key
+dologctl plugin sign ./libmy_plugin.so signing.key
 ```
 
 ### Distribution Checklist

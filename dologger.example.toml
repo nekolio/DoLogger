@@ -36,3 +36,13 @@ key_rotation_grace_period_days = 7
 
 # Enable producer-thread cooperative helping when ring buffer reaches 90% capacity
 ring_buffer_coop_helping = true
+
+# Directory of the committed plugin trust store (active.pub + revoked.txt).
+# When set, it is authoritative and plugin_trust_anchor is ignored.
+# plugin_trust_store = "plugins/official/trust-anchors"
+
+# Legacy single trust anchor — 64-hex Ed25519 public key (used when no store).
+# plugin_trust_anchor = "<64 hex chars>"
+
+# Allow unsigned (Red) plugins outside dev mode (not recommended).
+plugin_allow_red_plugins = false

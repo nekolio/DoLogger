@@ -300,31 +300,113 @@ sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
 
 ## Key Management
 
-### Key Types
+DoLogger has two independent signing domains, each with its own key:
 
-| Key Type | Description | Managed By |
-|:-:|:-:|:-:|
-| Signing key | Ed25519 private key for log record signing | Built-in `DefaultKeyProvider` (ephemeral, in-memory) |
-| Verification key | Ed25519 public key for signature verification | Distributed with logs |
-| Root key | DoLogger team key for Blue plugin signing | Compiled into engine |
+| Key Domain | Purpose | Key Material | Managed By |
+|:-:|:-:|:-:|:-:|
+| Log record signing | Per-record Ed25519 signatures on audit domains | Ephemeral pair generated in memory at startup | Built-in `DefaultKeyProvider` (planned — no `KeyProvider` plugin ships in v0.1.0) |
+| Plugin signing | Ed25519 signatures over official plugin bundles (Blue trust) | Private seed stored **only** as the `DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions secret; public anchors + CRL committed | `dologctl plugin` commands + committed `plugins/official/trust-anchors/` |
 
-### Default (Ephemeral) Keys
+### Plugin Signing Keys (v0.1.0 — live)
 
-In the default configuration without a `KeyProvider` plugin:
-- A random Ed25519 key pair is generated in memory at startup
-- Keys are **never written to disk**
-- Restarting the engine generates a new key, invalidating all previous signatures
-- Suitable for development only
+The official plugin bundle is signed with the project's Ed25519 seed. The private
+key never enters the repository:
 
-### Production Key Management
+- The **seed** is a raw 64-hex Ed25519 value stored exclusively in the
+  `DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions secret (encrypted at rest by
+  GitHub's infrastructure). No `.key`, `.seed`, or `.enc` file is committed — see
+  `.gitignore` and the `leak-hygiene` workflow.
+- The **public half** lives in `plugins/official/trust-anchors/active.pub` (one
+  64-hex public key per line) with a revocation list `revoked.txt` (CRL of key
+  fingerprints). These files are public and committed.
+- The loader (in `dologger-core`) verifies a plugin's `.sig` against **any**
+  active, non-revoked anchor → **Blue** trust. A signature matching only a
+  *revoked* anchor is **rejected** (`SignatureInvalid`), and this holds even in
+  dev mode — revocation is real.
 
-The engine signs records with the built-in `DefaultKeyProvider`: a random Ed25519 key pair
-generated in memory at startup. The private key never touches disk, and the public key is
-exposed via the API for offline verification. Persistent key storage — file-based or
-HSM-backed — is not implemented in v0.1.0: the `KeyProvider` plugin interface is defined,
-but no such plugin ships with this release.
+#### CLI commands
 
-### Key Rotation Lifecycle
+| Command | Purpose |
+|:-:|:-:|
+| `dologctl plugin keygen <path>` | Generate a new Ed25519 seed (0600 perms); prints the public key |
+| `dologctl plugin sign <lib> [--key <seed> \| --wrapped-key <enc>] [--require-2fa]` | Sign a library, writing `<lib>.sig`; seed from a file, a wrapped key (prompts for passphrase), or `DO_LOG_PLUGIN_SIGNING_KEY`; optional TOTP 2FA gate |
+| `dologctl plugin verify [--trust-store <dir>]` | Verify plugins; a `--trust-store` is authoritative over the env anchor |
+| `dologctl plugin list --trust-store <dir>` | List plugins with the trust store applied |
+| `dologctl plugin wrap-key <seed> <out>` / `unwrap-key <enc> <out>` | AES-256-GCM wrap/unwrap a seed under an SSH-style passphrase (local key hygiene) |
+| `dologctl plugin totp [secret] [--uri]` | Show the current TOTP code or an `otpauth://` provisioning URI for signing 2FA |
+
+#### Local key hygiene (`wrap-key`)
+
+`signing.key` on your machine is plaintext. `dologctl plugin wrap-key` encrypts it
+with AES-256-GCM under a passphrase (from `DO_LOG_PLUGIN_KEY_PASSPHRASE` or an
+interactive prompt). The wrapped file begins with the `DOLOGKEY1` magic and is
+recovered with `unwrap-key`. Never commit either form.
+
+#### Signing 2FA
+
+Set `DO_LOG_PLUGIN_TOTP_SECRET` (base32) so every `dologctl plugin sign` requires a
+TOTP code from your authenticator app. `dologctl plugin totp --uri` prints an
+`otpauth://` URI to provision the app; `dologctl plugin totp` shows the current
+code. `--require-2fa` forces the gate even when the env var is absent.
+
+#### Scheduled rotation runbook
+
+1. `dologctl plugin keygen new-signing.key` — generate a fresh key.
+2. Add the new public key to `plugins/official/trust-anchors/active.pub` and commit
+   (both keys now active — old signatures keep verifying).
+3. Replace the `DOLOGGER_PLUGIN_SIGNING_KEY` secret with the new seed
+   (Settings → Secrets and variables → Actions).
+4. After a grace window, append the **old** key's fingerprint to
+   `plugins/official/trust-anchors/revoked.txt` with reason `superseded` and commit —
+   old-key signatures now fail verification.
+
+#### Emergency revocation runbook (compromise)
+
+Loss stays bounded: a leaked key can only vouch for plugins released between the
+compromise and the revocation.
+
+1. Append the compromised fingerprint to `revoked.txt` with reason `compromised`
+   and commit. The loader rejects its signature **immediately** — even in dev mode,
+   even if the key is still listed in `active.pub` (the CRL wins).
+2. Rotate the secret: `keygen` → update `DOLOGGER_PLUGIN_SIGNING_KEY` → add the new
+   public key to `active.pub` → commit.
+3. Already-shipped artifacts signed by the revoked key fail verification for any
+   loader with the updated store.
+
+#### Workflow-compromise defense
+
+The release workflow signs bundles with the raw secret, so a compromised workflow
+is the one place a leak could happen. Mitigations:
+
+- **SHA-pinned actions** — every `uses:` is pinned to an immutable commit SHA; a
+  tagged action cannot be silently retargeted.
+- **Least privilege** — top-level `permissions: contents: read`; only the
+  `create-release` job grants `contents: write`.
+- **Sign-step isolation** — the seed is written to a 0600 file inside the signing
+  step only, under `trap 'rm -f ...' EXIT` so early-exit failures wipe it; the
+  secret is scoped to that step's `env:`.
+- **Trusted triggers** — the workflow runs on `tags: ['v*']` only; no
+  `pull_request_target`.
+- **Leak-hygiene job** — `.github/workflows/leak-hygiene.yml` scans every push/PR
+  for private-key blocks and 64-hex seeds in key-named files.
+
+Future hard guarantee (roadmap): **OIDC → cloud KMS**. GitHub's OIDC token would
+let the workflow obtain the signing key on demand from a cloud KMS (e.g. AWS KMS
+signing or Azure Key Vault) with short-lived, per-run grants, eliminating any
+long-lived secret from CI. This needs a cloud account and breaks offline signing,
+so it is intentionally not wired up in v0.1.0.
+
+### Log Record Signing Keys (planned)
+
+The engine signs audit records with the built-in `DefaultKeyProvider`: a random
+Ed25519 key pair generated in memory at startup. The private key never touches
+disk, and the public key is exposed via the API for offline verification.
+Persistent key storage — file-based or HSM-backed — is **not implemented in
+v0.1.0**: the `KeyProvider` plugin interface is defined, but no such plugin ships
+with this release. The record-signing rotation lifecycle and CRL below are the
+design that plugin will implement.
+
+#### Key rotation lifecycle
 
 (illustrative diagram):
 
@@ -335,10 +417,10 @@ flowchart TD
     P3 --> P4["Phase 4: Emergency Revocation (optional)<br/>Key fingerprint added to CRL immediately<br/>All records signed by revoked key fail verification"]
 ```
 
-### Certificate Revocation List (CRL)
+#### Certificate revocation list (CRL) — record signing
 
 ```rust
-// (matches core/src/security/key_rotation.rs — the v0.1.0 actual definition)
+// (matches core/src/security/key_rotation.rs — the record-signing CRL design)
 pub struct CrlEntry {
     pub fingerprint: KeyFingerprint,   // SHA-256 of the revoked key ([u8; 32])
     pub revoked_at: u64,               // Unix timestamp (seconds)
@@ -352,22 +434,10 @@ pub enum CrlReason {
 }
 ```
 
-### Key Rotation Commands
+The plugin-signing revocation list (`plugins/official/trust-anchors/revoked.txt`)
+shares the same `CrlReason` vocabulary (`compromised`, `superseded`, `deactivated`)
+but is enforced by the plugin loader, which is live in v0.1.0.
 
-```bash
-# (illustrative — the dologctl key subcommand is planned, not yet available)
-# Initiate key rotation (when KeyProvider supports it)
-dologctl key rotate --grace-period-days 7
-
-# Check rotation status
-dologctl key status
-
-# Emergency revocation
-dologctl key revoke --fingerprint "a3f8b2c1..." --reason compromised
-
-# List all active keys
-dologctl key list
-```
 
 ---
 
@@ -485,7 +555,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 4. **Contain (if tampering suspected):**
    - Isolate the host from the network
    - Preserve forensic image of the affected files
-   - Rotate signing keys immediately: `dologctl key rotate --emergency` *(planned — key subcommand not yet available)*
+   - If the plugin signing key may be compromised, rotate it now: see the [Emergency revocation runbook](#emergency-revocation-runbook-compromise) (append the fingerprint to `plugins/official/trust-anchors/revoked.txt`, replace the `DOLOGGER_PLUGIN_SIGNING_KEY` secret). The record-signing `dologctl key rotate` command remains planned.
 
 5. **Report:**
    - File a security incident report

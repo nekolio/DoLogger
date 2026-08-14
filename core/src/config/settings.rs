@@ -27,6 +27,15 @@ pub struct DologgerConfig {
     /// ≥90% capacity, producer threads help drain a small batch inline.
     /// Enabled by default for prod-performance; disabled otherwise.
     pub ring_buffer_coop_helping: bool,
+    /// Directory containing the committed plugin trust store (`active.pub`
+    /// + `revoked.txt`). When set it is authoritative and
+    /// `plugin_trust_anchor` is ignored.
+    pub plugin_trust_store: Option<String>,
+    /// Legacy single trust anchor — 64-hex Ed25519 public key. Used only
+    /// when no trust store is configured.
+    pub plugin_trust_anchor: Option<String>,
+    /// Allow unsigned (Red) plugins to load outside dev mode.
+    pub plugin_allow_red_plugins: bool,
 }
 
 impl DologgerConfig {
@@ -217,6 +226,9 @@ impl Default for DologgerConfig {
             shutdown_timeout_ms: 5000,
             key_rotation_grace_period_days: 7,
             ring_buffer_coop_helping: true, // On for prod-performance by default
+            plugin_trust_store: None,
+            plugin_trust_anchor: None,
+            plugin_allow_red_plugins: false,
         }
     }
 }
@@ -240,6 +252,9 @@ impl DologgerConfig {
             shutdown_timeout_ms: 5000,
             key_rotation_grace_period_days: 7,
             ring_buffer_coop_helping: false,
+            plugin_trust_store: None,
+            plugin_trust_anchor: None,
+            plugin_allow_red_plugins: false,
         }
     }
 
@@ -803,6 +818,18 @@ impl DologgerConfig {
             {
                 config.ring_buffer_coop_helping = coop;
             }
+            if let Some(store) = dologger.get("plugin_trust_store").and_then(|v| v.as_str()) {
+                config.plugin_trust_store = Some(store.to_string());
+            }
+            if let Some(anchor) = dologger.get("plugin_trust_anchor").and_then(|v| v.as_str()) {
+                config.plugin_trust_anchor = Some(anchor.to_string());
+            }
+            if let Some(allow) = dologger
+                .get("plugin_allow_red_plugins")
+                .and_then(|v| v.as_bool())
+            {
+                config.plugin_allow_red_plugins = allow;
+            }
         }
 
         // Apply profile overrides
@@ -887,6 +914,9 @@ mod tests {
             shutdown_timeout_ms: 10000,
             key_rotation_grace_period_days: 7,
             ring_buffer_coop_helping: false,
+            plugin_trust_store: None,
+            plugin_trust_anchor: None,
+            plugin_allow_red_plugins: false,
         }
     }
 
@@ -1028,6 +1058,42 @@ mod tests {
         assert_eq!(ComplianceProfile::Gdpr, ComplianceProfile::Gdpr);
         assert_ne!(ComplianceProfile::Gdpr, ComplianceProfile::Hipaa);
         assert_ne!(ComplianceProfile::Hipaa, ComplianceProfile::PciDss);
+    }
+
+    #[test]
+    fn test_plugin_trust_config_fields_parse() {
+        let toml = r#"
+[dologger]
+level = "INFO"
+plugin_trust_store = "/opt/dologger/trust-anchors"
+plugin_trust_anchor = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+plugin_allow_red_plugins = true
+"#;
+        let (config, _warnings) = DologgerConfig::parse(toml, None).unwrap();
+        assert_eq!(
+            config.plugin_trust_store.as_deref(),
+            Some("/opt/dologger/trust-anchors")
+        );
+        assert_eq!(
+            config.plugin_trust_anchor.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+        assert!(config.plugin_allow_red_plugins);
+
+        // Defaults: all unset / false.
+        let def = DologgerConfig::default();
+        assert!(def.plugin_trust_store.is_none());
+        assert!(def.plugin_trust_anchor.is_none());
+        assert!(!def.plugin_allow_red_plugins);
+
+        // A config file that omits the new keys must still parse.
+        let bare = r#"
+[dologger]
+level = "INFO"
+"#;
+        let (cfg2, _) = DologgerConfig::parse(bare, None).unwrap();
+        assert!(cfg2.plugin_trust_store.is_none());
+        assert!(!cfg2.plugin_allow_red_plugins);
     }
 
     #[test]

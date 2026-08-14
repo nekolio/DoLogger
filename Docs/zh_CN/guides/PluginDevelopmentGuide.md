@@ -255,7 +255,7 @@ max_engine_version = "0.1.0"
 
 ### 必要导出符号
 
-每个插件**必须**导出以下符号：
+每个单插件库**必须**导出以下符号：
 
 ```c
 // （v0.1.0 实际签名 — 见 core/include/dologger_core.h）
@@ -268,6 +268,82 @@ int plugin_init(const void *config);
 // 关闭插件并释放所有资源（必须导出）。
 int plugin_shutdown(void);
 ```
+
+### 捆绑库（官方插件）
+
+官方插件以**单个**动态库的形式随平台发布 — `dologger-official-plugins`
+（`libdologger_official_plugins.so` / `.dylib` / `dologger_official_plugins.dll`），
+而非一个插件一个文件。捆绑库导出多插件注册表契约，**取代** `plugin_query`：
+
+```c
+// （v0.1.0 实际 — 见 core/include/dologger_core.h）
+// 查询捆绑库承载的每个插件（捆绑库必须导出）。
+dologger_plugin_info_list_t *plugin_query_multi(uint32_t core_abi_version);
+
+// 初始化/关闭捆绑库的每个成员（必须导出，扇出到所有成员）。
+int plugin_init(const void *config);
+int plugin_shutdown(void);
+```
+
+`dologger_plugin_info_list_t` 携带 `{count, infos}` — 一个
+`dologger_plugin_info_t` 条目数组，每个官方插件对应一条（fmt-json、
+fmt-text、filter-level、field-container）。宿主
+（`PluginManager::load_plugin`）优先解析 `plugin_query_multi`；若存在，
+则从同一个库句柄注册**每一个**条目。一个库**恰好**导出一种查询符号：
+`plugin_query`（单插件、第三方）或 `plugin_query_multi`（捆绑库、官方）。
+每个捆绑库成员 crate 是 rlib，贡献 `static INFO: DologgerPluginInfo`
+以及 `init()` / `shutdown()`；捆绑库 crate 把它们静态链接成一个 cdylib。
+参见 `plugins/official/bundle` 与 `plugins/README.md` 中的资产命名规则。
+
+### 签名校验与信任锚
+
+宿主在授予 Blue 信任之前，会先校验一个 Ed25519 **签名旁路文件**。旁路文件
+以完整文件名追加 `.sig` 命名：
+
+| 库文件 | 旁路文件 |
+| :- | :- |
+| `libfoo.so` | `libfoo.so.sig` |
+| `dologger_official_plugins.dll` | `dologger_official_plugins.dll.sig` |
+
+`PluginManager::register_plugin` 的信任判定：
+
+| 条件 | 结果 |
+| :- | :- |
+| 未配置信任锚 | `Red`（无可校验对象） |
+| 旁路文件通过任意活跃且未吊销的锚点校验 | `Blue` |
+| 旁路文件仅通过*已吊销*锚点校验 | 拒绝加载（`SignatureInvalid` — "signature is from a revoked key"） |
+| 旁路文件存在但未通过任何锚点校验 | 拒绝加载（`SignatureInvalid`） |
+| 已配置信任锚但无旁路文件 | `Red` |
+
+**多锚点信任库** — 加载器持有活跃公钥的*集合*（`trust_anchors`）外加吊销列表
+（`revoked`，按 SHA-256 密钥指纹索引）。只要签名通过**任意**活跃且未吊销的锚点
+校验即授予 Blue。信任库从已提交的目录加载 — `plugins/official/trust-anchors/` —
+包含 `active.pub`（每行一个 64 位十六进制公钥）和 `revoked.txt`（每行一个
+`<64-hex 指纹> [原因] [unix-ts]`，`reason ∈ {compromised, superseded, deactivated}`）。
+CRL **优先**：列入 `revoked.txt` 的密钥即使公钥仍在 `active.pub` 中也永远无法授予
+Blue，即使在开发模式下也是如此。
+
+| 配置键 | 作用 |
+| :- | :- |
+| `plugin_trust_store = "plugins/official/trust-anchors"` | 加载两个文件（推荐 — 启用吊销） |
+| `plugin_trust_anchor = "<64-hex 公钥>"` | 单锚点简写（无吊销） |
+| `plugin_allow_red_plugins = false` | 非开发模式拒绝 `Red` 插件 |
+
+**Red 门槛** — 在非开发模式下，未签名（`Red`）插件会被拒绝，除非宿主显式
+调用 `PluginManager::set_allow_red_plugins(true)`。
+
+签名密钥为 Ed25519 种子（64 个十六进制字符）。使用 `dologctl` 生成、签名并
+校验：
+
+```console
+$ dologctl plugin keygen signing-key.txt          # 打印公钥（信任锚）
+$ dologctl plugin sign libfoo.so signing-key.txt  # 写入 libfoo.so.sig
+$ dologctl plugin verify --trust-store plugins/official/trust-anchors
+$ dologctl plugin list   --trust-store plugins/official/trust-anchors
+```
+
+发布工作流在配置了 `DOLOGGER_PLUGIN_SIGNING_KEY` secret 时对官方捆绑库
+签名，并随资产一同发布 `.sig`。
 
 ### 可选导出符号
 
@@ -642,20 +718,26 @@ my-plugin-1.0.0/
 ### 签名 Blue 插件
 
 ```bash
-# （规划中 — v0.1.0 未随附 `dologctl sign` 命令）
-# 生成 Ed25519 分离签名
-dologctl sign plugin \
-    --plugin ./my-plugin-1.0.0/libmy_plugin.so \
-    --key    /secure/dologger-signing.key \
-    --output ./my-plugin-1.0.0/libmy_plugin.so.sig
+# 生成 Ed25519 签名密钥对；打印公钥（信任锚）
+dologctl plugin keygen /secure/dologger-signing.key
+
+# 对插件库签名 — 写入分离的 `<library>.sig` 旁路文件
+dologctl plugin sign ./my-plugin-1.0.0/libmy_plugin.so /secure/dologger-signing.key
 
 # .sig 文件必须随 .so 文件一同分发
 ```
 
+加载器会在加载时用**信任库**（所有活跃且未吊销的锚点）校验旁路文件：只要通过
+其中任意一个校验即授予 **Blue** 信任，未签名插件在非开发模式下会被拒绝（见
+[签名校验与信任锚](#签名校验与信任锚)）。用 `dologctl plugin wrap-key` 保护你机器上的
+种子，并用 `--wrapped-key` 签名；用 `dologctl plugin verify --trust-store
+plugins/official/trust-anchors` 对照已提交的信任库校验。
+
 ### 插件分发（v0.1.0）
 
-v0.1.0 仅提供本地插件管理——没有远程注册表，也还没有 `dologctl sign`
-命令。Blue 信任级插件因此暂时无法发布；签名与分发管道没有目标版本。
+v0.1.0 仅提供本地插件管理——没有远程注册表。签名、加载时校验以及 Red 门槛
+（非开发模式拒绝未签名插件）均已实现；Blue 信任级插件在本地签名后随 `.sig`
+旁路文件一同分发。
 
 当前可用的命令：
 
@@ -663,7 +745,7 @@ v0.1.0 仅提供本地插件管理——没有远程注册表，也还没有 `do
 # 将插件库安装到 ./plugins/
 dologctl plugin install ./my-plugin-1.0.0/libmy_plugin.so
 
-# 列出已安装插件
+# 列出已安装插件（遵循 DO_LOG_PLUGIN_TRUST_ANCHOR）
 dologctl plugin list
 
 # 删除插件
@@ -674,6 +756,10 @@ dologctl plugin verify my-plugin
 
 # 扫描可疑的导出符号（fork、exec、system、dlopen）
 dologctl plugin scan
+
+# 生成签名密钥对 / 对插件库签名
+dologctl plugin keygen signing.key
+dologctl plugin sign ./libmy_plugin.so signing.key
 ```
 
 ### 分发检查清单

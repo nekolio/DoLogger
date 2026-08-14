@@ -1,0 +1,13 @@
+# Revoked key fingerprints — PUBLIC material, safe to commit.
+# Format: <64-hex SHA-256 fingerprint> [reason] [unix-ts]
+#   reason ∈ {compromised, superseded, deactivated}
+#   unix-ts  — informational revocation timestamp (not validated by the loader)
+# Lines starting with '#' are comments.
+#
+# A key on this list can never grant BLUE trust, even if its public key is
+# still listed in active.pub (the CRL wins). The loader rejects its signature
+# with a "revoked" error, and this is enforced even in dev mode.
+#
+# Emergency revocation: append the compromised fingerprint here (reason
+# "compromised"), rotate the DOLOGGER_PLUGIN_SIGNING_KEY secret, update
+# active.pub, and commit.

@@ -152,12 +152,14 @@ dologctl plugin install ./target/release/fmt_json.dll
 列出已安装插件,含信任颜色与版本。
 
 ```text
-dologctl plugin list
+dologctl plugin list [--trust-store <dir>]
 ```
 
 ```bash
 dologctl plugin list
 dologctl plugin list --output json        # 机器可读清单
+# 指定 --trust-store 应用已提交的信任库,优先于 DO_LOG_PLUGIN_TRUST_ANCHOR 环境变量:
+dologctl plugin list --trust-store plugins/official/trust-anchors
 ```
 
 ### dologctl plugin remove
@@ -177,12 +179,15 @@ dologctl plugin remove fmt_json
 验证插件完整性:ABI 版本匹配、签名/信任颜色、符号解析。
 
 ```text
-dologctl plugin verify [name]
+dologctl plugin verify [name] [--trust-store <dir>]
 ```
 
 ```bash
 dologctl plugin verify                     # 验证全部已安装插件
 dologctl plugin verify fmt_json            # 验证单个插件
+# 指定 --trust-store 应用已提交的信任库(active.pub + revoked.txt),
+# 优先于 DO_LOG_PLUGIN_TRUST_ANCHOR 环境变量:
+dologctl plugin verify --trust-store plugins/official/trust-anchors
 ```
 
 退出码 `0` = 全部通过;退出码 `2` = 验证失败(插件被篡改或版本不兼容)。
@@ -193,6 +198,70 @@ dologctl plugin verify fmt_json            # 验证单个插件
 
 ```text
 dologctl plugin scan
+```
+
+### dologctl plugin keygen
+
+生成新的 Ed25519 签名密钥对(64 位十六进制种子文件),并打印公钥(信任锚)。
+在 POSIX 系统上,种子以 `0600` 权限写入。
+
+```text
+dologctl plugin keygen <path>
+```
+
+```bash
+dologctl plugin keygen signing.key        # 打印公钥(64 位十六进制)
+```
+
+打印的公钥添加到 `plugins/official/trust-anchors/active.pub`;种子成为
+`DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions 密钥(参见 OperationsAndSecurity.md → 密钥管理)。
+
+### dologctl plugin sign
+
+对插件库签名,写入分离的 Ed25519 `<library>.sig` 旁路文件。种子来源依次为
+`--key <seed-file>`、`--wrapped-key <enc>`(提示输入 AES-256-GCM 口令)或
+`DO_LOG_PLUGIN_SIGNING_KEY`。
+
+```text
+dologctl plugin sign <library> [--key <seed> | --wrapped-key <enc>] [--require-2fa]
+```
+
+```bash
+dologctl plugin sign libfoo.so signing.key
+dologctl plugin sign libfoo.so --wrapped-key signing.key.enc
+dologctl plugin sign libfoo.so --require-2fa      # 强制 TOTP 门禁
+```
+
+当设置了 `DO_LOG_PLUGIN_TOTP_SECRET`(base32)时,每次签名都要求验证器 App 的
+TOTP 验证码;`--require-2fa` 在没有该环境变量时也强制门禁。
+
+### dologctl plugin wrap-key / unwrap-key
+
+用 AES-256-GCM 在 SSH 风格口令下加密/解密签名种子。口令来自
+`DO_LOG_PLUGIN_KEY_PASSPHRASE` 或交互提示;包裹文件以 `DOLOGKEY1` 魔数开头。
+
+```text
+dologctl plugin wrap-key <seed> <out>
+dologctl plugin unwrap-key <enc> <out>
+```
+
+```bash
+dologctl plugin wrap-key signing.key signing.key.enc   # SSH 风格口令
+dologctl plugin unwrap-key signing.key.enc signing.key
+```
+
+### dologctl plugin totp
+
+显示插件签名 2FA 密钥的当前 TOTP 验证码,或打印 `otpauth://` URI 用于配置
+验证器 App。
+
+```text
+dologctl plugin totp [secret] [--uri]
+```
+
+```bash
+dologctl plugin totp --uri               # 配置 URI(来自 DO_LOG_PLUGIN_TOTP_SECRET)
+dologctl plugin totp                     # 当前 6 位验证码
 ```
 
 ---

@@ -77,8 +77,10 @@ CRC32C 通过 SSE 4.2(`_mm_crc32_u64`)硬件加速,并提供 Slicing-by-8
 ### 预编译二进制
 
 每个 [GitHub Release](https://github.com/Nekolio/DoLogger/releases) 都
-附带 `dologctl-<版本>-<os>-<arch>` 二进制(Windows 上为 `.exe`)及对应
-架构的核心库(v0.1.0 的资产早于带版本命名,沿用 `dologctl-<os>-<arch>` 格式)。
+附带 `dologctl-<版本>-<os>-<arch>` 二进制(Windows 上为 `.exe`)、对应架构的
+核心库以及官方插件。官方插件以单个捆绑库的形式随平台发布
+——`dologger-official-plugins-<版本>-<os>-<arch>.{so|dll|dylib}`——
+包含全部官方插件(fmt-json、fmt-text、filter-level、field-container)。
 请用随附的 `checksums-sha256.txt` 校验每个下载文件:
 
 ```bash
@@ -189,6 +191,10 @@ dologctl plugin list             列出已安装插件（含信任颜色）
 dologctl plugin install <path>   安装插件
 dologctl plugin verify [name]    验证插件签名与 ABI
 dologctl plugin scan             安全扫描可疑符号
+dologctl plugin keygen <path>    生成 Ed25519 签名密钥对
+dologctl plugin sign <lib> <key> 对插件签名（写入 <lib>.sig 旁路文件）
+dologctl plugin wrap-key/unwrap  AES-256-GCM 加密/解密签名种子
+dologctl plugin verify --trust-store  按已提交锚点+CRL 校验插件
 dologctl config validate         验证配置文件（--strict 严格模式）
 dologctl verify-log <file>       离线审计日志验证
 dologctl verify-anchor           外部锚定验证

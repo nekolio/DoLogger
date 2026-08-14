@@ -309,29 +309,92 @@ sudo iptables -A INPUT -p tcp --dport 9090 -j DROP
 
 ## 密钥管理
 
-### 密钥类型
+DoLogger 有两个相互独立的签名域，各自使用独立的密钥：
 
-| 密钥类型 | 描述 | 管理方 |
-|:-:|:-:|:-:|
-| 签名密钥 | 用于日志记录签名的 Ed25519 私钥 | 内置 `DefaultKeyProvider`（临时、内存中） |
-| 验证密钥 | 用于签名验证的 Ed25519 公钥 | 随日志分发 |
-| 根密钥 | 用于 Blue 插件签名的 DoLogger 团队密钥 | 编译进引擎 |
+| 密钥域 | 用途 | 密钥材料 | 管理方 |
+|:-:|:-:|:-:|:-:|
+| 日志记录签名 | 审计域上对每条记录做 Ed25519 签名 | 启动时在内存中生成的临时密钥对 | 内置 `DefaultKeyProvider`（规划中 — v0.1.0 未随附任何 `KeyProvider` 插件） |
+| 插件签名 | 对官方插件包的 Ed25519 签名（Blue 信任） | 私钥种子**仅**存放于 `DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions 密钥；公钥锚点与 CRL 已提交 | `dologctl plugin` 命令 + 已提交的 `plugins/official/trust-anchors/` |
 
-### 默认（临时）密钥
+### 插件签名密钥（v0.1.0 — 已启用）
 
-在没有 `KeyProvider` 插件的默认配置中：
-- 启动时在内存中生成随机 Ed25519 密钥对
-- 密钥**永不写入磁盘**
-- 重启引擎生成新密钥，使用之前所有签名失效
-- 仅适用于开发环境
+官方插件包使用项目 Ed25519 种子签名。私钥永不进入仓库：
 
-### 生产密钥管理
+- **种子**是原始 64 位十六进制 Ed25519 值，**仅**存放于 `DOLOGGER_PLUGIN_SIGNING_KEY`
+  GitHub Actions 密钥（由 GitHub 基础设施在静态时加密）。任何 `.key`、`.seed` 或
+  `.enc` 文件都不提交 — 参见 `.gitignore` 与 `leak-hygiene` 工作流。
+- **公钥部分**位于 `plugins/official/trust-anchors/active.pub`（每行一个 64 位十六进制
+  公钥），以及吊销列表 `revoked.txt`（密钥指纹 CRL）。这些文件是公开的、已提交的。
+- 加载器（`dologger-core` 内）将插件的 `.sig` 与**任意**活跃且未吊销的锚点校验 →
+  **Blue** 信任。仅匹配 *已吊销* 锚点的签名会被**拒绝**（`SignatureInvalid`），即使在
+  开发模式下也生效 — 吊销是真实的。
 
-引擎使用内置的 `DefaultKeyProvider` 对记录签名：启动时在内存中生成随机 Ed25519 密钥对。
+#### CLI 命令
+
+| 命令 | 用途 |
+|:-:|:-:|
+| `dologctl plugin keygen <path>` | 生成新的 Ed25519 种子（0600 权限）；打印公钥 |
+| `dologctl plugin sign <lib> [--key <seed> \| --wrapped-key <enc>] [--require-2fa]` | 签名库文件，写入 `<lib>.sig`；种子来源为文件、包裹密钥（提示输入口令）或 `DO_LOG_PLUGIN_SIGNING_KEY`；可选 TOTP 2FA 门禁 |
+| `dologctl plugin verify [--trust-store <dir>]` | 校验插件；`--trust-store` 优先于环境锚点 |
+| `dologctl plugin list --trust-store <dir>` | 应用信任库后列出插件 |
+| `dologctl plugin wrap-key <seed> <out>` / `unwrap-key <enc> <out>` | 用 SSH 风格口令以 AES-256-GCM 包裹/解包种子（本地密钥卫生） |
+| `dologctl plugin totp [secret] [--uri]` | 显示当前 TOTP 验证码或 `otpauth://` 配置 URI，用于签名 2FA |
+
+#### 本地密钥卫生（`wrap-key`）
+
+你机器上的 `signing.key` 是明文。`dologctl plugin wrap-key` 用 AES-256-GCM 在口令
+（来自 `DO_LOG_PLUGIN_KEY_PASSPHRASE` 或交互提示）下加密它。包裹文件以 `DOLOGKEY1`
+魔数开头，可用 `unwrap-key` 恢复。两种形式都绝不要提交。
+
+#### 签名 2FA
+
+设置 `DO_LOG_PLUGIN_TOTP_SECRET`（base32），使每次 `dologctl plugin sign` 都要求验证
+器 App 的 TOTP 验证码。`dologctl plugin totp --uri` 打印 `otpauth://` URI 用于配置 App；
+`dologctl plugin totp` 显示当前验证码。`--require-2fa` 在环境变量缺失时也强制门禁。
+
+#### 计划轮换操作手册
+
+1. `dologctl plugin keygen new-signing.key` — 生成新密钥。
+2. 将新公钥添加到 `plugins/official/trust-anchors/active.pub` 并提交（两个密钥同时活跃 —
+   旧签名继续可验证）。
+3. 用新种子替换 `DOLOGGER_PLUGIN_SIGNING_KEY` 密钥（Settings → Secrets and variables → Actions）。
+4. 宽限期后，将**旧**密钥的指纹追加到 `plugins/official/trust-anchors/revoked.txt`，原因
+   `superseded`，并提交 — 旧密钥签名现在验证失败。
+
+#### 紧急吊销操作手册（泄露）
+
+损失是有界的：泄露的密钥只能为泄露发生到吊销之间发布的插件背书。
+
+1. 将受损指纹追加到 `revoked.txt`，原因 `compromised`，并提交。加载器**立即**拒绝其签名 —
+   即使在开发模式下、即使密钥仍列在 `active.pub` 中（CRL 优先）。
+2. 轮换密钥：`keygen` → 更新 `DOLOGGER_PLUGIN_SIGNING_KEY` → 将新公钥添加到 `active.pub`
+   → 提交。
+3. 任何已发布、由被吊销密钥签名的制品，在任何加载了更新后信任库的装载器上都会验证失败。
+
+#### 工作流被攻破的防御
+
+发布工作流使用原始密钥签名，因此工作流被攻破是泄露唯一可能发生的地方。缓解措施：
+
+- **SHA 固定 actions** — 每个 `uses:` 都固定到不可变的提交 SHA；带标签的 action 无法被静默重定向。
+- **最小权限** — 顶层 `permissions: contents: read`；只有 `create-release` 作业授予 `contents: write`。
+- **签名步骤隔离** — 种子仅在签名步骤内写入 0600 文件，并置于 `trap 'rm -f ...' EXIT` 之下，
+  提前退出失败时也会清除；密钥仅作用于该步骤的 `env:`。
+- **可信触发** — 工作流仅在 `tags: ['v*']` 上运行；不使用 `pull_request_target`。
+- **泄密卫生作业** — `.github/workflows/leak-hygiene.yml` 扫描每次 push/PR 中的私钥块，
+  以及密钥命名文件中的 64 位十六进制种子。
+
+未来的硬性保证（路线图）：**OIDC → 云 KMS**。GitHub 的 OIDC 令牌可让工作流按需从云 KMS
+（如 AWS KMS 签名或 Azure Key Vault）获取签名密钥，授予短时、按运行发放的权限，从而从 CI 中
+消除任何长期密钥。这需要云账号并会破坏离线签名，因此 v0.1.0 有意不接入。
+
+### 日志记录签名密钥（规划中）
+
+引擎使用内置的 `DefaultKeyProvider` 对审计记录签名：启动时在内存中生成随机 Ed25519 密钥对。
 私钥永不落盘，公钥通过 API 提供以便离线验证。持久化密钥存储（文件或 HSM 后端）在
-v0.1.0 中尚未实现：`KeyProvider` 插件接口已定义，但本次发布未随附任何实现。
+v0.1.0 中**尚未实现**：`KeyProvider` 插件接口已定义，但本次发布未随附任何实现。下面
+记录签名的轮换生命周期与 CRL 是插件将实现的设计。
 
-### 密钥轮换生命周期
+#### 密钥轮换生命周期
 
 ```mermaid
 flowchart TD
@@ -340,10 +403,10 @@ flowchart TD
     P3 --> P4["阶段 4：紧急吊销（可选）<br/>密钥指纹立即添加到 CRL<br/>所有由被吊销密钥签名的记录验证失败"]
 ```
 
-### 证书吊销列表（CRL）
+#### 证书吊销列表（CRL）— 记录签名
 
 ```rust
-// 与 core/src/security/key_rotation.rs 一致（v0.1.0 实际定义）
+// 与 core/src/security/key_rotation.rs 一致（记录签名的 CRL 设计）
 pub struct CrlEntry {
     pub fingerprint: KeyFingerprint,   // 被吊销密钥的 SHA-256（[u8; 32]）
     pub revoked_at: u64,               // 吊销时间（Unix 秒）
@@ -357,15 +420,10 @@ pub enum CrlReason {
 }
 ```
 
-### 密钥轮换命令
+插件签名的吊销列表（`plugins/official/trust-anchors/revoked.txt`）使用相同的
+`CrlReason` 词汇（`compromised`、`superseded`、`deactivated`），但由插件加载器强制
+执行，而加载器在 v0.1.0 中已启用。
 
-```bash
-# 伪代码 — v0.1.0 的 dologctl 尚无 key 子命令（规划中）
-# dologctl key rotate --grace-period-days 7
-# dologctl key status
-# dologctl key revoke --fingerprint "a3f8b2c1..." --reason compromised
-# dologctl key list
-```
 
 ---
 
@@ -478,7 +536,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 4. **遏制（如果怀疑篡改）：**
    - 将主机从网络隔离
    - 保留受影响文件的取证镜像
-   - 立即轮换签名密钥：`dologctl key rotate --emergency`（伪代码 — key 子命令规划中，尚未提供）
+   - 如果插件签名密钥可能已泄露，立即轮换：参见[紧急吊销操作手册](#紧急吊销操作手册泄露)（将指纹追加到 `plugins/official/trust-anchors/revoked.txt`，替换 `DOLOGGER_PLUGIN_SIGNING_KEY` 密钥）。记录签名的 `dologctl key rotate` 命令仍处于规划中。
 
 5. **报告：**
    - 提交安全事件报告

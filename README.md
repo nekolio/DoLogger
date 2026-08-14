@@ -79,8 +79,10 @@ Slicing-by-8 software fallback.
 
 Every [GitHub Release](https://github.com/Nekolio/DoLogger/releases) attaches
 `dologctl-<version>-<os>-<arch>` binaries (`.exe` on Windows) plus per-arch
-core libraries (v0.1.0's assets predate versioned names and follow
-`dologctl-<os>-<arch>`). Verify each download against the attached
+core libraries and official plugins. Official plugins ship as ONE bundle per
+platform — `dologger-official-plugins-<version>-<os>-<arch>.{so|dll|dylib}` —
+hosting every official plugin (fmt-json, fmt-text, filter-level,
+field-container). Verify each download against the attached
 `checksums-sha256.txt`:
 
 ```bash
@@ -194,6 +196,10 @@ dologctl plugin list             List installed plugins with trust colors
 dologctl plugin install <path>   Install a plugin
 dologctl plugin verify [name]    Verify plugin signature and ABI
 dologctl plugin scan             Security scan for suspicious symbols
+dologctl plugin keygen <path>    Generate an Ed25519 signing key pair
+dologctl plugin sign <lib> <key> Sign a plugin (writes <lib>.sig sidecar)
+dologctl plugin wrap-key/unwrap  AES-256-GCM encrypt/decrypt a signing seed
+dologctl plugin verify --trust-store  Verify plugins against committed anchors+CRL
 dologctl config validate         Validate config with --strict compliance
 dologctl verify-log <file>       Offline audit log verification
 dologctl verify-anchor           External anchoring verification

@@ -268,13 +268,36 @@ impl Engine {
         )?;
 
         // Initialise plugin manager
-        let plugin_manager = PluginManager::new(
+        let mut plugin_manager = PluginManager::new(
             vec![
                 std::path::PathBuf::from("./plugins"),
                 std::path::PathBuf::from("/usr/lib/dologger/plugins"),
             ],
             config.is_dev_mode(),
         );
+        plugin_manager.set_allow_red_plugins(config.plugin_allow_red_plugins);
+
+        // Wire plugin trust: a committed trust store (active.pub + revoked.txt)
+        // is authoritative; otherwise fall back to the legacy single anchor.
+        // Failures are logged and startup continues (unsigned = Red) so a
+        // missing store can never brick the engine.
+        if let Some(store) = &config.plugin_trust_store {
+            if let Err(e) = plugin_manager.load_trust_store(std::path::Path::new(store)) {
+                crate::sys::diag::warn("engine", &format!("plugin trust store load failed: {e}"));
+            }
+        } else if let Some(anchor_hex) = &config.plugin_trust_anchor {
+            match hex::decode(anchor_hex) {
+                Ok(bytes) if bytes.len() == 32 => {
+                    let mut anchor = [0u8; 32];
+                    anchor.copy_from_slice(&bytes);
+                    plugin_manager.set_trust_anchor(anchor);
+                }
+                _ => crate::sys::diag::warn(
+                    "engine",
+                    "plugin_trust_anchor must be a 64-hex Ed25519 public key",
+                ),
+            }
+        }
 
         // Start sysmon channel
         let sysmon = Sysmon::start();

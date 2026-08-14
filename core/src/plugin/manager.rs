@@ -3,39 +3,44 @@
 //! # Implementation
 //!
 //! - Scans plugin directories for dynamic libraries (`.so`/`.dylib`/`.dll`)
-//! - Uses `libloading` to load libraries and call `plugin_query`
+//! - Uses `libloading` to load libraries and call `plugin_query` /
+//!   `plugin_query_multi`
 //! - Validates plugin compatibility (ABI version, platform, trust level)
+//! - Verifies the Ed25519 `.sig` sidecar against the active trust anchors
+//!   (multi-key), rejects signatures from revoked keys, and enforces the Red
+//!   gate (unsigned plugins rejected outside dev mode)
 //! - Manages plugin lifecycle (init → run → shutdown)
 //! - Stores loaded library handles; unloads on `PluginManager::drop`
+//!
+//! # Deferred
+//!
+//! Runtime sandbox enforcement (seccomp-bpf / AppContainer / Sandbox) and
+//! per-plugin quotas are not wired here yet: the sandbox modules and quota
+//! types exist as dead code in the tree, and no plugin is actually confined
+//! at v0.1.0. The trust gate above is the only load-time security boundary
+//! that is enforced today.
 
-use std::collections::HashMap;
-use std::ffi::{c_char, c_void, CStr};
+use std::collections::{HashMap, HashSet};
+use std::ffi::{c_void, CStr};
 use std::path::{Path, PathBuf};
 
+use crate::security::fingerprint_key;
+use ed25519_dalek::{Signature, VerifyingKey};
 use libloading::{Library, Symbol};
+use std::sync::Arc;
 
 // ===========================================================================
 // FFI types matching C header `dologger_plugin_info_t`
 // ===========================================================================
 
-/// C-compatible plugin info returned by `plugin_query`.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct RawPluginInfo {
-    /// Unique plugin identifier (UTF-8, null-terminated)
-    name: *const c_char,
-    /// Encoded binary-compat version
-    version: u32,
-    /// Declared core ABI version
-    abi_version: u32,
-    /// Mount phase bitmask (DO_LOG_PHASE_*)
-    phase: u32,
-    /// Pointer to the VTable for this phase
-    vtable: *const c_void,
-}
+/// Signature of `plugin_query(core_abi_version: u32) -> *const DologgerPluginInfo`.
+/// Single-plugin libraries (third-party) export this.
+type PluginQueryFn = unsafe extern "C" fn(u32) -> *const crate::ffi::DologgerPluginInfo;
 
-/// Signature of `plugin_query(core_abi_version: u32) -> *const RawPluginInfo`.
-type PluginQueryFn = unsafe extern "C" fn(u32) -> *const RawPluginInfo;
+/// Signature of `plugin_query_multi(core_abi_version: u32) -> *const DologgerPluginInfoList`.
+/// Bundle libraries (the official plugins) export this to host several plugins
+/// in one dynamic library — see `dologger_plugin_info_list_t` in the C header.
+type PluginQueryMultiFn = unsafe extern "C" fn(u32) -> *const crate::ffi::DologgerPluginInfoList;
 
 /// Signature of `plugin_init(config: *const c_void) -> i32`.
 type PluginInitFn = unsafe extern "C" fn(*const c_void) -> i32;
@@ -60,9 +65,11 @@ pub struct LoadedPlugin {
     /// Raw VTable pointer for dispatch (stored for plugin lifecycle)
     #[allow(dead_code)]
     pub(crate) vtable: *const c_void,
-    /// Loaded library handle (kept alive until unload)
+    /// Loaded library handle (kept alive until unload). Arc so every plugin
+    /// registered from a shared bundle library holds its own reference and
+    /// the library is unloaded only when the last one drops.
     #[allow(dead_code)]
-    pub(crate) library: Option<Library>,
+    pub(crate) library: Option<Arc<Library>>,
 }
 
 /// Plugin metadata extracted from plugin_query() response.
@@ -114,6 +121,18 @@ pub enum PluginError {
     QueryRejected(String),
     /// Plugin already loaded
     AlreadyLoaded(String),
+    /// Ed25519 signature sidecar present but failed to verify
+    SignatureInvalid {
+        /// Plugin name
+        plugin: String,
+        /// Why the signature was rejected
+        reason: String,
+    },
+    /// Unsigned (Red) plugin loaded in a mode that forbids it
+    UnsignedRejected {
+        /// Plugin name
+        plugin: String,
+    },
     /// Plugin filename is not valid UTF-8
     InvalidFileName(String),
 }
@@ -134,6 +153,13 @@ impl std::fmt::Display for PluginError {
             Self::MissingSymbol(sym) => write!(f, "Missing required symbol: {sym}"),
             Self::QueryRejected(msg) => write!(f, "Plugin query rejected: {msg}"),
             Self::AlreadyLoaded(name) => write!(f, "Plugin already loaded: {name}"),
+            Self::SignatureInvalid { plugin, reason } => {
+                write!(f, "Signature invalid for {plugin}: {reason}")
+            }
+            Self::UnsignedRejected { plugin } => write!(
+                f,
+                "Unsigned plugin rejected (set allow_red_plugins or dev mode): {plugin}"
+            ),
             Self::InvalidFileName(msg) => write!(f, "Invalid plugin file name: {msg}"),
         }
     }
@@ -153,7 +179,30 @@ pub struct PluginManager {
     core_abi_version: u32,
     /// Whether dev mode is active (allows unsigned plugins)
     dev_mode: bool,
+    /// Active trust anchors (Ed25519 public keys) that grant Blue trust to
+    /// plugins whose `.sig` sidecar verifies against ANY of them. Empty = no
+    /// verification; every plugin is treated as unsigned (Red).
+    trust_anchors: Vec<[u8; 32]>,
+    /// SHA-256 fingerprints of revoked signing keys. A revoked key can never
+    /// grant Blue, even if its public key is still listed in `trust_anchors`
+    /// (overlap defense — see [`PluginManager::revoke_trust_anchor`]).
+    revoked: HashSet<[u8; 32]>,
+    /// Whether unsigned (Red) plugins may load outside dev mode.
+    allow_red_plugins: bool,
 }
+
+// SAFETY: The registry holds `libloading::Library` handles (which are
+// conservatively `!Send + !Sync`). In practice a `PluginManager` is populated
+// on the management path (CLI) and, once embedded in an `Engine`, is never
+// used during the logging hot path — the engine does not call `discover` or
+// load/unload at runtime. All accessor/loader methods take `&self`/`&mut self`
+// and are serialized by the caller. Sending a fully-populated registry across
+// threads and unloading libraries from a different thread than they were
+// loaded on is not supported; the concurrent-sharing guarantee is limited to
+// the inert registry embedded in an `Engine`. This matches the existing
+// `unsafe impl Send/Sync` pattern for the ring buffer and record pool.
+unsafe impl Send for PluginManager {}
+unsafe impl Sync for PluginManager {}
 
 /// Current core ABI version (major.minor.patch → 32-bit).
 /// Packed as `(major << 16) | (minor << 8) | patch`.
@@ -250,7 +299,140 @@ impl PluginManager {
             search_paths,
             core_abi_version: CORE_ABI_VERSION,
             dev_mode,
+            trust_anchors: Vec::new(),
+            revoked: HashSet::new(),
+            allow_red_plugins: false,
         }
+    }
+
+    /// Set the active trust anchor to a single key, replacing the set.
+    ///
+    /// Legacy compatibility shim — the loader now supports multiple anchors
+    /// ([`PluginManager::set_trust_anchors`], [`PluginManager::add_trust_anchor`],
+    /// [`PluginManager::load_trust_store`]). Kept so the CLI env-anchor path
+    /// and existing tests work unchanged. Does NOT clear the revoked set.
+    pub fn set_trust_anchor(&mut self, pubkey: [u8; 32]) {
+        self.trust_anchors = vec![pubkey];
+    }
+
+    /// Replace the active trust-anchor set in one call.
+    pub fn set_trust_anchors(&mut self, anchors: Vec<[u8; 32]>) {
+        self.trust_anchors = anchors;
+    }
+
+    /// Add one more trust anchor to the active set (deduplicated).
+    pub fn add_trust_anchor(&mut self, pubkey: [u8; 32]) {
+        if !self.trust_anchors.contains(&pubkey) {
+            self.trust_anchors.push(pubkey);
+        }
+    }
+
+    /// Permanently revoke a key fingerprint: add it to the denied set AND
+    /// drop any active anchor whose fingerprint matches. A revoked key can
+    /// never grant Blue, even if it is still listed in `active.pub`.
+    pub fn revoke_trust_anchor(&mut self, fingerprint: [u8; 32]) {
+        self.revoked.insert(fingerprint);
+        self.trust_anchors.retain(|anchor| {
+            VerifyingKey::from_bytes(anchor)
+                .map(|vk| fingerprint_key(&vk) != fingerprint)
+                .unwrap_or(true)
+        });
+    }
+
+    /// Load a committed plugin trust store, replacing both the active-anchor
+    /// set and the revoked set.
+    ///
+    /// File layout (`#` at the start of a line is a comment; blank lines are
+    /// skipped; every line is trimmed):
+    ///
+    /// - `active.pub`  — one 64-hex Ed25519 public key per line.
+    /// - `revoked.txt` — `<64-hex SHA-256 fingerprint> [reason] [unix-ts]`,
+    ///   one per line. `reason` must be a known [`CrlReason`] string
+    ///   (`compromised`, `superseded`, `deactivated`); the timestamp is
+    ///   informational and is not validated.
+    ///
+    /// `active.pub` must exist; `revoked.txt` may be absent (treated as
+    /// empty). A malformed line fails the whole load with a `file:line`
+    /// message so a corrupt store can never silently weaken trust.
+    pub fn load_trust_store(&mut self, dir: &Path) -> Result<(), String> {
+        let mut anchors = Vec::new();
+        let active = dir.join("active.pub");
+        let text = std::fs::read_to_string(&active)
+            .map_err(|e| format!("Cannot read '{}': {e}", active.display()))?;
+        for (idx, raw) in text.lines().enumerate() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let bytes = hex::decode(line).map_err(|e| {
+                format!(
+                    "{}:{}: not a valid hex public key ({e})",
+                    active.display(),
+                    idx + 1
+                )
+            })?;
+            if bytes.len() != 32 {
+                return Err(format!(
+                    "{}:{}: expected 32 bytes (64 hex chars), got {}",
+                    active.display(),
+                    idx + 1,
+                    bytes.len()
+                ));
+            }
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            anchors.push(key);
+        }
+
+        let mut revoked = HashSet::new();
+        let crl = dir.join("revoked.txt");
+        if crl.exists() {
+            let text = std::fs::read_to_string(&crl)
+                .map_err(|e| format!("Cannot read '{}': {e}", crl.display()))?;
+            for (idx, raw) in text.lines().enumerate() {
+                let line = raw.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                let mut tokens = line.split_whitespace();
+                let fp_hex = tokens.next().unwrap_or("");
+                let bytes = hex::decode(fp_hex).map_err(|e| {
+                    format!(
+                        "{}:{}: not a valid hex fingerprint ({e})",
+                        crl.display(),
+                        idx + 1
+                    )
+                })?;
+                if bytes.len() != 32 {
+                    return Err(format!(
+                        "{}:{}: expected 32-byte fingerprint",
+                        crl.display(),
+                        idx + 1
+                    ));
+                }
+                if let Some(reason) = tokens.next() {
+                    if crate::security::CrlReason::parse(reason).is_none() {
+                        return Err(format!(
+                            "{}:{}: unknown revocation reason '{reason}'",
+                            crl.display(),
+                            idx + 1
+                        ));
+                    }
+                }
+                let mut fp = [0u8; 32];
+                fp.copy_from_slice(&bytes);
+                revoked.insert(fp);
+            }
+        }
+
+        self.trust_anchors = anchors;
+        self.revoked = revoked;
+        Ok(())
+    }
+
+    /// Allow unsigned (Red) plugins to load outside dev mode.
+    pub fn set_allow_red_plugins(&mut self, allow: bool) {
+        self.allow_red_plugins = allow;
     }
 
     /// Scan the search paths for plugins and load all found.
@@ -264,11 +446,13 @@ impl PluginManager {
                     let file_path = entry.path();
                     if Self::is_plugin_library(&file_path) {
                         match self.load_plugin(&file_path) {
-                            Ok(name) => {
-                                crate::sys::diag::info(
-                                    "plugin_mgr",
-                                    &format!("Plugin loaded: {name}"),
-                                );
+                            Ok(names) => {
+                                for name in &names {
+                                    crate::sys::diag::info(
+                                        "plugin_mgr",
+                                        &format!("Plugin loaded: {name}"),
+                                    );
+                                }
                             }
                             Err(e) => {
                                 let name = file_path.to_string_lossy().into_owned();
@@ -287,12 +471,15 @@ impl PluginManager {
         errors
     }
 
-    /// Load a single plugin from a dynamic library file.
+    /// Load one or more plugins from a dynamic library file.
     ///
-    /// Uses `libloading` to open the library, resolve `plugin_query`,
-    /// call it, and store the metadata and VTable pointer.
-    pub fn load_plugin(&mut self, path: &Path) -> PluginResult<String> {
-        // Extract plugin name from filename stem
+    /// A library may host several plugins via the `plugin_query_multi`
+    /// registry (the official plugins bundle) or a single plugin via
+    /// `plugin_query` (third-party libraries). Returns every plugin name
+    /// registered from this library.
+    pub fn load_plugin(&mut self, path: &Path) -> PluginResult<Vec<String>> {
+        // Extract plugin name from filename stem (fallback name only — the
+        // authoritative name comes from plugin_query / plugin_query_multi).
         let plugin_name = path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -304,11 +491,6 @@ impl PluginManager {
             })?
             .to_string();
 
-        // Guard against duplicate loading
-        if self.plugins.contains_key(&plugin_name) {
-            return Err(PluginError::AlreadyLoaded(plugin_name));
-        }
-
         // SAFETY: libloading is a cross-platform safe wrapper around dlopen/LoadLibrary.
         // We validate all symbols returned by the library before using them.
         let library = unsafe {
@@ -317,7 +499,37 @@ impl PluginManager {
             })?
         };
 
-        // Resolve plugin_query symbol
+        // 1) Multi-plugin registry — the official plugins bundle. One dlopen
+        // registers every member; all of them share this library handle.
+        // SAFETY: plugin_query_multi is an optional export. When present we
+        // bound the unsoundness by validating each entry's ABI version and
+        // reading its C strings immediately.
+        if let Ok(multi) =
+            unsafe { library.get::<Symbol<'_, PluginQueryMultiFn>>(b"plugin_query_multi") }
+        {
+            let list_ptr = unsafe { multi(self.core_abi_version) };
+            if list_ptr.is_null() {
+                return Err(PluginError::QueryRejected(format!(
+                    "Plugin bundle '{}' rejected ABI version {:#x}",
+                    plugin_name, self.core_abi_version
+                )));
+            }
+            // SAFETY: plugin_query_multi returned a non-null pointer to a
+            // static DologgerPluginInfoList owned by the library.
+            let list = unsafe { &*list_ptr };
+            let infos = unsafe { std::slice::from_raw_parts(list.infos, list.count as usize) };
+            let lib = Arc::new(library);
+            let mut names = Vec::with_capacity(infos.len());
+            for info_ptr in infos {
+                // SAFETY: each entry points to a static DologgerPluginInfo
+                // owned by the library, valid for the library's lifetime.
+                let info = unsafe { &**info_ptr };
+                names.push(self.register_plugin(path, lib.clone(), info, &plugin_name)?);
+            }
+            return Ok(names);
+        }
+
+        // 2) Single-plugin contract (third-party / standalone libraries).
         // SAFETY: libloading::Library::get resolves a symbol by name from the
         // loaded dynamic library. The symbol 'plugin_query' is a required export
         // per the C ABI contract. If the plugin is malicious and exports a wrong
@@ -329,68 +541,77 @@ impl PluginManager {
                 .map_err(|_| PluginError::MissingSymbol("plugin_query".into()))?
         };
 
-        // Call plugin_query to get the plugin info
-        // SAFETY: We invoke the function pointer returned by libloading.
-        // We validate: (a) non-null return, (b) ABI version match, and
-        // (c) the C string name field immediately after the call. The
-        // returned pointer points to static memory owned by the plugin.
-        let raw_info: &RawPluginInfo = unsafe {
-            let ptr = query_fn(self.core_abi_version);
-            if ptr.is_null() {
-                return Err(PluginError::QueryRejected(format!(
-                    "Plugin '{}' rejected ABI version {:#x}",
-                    plugin_name, self.core_abi_version
-                )));
-            }
-            // SAFETY: plugin_query returns a valid, non-null pointer to a static
-            // RawPluginInfo struct owned by the plugin library.
-            &*ptr
-        };
+        // Call plugin_query to get the plugin info.
+        // SAFETY: We invoke the function pointer returned by libloading and
+        // validate the returned struct before any further use.
+        let info_ptr = unsafe { query_fn(self.core_abi_version) };
+        if info_ptr.is_null() {
+            return Err(PluginError::QueryRejected(format!(
+                "Plugin '{}' rejected ABI version {:#x}",
+                plugin_name, self.core_abi_version
+            )));
+        }
+        // SAFETY: plugin_query returns a valid, non-null pointer to a static
+        // DologgerPluginInfo owned by the library.
+        let info = unsafe { &*info_ptr };
+        let name = self.register_plugin(path, Arc::new(library), info, &plugin_name)?;
+        Ok(vec![name])
+    }
 
+    /// Validate a plugin info struct, insert it into the manager, and return
+    /// its registered name. Shared by the single- and multi-plugin paths.
+    fn register_plugin(
+        &mut self,
+        path: &Path,
+        library: Arc<Library>,
+        info: &crate::ffi::DologgerPluginInfo,
+        fallback_name: &str,
+    ) -> PluginResult<String> {
         // Validate ABI version
-        if raw_info.abi_version != self.core_abi_version {
+        if info.abi_version != self.core_abi_version {
             return Err(PluginError::IncompatibleAbi {
-                plugin: plugin_name.clone(),
+                plugin: fallback_name.to_string(),
                 core_abi: self.core_abi_version,
-                plugin_abi: raw_info.abi_version,
+                plugin_abi: info.abi_version,
             });
         }
 
-        // Read the plugin name from the C string
-        // SAFETY: raw_info.name was validated non-null by plugin_query's return
-        // check. It points to a valid null-terminated UTF-8 string per the
-        // C ABI contract. CStr::from_ptr reads up to the null terminator.
-        let name = unsafe {
-            CStr::from_ptr(raw_info.name)
-                .to_str()
-                .unwrap_or(&plugin_name)
-                .to_string()
-        };
+        // Read the plugin name from the C string.
+        // SAFETY: info.name points to a valid null-terminated UTF-8 string per
+        // the C ABI contract. CStr::from_ptr reads up to the null terminator.
+        let name = unsafe { CStr::from_ptr(info.name) }
+            .to_str()
+            .unwrap_or(fallback_name)
+            .to_string();
 
-        // Extract the VTable pointer
-        let vtable = raw_info.vtable;
+        // Guard against duplicate loading
+        if self.plugins.contains_key(&name) {
+            return Err(PluginError::AlreadyLoaded(name));
+        }
 
-        // Determine trust level (signature verification is a stub for now)
-        let trust_level = if self.dev_mode {
-            TrustLevel::Red
-        } else {
-            // In production, unsigned plugins are rejected unless explicitly allowed.
-            // Full signature verification is gated on key infrastructure that is not provisioned yet.
-            TrustLevel::Red
-        };
+        // Determine trust from the Ed25519 `.sig` sidecar against the
+        // configured trust anchor. A present-but-failing signature is a hard
+        // error (SignatureInvalid); absent signature yields Red.
+        let trust_level = self.determine_trust(path, &name)?;
+
+        // Red gate — unsigned plugins load only in dev mode or when the
+        // operator explicitly allows them via set_allow_red_plugins.
+        if trust_level == TrustLevel::Red && !self.dev_mode && !self.allow_red_plugins {
+            return Err(PluginError::UnsignedRejected { plugin: name });
+        }
 
         let meta = PluginMeta {
             name: name.clone(),
-            version: raw_info.version,
-            abi_version: raw_info.abi_version,
-            phase: raw_info.phase,
+            version: info.version,
+            abi_version: info.abi_version,
+            phase: info.phase,
         };
 
         crate::sys::diag::info(
             "plugin_mgr",
             &format!(
                 "Plugin '{}' phase={:#x} vtable={:p} trust={:?}",
-                name, meta.phase, vtable, trust_level
+                name, meta.phase, info.vtable, trust_level
             ),
         );
 
@@ -401,12 +622,100 @@ impl PluginManager {
                 library_path: path.to_path_buf(),
                 is_initialised: false,
                 trust_level,
-                vtable,
+                vtable: info.vtable,
                 library: Some(library),
             },
         );
 
         Ok(name)
+    }
+
+    /// Determine a plugin's trust tier from its Ed25519 signature sidecar.
+    ///
+    /// Sidecar naming: `<library>.sig` sits next to the library
+    /// (e.g. `libfoo.so` → `libfoo.so.sig`, `dologger_official_plugins.dll`
+    /// → `dologger_official_plugins.dll.sig`).
+    ///
+    /// A signature is granted Blue if it verifies against ANY active, non-
+    /// revoked anchor (multi-key parallel verification). A signature that
+    /// only matches a REVOKED anchor is rejected with `SignatureInvalid` —
+    /// revocation is enforced here, so it propagates regardless of dev mode
+    /// or `allow_red_plugins`.
+    ///
+    /// | Condition | Result |
+    /// | :- | :- |
+    /// | No active trust anchor | `Red` (nothing to verify against) |
+    /// | Active anchor set, sidecar present, verifies against a non-revoked anchor | `Blue` |
+    /// | Sidecar present but verifies only against a revoked anchor | `SignatureInvalid` (revoked) |
+    /// | Sidecar present, signature fails against every active anchor | `SignatureInvalid` |
+    /// | Active anchor set, no sidecar | `Red` |
+    fn determine_trust(&self, path: &Path, name: &str) -> PluginResult<TrustLevel> {
+        if self.trust_anchors.is_empty() {
+            return Ok(TrustLevel::Red);
+        }
+
+        let sig_path = {
+            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
+            path.with_file_name(format!("{file_name}.sig"))
+        };
+        if !sig_path.exists() {
+            return Ok(TrustLevel::Red);
+        }
+
+        let bytes = std::fs::read(path).map_err(|e| {
+            PluginError::LoadFailed(format!(
+                "Cannot read '{}' for signature verification: {e}",
+                path.display()
+            ))
+        })?;
+        let sig_bytes = std::fs::read(&sig_path).map_err(|e| {
+            PluginError::LoadFailed(format!(
+                "Cannot read signature '{}': {e}",
+                sig_path.display()
+            ))
+        })?;
+
+        // Every conversion failure below is a security failure: a corrupt or
+        // non-matching sidecar must reject the plugin, never silently demote it.
+        let sig = Signature::from_slice(&sig_bytes).map_err(|_| PluginError::SignatureInvalid {
+            plugin: name.to_string(),
+            reason: "signature sidecar is not a valid Ed25519 signature".into(),
+        })?;
+
+        // Single pass over the active set. A revoked anchor is still checked
+        // (so a leaked key's signature reports "revoked" rather than being
+        // silently demoted), but it can never grant Blue.
+        let mut any_revoked_match = false;
+        for anchor in &self.trust_anchors {
+            let vk =
+                VerifyingKey::from_bytes(anchor).map_err(|_| PluginError::SignatureInvalid {
+                    plugin: name.to_string(),
+                    reason: "trust anchor is not a valid Ed25519 public key".into(),
+                })?;
+            let fp = fingerprint_key(&vk);
+            let matches = vk.verify_strict(&bytes, &sig).is_ok();
+            if self.revoked.contains(&fp) {
+                if matches {
+                    any_revoked_match = true;
+                }
+                continue;
+            }
+            if matches {
+                return Ok(TrustLevel::Blue);
+            }
+        }
+
+        if any_revoked_match {
+            Err(PluginError::SignatureInvalid {
+                plugin: name.to_string(),
+                reason: "signature is from a revoked key".into(),
+            })
+        } else {
+            Err(PluginError::SignatureInvalid {
+                plugin: name.to_string(),
+                reason: "signature does not verify against any active trust anchor".into(),
+            })
+        }
     }
 
     /// Initialise a loaded plugin by calling `plugin_init`.
@@ -524,5 +833,80 @@ impl PluginManager {
 impl Drop for PluginManager {
     fn drop(&mut self) {
         self.shutdown_all();
+    }
+}
+
+// ===========================================================================
+// Tests
+// ===========================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn validate_plugin_name_accepts_valid_names() {
+        for name in [
+            "fmt-json",
+            "filter-level",
+            "sink-kafka",
+            "acme.csv_formatter",
+            "a_b_1",
+            "x",
+        ] {
+            assert!(validate_plugin_name(name).is_ok(), "should accept {name:?}");
+        }
+    }
+
+    #[test]
+    fn validate_plugin_name_rejects_invalid_names() {
+        assert!(validate_plugin_name("").is_err());
+        assert!(validate_plugin_name(&"x".repeat(129)).is_err());
+        assert!(validate_plugin_name("BadName").is_err()); // uppercase
+        assert!(validate_plugin_name("has space").is_err());
+        assert!(validate_plugin_name("slash/name").is_err());
+        assert!(validate_plugin_name("tab\tname").is_err());
+    }
+
+    #[test]
+    fn error_display_exposes_key_facts() {
+        let abi = PluginError::IncompatibleAbi {
+            plugin: "fmt-json".into(),
+            core_abi: 0x000100,
+            plugin_abi: 1,
+        };
+        let s = abi.to_string();
+        assert!(s.contains("fmt-json") && s.contains("0x100"), "got: {s}");
+
+        let dup = PluginError::AlreadyLoaded("fmt-json".into()).to_string();
+        assert!(dup.contains("already loaded"), "got: {dup}");
+
+        let miss = PluginError::MissingSymbol("plugin_query".into()).to_string();
+        assert!(miss.contains("plugin_query"), "got: {miss}");
+
+        let notfound = PluginError::NotFound("nonexistent".into()).to_string();
+        assert!(notfound.contains("nonexistent"), "got: {notfound}");
+    }
+
+    #[test]
+    fn default_plugin_paths_include_local_and_system_dirs() {
+        let paths = default_plugin_paths();
+        assert!(
+            paths.iter().any(|p| p == Path::new("./plugins")),
+            "local ./plugins dir must be a search path: {paths:?}"
+        );
+        #[cfg(unix)]
+        assert!(
+            paths.iter().any(|p| p.ends_with("dologger/plugins")),
+            "system plugin dir must be a search path: {paths:?}"
+        );
+        #[cfg(windows)]
+        assert!(
+            paths
+                .iter()
+                .any(|p| p.ends_with("dologger\\plugins") || p.ends_with("dologger/plugins")),
+            "system plugin dir must be a search path: {paths:?}"
+        );
     }
 }

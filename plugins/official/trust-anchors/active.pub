@@ -1,0 +1,13 @@
+# Active Ed25519 plugin signing keys — PUBLIC material, safe to commit.
+# One 64-hex Ed25519 public key per line. Lines starting with '#' are comments.
+#
+# Bootstrap: dologctl plugin keygen signing.key
+#   → put the seed into the DOLOGGER_PLUGIN_SIGNING_KEY GitHub secret
+#   → commit the printed public key (64 hex) here.
+# Then the release workflow signs official bundles with that key and any
+# loader configured with this store verifies them as BLUE trust.
+#
+# Rotation: add the new key below, commit, and (after the grace window)
+# move the old key's fingerprint to revoked.txt with reason "superseded".
+#
+# v0.1.0 ships no signed plugins, so this file is intentionally empty.
