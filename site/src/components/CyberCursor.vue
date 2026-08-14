@@ -27,7 +27,9 @@ const cursorEnabled = useCursorEnabled()
 
 const layer = ref<HTMLElement | null>(null)
 const glowEl = ref<HTMLDivElement | null>(null)
-const cometEl = ref<SVGPolylineElement | null>(null)
+const cometTailEl = ref<SVGPolylineElement | null>(null)
+const cometMidEl = ref<SVGPolylineElement | null>(null)
+const cometCoreEl = ref<SVGPolylineElement | null>(null)
 const cometHeadEl = ref<SVGPolylineElement | null>(null)
 const ringOEl = ref<HTMLDivElement | null>(null)
 const ringIEl = ref<HTMLDivElement | null>(null)
@@ -44,8 +46,19 @@ let ixx = -100, iyy = -100 // ring-i (fast)
 let visible = false
 let textMode = false
 
-const PTS = 24
+/* Trail point history — min-distance sampled + exponentially low-passed.
+   Raw mouse events carry hand-jitter; the smoothed position (sx, sy)
+   is what the comet actually traces. A point is recorded only when the
+   smoothed pos has moved ≥ MIN_DIST from the last recorded point, or
+   (slow-but-real movement) ≥ 0.6px within TIME_FALLBACK ms — the time
+   branch keeps the ribbon flowing at walking speed without ever spamming
+   rest points into the buffer. */
+const PTS = 22
+const MIN_DIST = 2.5
+const TIME_FALLBACK = 33
 const pts: { x: number; y: number }[] = []
+let sx = -100, sy = -100
+let lastX = -100, lastY = -100, lastT = 0
 
 /* snap frame: lerps toward the hovered click target's rect */
 const snap = { x: 0, y: 0, w: 0, h: 0, active: 0 }
@@ -57,7 +70,12 @@ const TEXT_ZONE = '.ide-code, .term-body, input, select, textarea, [contentedita
 function onMove(e: MouseEvent) {
   x = e.clientX
   y = e.clientY
-  if (!visible) { visible = true; ox = ixx = gox = x; oy = iyy = goy = y }
+  if (!visible) {
+    visible = true
+    ox = ixx = gox = sx = lastX = x
+    oy = iyy = goy = sy = lastY = y
+    lastT = performance.now()
+  }
   const el = e.target instanceof Element ? e.target : null
   const clickable = !!el && !!el.closest(CLICKABLE)
   const text = !!el && !!el.closest(TEXT_ZONE)
@@ -118,13 +136,24 @@ function tick() {
   iyy += (y - iyy) * lerpI
   gox += (x - gox) * lerpG
   goy += (y - goy) * lerpG
-  pts.unshift({ x, y })
-  if (pts.length > PTS) pts.pop() // fixed-size history
+  /* sample the smoothed trail point — min-distance + time fallback */
+  sx += (x - sx) * 0.55
+  sy += (y - sy) * 0.45
+  const now = performance.now()
+  const dx = sx - lastX, dy = sy - lastY
+  const d2 = dx * dx + dy * dy
+  if (d2 >= MIN_DIST * MIN_DIST || (now - lastT > TIME_FALLBACK && d2 >= 0.36)) {
+    pts.unshift({ x: sx, y: sy })
+    if (pts.length > PTS) pts.pop() // fixed-size history
+    lastX = sx; lastY = sy; lastT = now
+  }
   if (glowEl.value) glowEl.value.style.transform = `translate(${gox.toFixed(1)}px, ${goy.toFixed(1)}px)`
   if (ringOEl.value) ringOEl.value.style.transform = `translate(${ox.toFixed(1)}px, ${oy.toFixed(1)}px)`
   if (ringIEl.value) ringIEl.value.style.transform = `translate(${ixx.toFixed(1)}px, ${iyy.toFixed(1)}px)`
-  setPoints(cometEl.value, PTS)
-  setPoints(cometHeadEl.value, 6)
+  setPoints(cometTailEl.value, 22)
+  setPoints(cometMidEl.value, 14)
+  setPoints(cometCoreEl.value, 7)
+  setPoints(cometHeadEl.value, 4)
   /* snap frame — lerp the rect toward the target, fade with its activity */
   snapCur.x += (snap.x - snapCur.x) * 0.3
   snapCur.y += (snap.y - snapCur.y) * 0.3
@@ -181,7 +210,9 @@ onBeforeUnmount(deactivate)
           <stop offset="1" stop-color="#F472D0" />
         </linearGradient>
       </defs>
-      <polyline ref="cometEl"></polyline>
+      <polyline ref="cometTailEl" class="tail"></polyline>
+      <polyline ref="cometMidEl" class="mid"></polyline>
+      <polyline ref="cometCoreEl" class="core"></polyline>
       <polyline ref="cometHeadEl" class="head"></polyline>
     </svg>
     <div class="cursor-ring-o" ref="ringOEl"></div>

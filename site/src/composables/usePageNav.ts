@@ -5,12 +5,12 @@
  *     ONE action and is ignored — a cooldown, like a skill in a game;
  *   - after the cooldown, one wheel gesture in either direction moves
  *     exactly one page;
- *   - it can never get stuck: at the first/last page the boundary absorbs
- *     the gesture, and any wheel-locked zone under the cursor
- *     ([data-wheel-lock]: terminal, code panel, expanded page-3 grid)
- *     scrolls natively first — the page switch only fires when that zone
+ *   - it can never get stuck: an inner scroller under the cursor (demo
+ *     terminal, filter-popup results, an expanded page-3 card) scrolls
+ *     natively first — the page switch fires only when that scroller
  *     hits its edge. Hard zones ([data-wheel-lock-hard]: the filter
- *     popup) never trigger a page switch while the pointer is over them;
+ *     popup, page 3 while a card is inspected) absorb the wheel and
+ *     never trigger a page switch while the pointer is over them;
  *   - touch devices and narrow screens never hijack the wheel — they get
  *     plain native scrolling (no snap) instead.
  *
@@ -46,6 +46,38 @@ export function usePageNav() {
   let cooldownUntil = 0
   let scrollRaf = 0
 
+  /* Generalized scroller-walk: from the wheel target up to <html>,
+     find (a) the first ancestor that can scroll in `dir` (computed
+     overflow + room), and (b) whether any [data-wheel-lock-hard] zone
+     sits in the chain. Body/html are the page scroller itself and never
+     count as inner scrollers.
+       - scrollable in dir       → native scroll, no page switch;
+       - scrollable at its edge  → hard zone in chain ? absorb : flip;
+       - nothing scrollable      → hard zone in chain ? absorb : flip.
+     Every sub-window now behaves: collapsed cards (overflow hidden)
+     flip pages; an expanded card or the filter popup scrolls natively
+     and never flips while the pointer is over them; wheel at a boundary
+     cleanly switches modes. */
+  function walkScroller(el: Element, dir: number): { scroller: HTMLElement | null; hard: boolean } {
+    let cur: HTMLElement | null = el instanceof HTMLElement ? el : null
+    let scroller: HTMLElement | null = null
+    let hard = false
+    while (cur && cur !== document.body && cur !== document.documentElement) {
+      if (cur.hasAttribute('data-wheel-lock-hard')) hard = true
+      if (!scroller) {
+        const oy = getComputedStyle(cur).overflowY
+        if (oy === 'auto' || oy === 'scroll' || oy === 'overlay') {
+          const room = dir > 0
+            ? cur.scrollTop + cur.clientHeight < cur.scrollHeight - 1
+            : cur.scrollTop > 1
+          if (room) scroller = cur
+        }
+      }
+      cur = cur.parentElement
+    }
+    return { scroller, hard }
+  }
+
   function onWheel(e: WheelEvent) {
     if (!enabled()) return
     const now = performance.now()
@@ -53,17 +85,10 @@ export function usePageNav() {
     const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0
     if (dir === 0) return
 
-    /* A wheel-locked zone under the cursor scrolls first — the page
-       switch fires only once that zone hits its edge (can't get stuck).
-       Hard zones (the filter popup) never flip the page at all. */
-    const target = e.target instanceof Element ? e.target : null
-    const lockEl = target?.closest<HTMLElement>('[data-wheel-lock]')
-    if (lockEl) {
-      const canDown = lockEl.scrollTop + lockEl.clientHeight < lockEl.scrollHeight - 1
-      const canUp = lockEl.scrollTop > 1
-      if ((dir > 0 && canDown) || (dir < 0 && canUp)) return // native scroll, no switch
-      if (lockEl.hasAttribute('data-wheel-lock-hard')) return // hard stop: never navigate away
-    }
+    const target = e.target instanceof Element ? e.target : document.body
+    const { scroller, hard } = walkScroller(target, dir)
+    if (scroller) return // an inner scroller has room — native scroll, no switch
+    if (hard) { e.preventDefault(); return } // hard zone (popup / expanded page 3): never navigate away
 
     const next = active.value + dir
     if (next < 0 || next >= count) { e.preventDefault(); return } // boundary absorbs it

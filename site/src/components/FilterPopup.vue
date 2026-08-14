@@ -1,25 +1,28 @@
 <script setup lang="ts">
 /* FilterPopup — the page-1 asset browser.
  *
- * Lives in a Teleport so it overlays cleanly: inside the panel, the
- * panel's backdrop-filter would become its containing block and its
- * overflow would clip it. It is positioned fixed against the anchor
- * button's rect at open time, opens downward (upward when the viewport
- * leaves no room), and caps its height to the available space minus a
- * 12px margin — it can never touch the page bottom or stretch the panel.
+ * Opens directly from the hero action button (no intermediate panel),
+ * teleported to body so nothing clips or becomes its containing block.
+ * Compact by design: the filter block is fully visible with no inner
+ * scrollbar (the version selector is a dropdown, not a chip wall), and
+ * the results area fits ~4-6 rows — surplus rows scroll internally.
  *
- * Filters are multi-select chips (version, arch, OS, CLI/LIB, release
- * vs pre-release) and the results list below updates live. The version
- * chips default to the latest two releases ("show everything, but not
- * really everything") and drive the hero's download button: exactly one
+ * Filters: version dropdown (multi-select, lists EVERY release, default
+ * latest two — results preload those until filters are touched), release
+ * type, OS, arch, kind (CLI / LIB / 官方插件). Default scope = the
+ * visitor's own platform (OS + arch), one "全部" chip per group to widen.
+ *
+ * The version dropdown drives the hero's download button: exactly one
  * version selected → that release, else the latest.
  *
- * Wheel over the popup is hard-locked (data-wheel-lock-hard) — the
- * list scrolls natively and the page never flips away mid-interaction.
+ * Theme/language toggles in .top-controls deliberately do NOT close the
+ * popup — it re-renders in place (the outside-mousedown handler excludes
+ * the top bar). Wheel over the popup is hard-locked
+ * (data-wheel-lock-hard): lists scroll natively, the page never flips.
  */
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { groupAssets, selectRelease, OS_ORDER, ARCH_ORDER,
+import { groupAssets, selectRelease, shortName, useSiteData, OS_ORDER, ARCH_ORDER,
          type Release, type ReleaseAsset, type Platform } from '../data'
 
 const props = defineProps<{
@@ -29,28 +32,34 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 const { t } = useI18n()
+const siteData = useSiteData()
+const platform = computed<Platform>(() => siteData.value?.platform ?? { os: 'linux', arch: 'x86_64' })
 
 const OS_KEYS: Record<string, string> = { windows: 'os-windows', macos: 'os-macos', linux: 'os-linux' }
 
-type Kind = 'cli' | 'lib'
+type Kind = 'cli' | 'lib' | 'plugin'
 type RelType = 'release' | 'prerelease'
-const KIND_OPTS: Kind[] = ['cli', 'lib']
+const KIND_OPTS: Kind[] = ['cli', 'lib', 'plugin']
 const TYPE_OPTS: RelType[] = ['release', 'prerelease']
 
 const fVersions = ref<string[]>([])
-const fOs = ref<Platform['os'][]>([...OS_ORDER])
-const fArch = ref<string[]>([...ARCH_ORDER])
+const fOs = ref<Platform['os'][]>([])
+const fArch = ref<string[]>([])
 const fKind = ref<Kind[]>([...KIND_OPTS])
 const fType = ref<RelType[]>([...TYPE_OPTS])
 
-/* Default version filter: the latest two releases, applied once the
-   data arrives (the popup can open before the fetch resolves). */
-let versionsInit = false
+const defaultVersions = computed(() => props.releases.slice(0, 2).map(r => r.tag_name))
+
+/* Default scope, applied once the data arrives (the popup can open
+   before the fetch resolves): latest two versions + the visitor's own
+   platform — most users only want their one or two assets. */
+let init = false
 watch(() => props.releases, (rels) => {
-  if (!versionsInit && rels.length) {
-    versionsInit = true
-    fVersions.value = rels.slice(0, 2).map(r => r.tag_name)
-  }
+  if (init || !rels.length) return
+  init = true
+  fVersions.value = rels.slice(0, 2).map(r => r.tag_name)
+  fOs.value = [platform.value.os]
+  fArch.value = [platform.value.arch]
 }, { immediate: true })
 
 /* Exactly one version selected → the download button targets it. */
@@ -66,17 +75,33 @@ function toggle<T>(list: T[], v: T): T[] {
   return list.includes(v) ? list.filter(x => x !== v) : [...list, v]
 }
 function resetFilters() {
-  fVersions.value = props.releases.slice(0, 2).map(r => r.tag_name)
-  fOs.value = [...OS_ORDER]
-  fArch.value = [...ARCH_ORDER]
+  fVersions.value = defaultVersions.value
+  fOs.value = [platform.value.os]
+  fArch.value = [platform.value.arch]
   fKind.value = [...KIND_OPTS]
   fType.value = [...TYPE_OPTS]
 }
 
+/* ── version dropdown ─────────────────────────────────────────────── */
+const vOpen = ref(false)
+function toggleAllVersions(e: Event) {
+  const on = (e.target as HTMLInputElement).checked
+  fVersions.value = on ? props.releases.map(r => r.tag_name) : []
+}
+const versionSummary = computed(() => {
+  const def = defaultVersions.value
+  if (fVersions.value.length && def.length === fVersions.value.length
+      && def.every(x => fVersions.value.includes(x))) return t('filter-versions-summary')
+  if (!fVersions.value.length) return t('filter-versions-none')
+  if (props.releases.length && fVersions.value.length >= props.releases.length) return t('filter-versions-all')
+  const first = fVersions.value.slice(0, 2).join(', ')
+  return fVersions.value.length > 2 ? `${first} +${fVersions.value.length - 2}` : first
+})
+
 /* ── live filtering ──────────────────────────────────────────────── */
-interface PopRow { os: Platform['os']; cli?: ReleaseAsset; lib?: ReleaseAsset }
-interface PopGroup { arch: string; rows: PopRow[] }
-interface PopVer { release: Release; groups: PopGroup[] }
+interface ResItem { kind: Kind; asset: ReleaseAsset; tag: string; short: string }
+interface ResArch { arch: string; items: ResItem[] }
+interface ResOs { os: Platform['os']; archs: ResArch[] }
 
 const filteredReleases = computed(() =>
   props.releases.filter(r =>
@@ -85,32 +110,36 @@ const filteredReleases = computed(() =>
   )
 )
 
-const results = computed<PopVer[]>(() => {
-  const out: PopVer[] = []
+/* Results grouped 大分类 OS → 中分类 arch → 小分类 rows (CLI/LIB/插件),
+   ordered by OS_ORDER / ARCH_ORDER with releases newest-first. */
+const osGroups = computed<ResOs[]>(() => {
+  const map = new Map<Platform['os'], Map<string, ResItem[]>>()
   for (const rel of filteredReleases.value) {
-    const ver: PopVer = { release: rel, groups: [] }
     for (const g of groupAssets(rel)) {
       if (!fArch.value.includes(g.arch)) continue
-      const rows = g.rows
-        .filter(row => fOs.value.includes(row.os))
-        .map(row => {
-          const r: PopRow = { os: row.os }
-          if (row.cli && fKind.value.includes('cli')) r.cli = row.cli
-          if (row.lib && fKind.value.includes('lib')) r.lib = row.lib
-          return r
-        })
-        .filter(row => row.cli || row.lib)
-      if (rows.length) ver.groups.push({ arch: g.arch, rows })
+      for (const row of g.rows) {
+        if (!fOs.value.includes(row.os)) continue
+        let archMap = map.get(row.os)
+        if (!archMap) { archMap = new Map(); map.set(row.os, archMap) }
+        let items = archMap.get(g.arch)
+        if (!items) { items = []; archMap.set(g.arch, items) }
+        const push = (kind: Kind, asset: ReleaseAsset) =>
+          items!.push({ kind, asset, tag: rel.tag_name, short: shortName(asset.name, rel.tag_name) })
+        if (row.cli && fKind.value.includes('cli')) push('cli', row.cli)
+        if (row.lib && fKind.value.includes('lib')) push('lib', row.lib)
+        if (row.plugins && fKind.value.includes('plugin')) row.plugins.forEach(p => push('plugin', p))
+      }
     }
-    if (ver.groups.length) out.push(ver)
   }
-  return out
+  return OS_ORDER.filter(os => map.has(os)).map(os => ({
+    os,
+    archs: ARCH_ORDER.filter(a => map.get(os)!.has(a))
+      .map(a => ({ arch: a, items: map.get(os)!.get(a)! }))
+  }))
 })
 
-const matchCount = computed(() =>
-  results.value.reduce((n, v) => n + v.groups.reduce(
-    (m, g) => m + g.rows.reduce((k, r) => k + (r.cli ? 1 : 0) + (r.lib ? 1 : 0), 0), 0), 0)
-)
+const matchCount = computed(() => osGroups.value.reduce(
+  (n, g) => n + g.archs.reduce((m, a) => m + a.items.length, 0), 0))
 
 /* footer links make sense only when exactly one version is targeted */
 const singleRel = computed(() => filteredReleases.value.length === 1 ? filteredReleases.value[0] : null)
@@ -118,10 +147,10 @@ const checksumsUrl = computed(() =>
   singleRel.value?.assets?.find(a => a.name === 'checksums-sha256.txt')?.browser_download_url ?? '')
 const benchUrl = computed(() =>
   singleRel.value?.assets?.find(a => a.name === 'benchmark-results.json')?.browser_download_url ?? '')
+const multiVer = computed(() => filteredReleases.value.length > 1)
 
-function fmtDate(iso: string): string {
-  const d = new Date(iso)
-  return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+function kindLabel(k: Kind): string {
+  return k === 'cli' ? 'CLI' : k === 'lib' ? 'LIB' : t('filter-plugins')
 }
 
 const summary = computed(() => `${matchCount.value} ${t('filter-assets')}`)
@@ -129,19 +158,21 @@ defineExpose({ summary })
 
 /* ── positioning: fixed against the anchor, flip up when tight ───── */
 const popupEl = ref<HTMLElement | null>(null)
+const vselEl = ref<HTMLElement | null>(null)
 const openDir = ref<'down' | 'up'>('down')
+const POPUP_W = 460
 
 function position() {
   const pop = popupEl.value
   const anchor = props.anchorEl
   if (!pop || !anchor) return
   const r = anchor.getBoundingClientRect()
-  const width = Math.min(r.width, window.innerWidth - 24)
+  const width = Math.min(POPUP_W, window.innerWidth - 24)
   pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12)) + 'px'
   pop.style.width = width + 'px'
   const spaceBelow = window.innerHeight - r.bottom - 12
   const spaceAbove = r.top - 12
-  if (spaceBelow < 260 && spaceAbove > spaceBelow) {
+  if (spaceBelow < 300 && spaceAbove > spaceBelow) {
     openDir.value = 'up'
     pop.style.top = 'auto'
     pop.style.bottom = (window.innerHeight - r.top + 8) + 'px'
@@ -154,19 +185,28 @@ function position() {
   }
 }
 
-/* ── close: outside mousedown (popup AND anchor excluded), Esc,
-      page scroll (popup-internal scroll keeps it open), resize ───── */
+/* ── close: outside mousedown (popup, anchor AND the top-controls
+      theme/lang bar are excluded — switching theme or language must
+      not dismiss the dialog), Esc, page scroll, resize ────────────── */
 function onDocDown(e: MouseEvent) {
   const pop = popupEl.value
   const anchor = props.anchorEl
-  const t = e.target as Node | null
-  if (!t) return
-  if (pop && pop.contains(t)) return
-  if (anchor && anchor.contains(t)) return
+  const tgt = e.target as Node | null
+  if (!tgt) return
+  if (tgt instanceof Element && tgt.closest('.top-controls')) return // theme/lang toggles keep the popup open
+  if (pop && pop.contains(tgt)) {
+    /* inside the popup: only the version dropdown itself toggles it */
+    if (vOpen.value && vselEl.value && !vselEl.value.contains(tgt)) vOpen.value = false
+    return
+  }
+  if (anchor && anchor.contains(tgt)) return
   emit('close')
 }
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') emit('close')
+  if (e.key === 'Escape') {
+    if (vOpen.value) vOpen.value = false
+    else emit('close')
+  }
 }
 function onScroll(e: Event) {
   const t = e.target
@@ -186,6 +226,7 @@ watch(() => props.open, (v) => {
     window.addEventListener('scroll', onScroll, { capture: true, passive: true })
     window.addEventListener('resize', onResize)
   } else {
+    vOpen.value = false
     document.removeEventListener('mousedown', onDocDown)
     document.removeEventListener('keydown', onKey)
     window.removeEventListener('scroll', onScroll, { capture: true })
@@ -206,61 +247,85 @@ onBeforeUnmount(() => {
       <div v-if="open" ref="popupEl" class="fpopup" role="dialog" :aria-label="t('panel-filter-title')"
            :class="openDir" data-wheel-lock data-wheel-lock-hard>
         <div class="fpop-filters">
-          <div class="fgroup">
-            <span class="fg-label">{{ t('filter-release-type') }}</span>
-            <button v-for="ft in TYPE_OPTS" :key="ft" type="button" class="chip"
-                    :class="{ on: fType.includes(ft) }" :aria-pressed="fType.includes(ft)"
-                    @click="fType = toggle(fType, ft)">
-              {{ ft === 'release' ? t('filter-stable') : t('rel-prerelease') }}
-            </button>
+          <div class="frow">
+            <div class="vsel" ref="vselEl">
+              <button type="button" class="vsel-btn" :aria-expanded="vOpen" @click="vOpen = !vOpen">
+                <span class="fg-inline">{{ t('filter-versions') }}</span>
+                <span class="vsel-summary">{{ versionSummary }}</span>
+                <svg class="icon chev" :class="{ open: vOpen }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
+              </button>
+              <div v-if="vOpen" class="vsel-menu">
+                <label class="vsel-all">
+                  <input type="checkbox" :checked="releases.length > 0 && fVersions.length === releases.length"
+                         @change="toggleAllVersions" />
+                  <span>{{ t('filter-versions-all') }}</span>
+                </label>
+                <label v-for="r in releases" :key="r.tag_name" class="vsel-item">
+                  <input type="checkbox" :checked="fVersions.includes(r.tag_name)"
+                         @change="fVersions = toggle(fVersions, r.tag_name)" />
+                  <span class="vsel-tag">{{ r.tag_name }}</span>
+                  <span v-if="r.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
+                </label>
+              </div>
+            </div>
+            <div class="fchips">
+              <span class="fg-inline">{{ t('filter-release-type') }}</span>
+              <button v-for="ft in TYPE_OPTS" :key="ft" type="button" class="chip"
+                      :class="{ on: fType.includes(ft) }" :aria-pressed="fType.includes(ft)"
+                      @click="fType = toggle(fType, ft)">
+                {{ ft === 'release' ? t('filter-stable') : t('rel-prerelease') }}
+              </button>
+            </div>
           </div>
-          <div class="fgroup">
-            <span class="fg-label">{{ t('filter-versions') }}</span>
-            <span class="chip-hint">{{ t('filter-versions-hint') }}</span>
-            <button v-for="r in releases" :key="r.tag_name" type="button" class="chip"
-                    :class="{ on: fVersions.includes(r.tag_name) }" :aria-pressed="fVersions.includes(r.tag_name)"
-                    @click="fVersions = toggle(fVersions, r.tag_name)">
-              {{ r.tag_name }}
-              <span v-if="r.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
-            </button>
+
+          <div class="frow">
+            <div class="fchips">
+              <span class="fg-inline">{{ t('filter-os') }}</span>
+              <button type="button" class="chip" :class="{ on: fOs.length === OS_ORDER.length }"
+                      :aria-pressed="fOs.length === OS_ORDER.length" @click="fOs = [...OS_ORDER]">
+                {{ t('filter-all') }}
+              </button>
+              <button v-for="os in OS_ORDER" :key="os" type="button" class="chip"
+                      :class="{ on: fOs.includes(os) }" :aria-pressed="fOs.includes(os)"
+                      @click="fOs = toggle(fOs, os)">{{ t(OS_KEYS[os]) }}</button>
+            </div>
           </div>
-          <div class="fgroup">
-            <span class="fg-label">{{ t('filter-os') }}</span>
-            <button v-for="os in OS_ORDER" :key="os" type="button" class="chip"
-                    :class="{ on: fOs.includes(os) }" :aria-pressed="fOs.includes(os)"
-                    @click="fOs = toggle(fOs, os)">{{ t(OS_KEYS[os]) }}</button>
-          </div>
-          <div class="fgroup">
-            <span class="fg-label">{{ t('filter-arch') }}</span>
-            <button v-for="arch in ARCH_ORDER" :key="arch" type="button" class="chip"
-                    :class="{ on: fArch.includes(arch) }" :aria-pressed="fArch.includes(arch)"
-                    @click="fArch = toggle(fArch, arch)">{{ arch }}</button>
-          </div>
-          <div class="fgroup">
-            <span class="fg-label">{{ t('filter-kind') }}</span>
-            <button v-for="kind in KIND_OPTS" :key="kind" type="button" class="chip"
-                    :class="{ on: fKind.includes(kind) }" :aria-pressed="fKind.includes(kind)"
-                    @click="fKind = toggle(fKind, kind)">{{ kind === 'cli' ? 'CLI' : 'LIB' }}</button>
+
+          <div class="frow">
+            <div class="fchips">
+              <span class="fg-inline">{{ t('filter-arch') }}</span>
+              <button type="button" class="chip" :class="{ on: fArch.length === ARCH_ORDER.length }"
+                      :aria-pressed="fArch.length === ARCH_ORDER.length" @click="fArch = [...ARCH_ORDER]">
+                {{ t('filter-all') }}
+              </button>
+              <button v-for="arch in ARCH_ORDER" :key="arch" type="button" class="chip"
+                      :class="{ on: fArch.includes(arch) }" :aria-pressed="fArch.includes(arch)"
+                      @click="fArch = toggle(fArch, arch)">{{ arch }}</button>
+            </div>
+            <div class="fchips">
+              <span class="fg-inline">{{ t('filter-kind') }}</span>
+              <button v-for="kind in KIND_OPTS" :key="kind" type="button" class="chip"
+                      :class="{ on: fKind.includes(kind) }" :aria-pressed="fKind.includes(kind)"
+                      @click="fKind = toggle(fKind, kind)">{{ kindLabel(kind) }}</button>
+            </div>
           </div>
         </div>
 
-        <div class="fpop-results">
-          <template v-if="results.length">
-            <div v-for="ver in results" :key="ver.release.tag_name" class="ver-group">
-              <div v-if="results.length > 1" class="ver-head">
-                <b>{{ ver.release.tag_name }}</b>
-                <span v-if="ver.release.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
-                <span class="vs-date">{{ fmtDate(ver.release.published_at) }}</span>
-              </div>
-              <div v-for="g in ver.groups" :key="g.arch" class="arch-group">
-                <h4 class="arch-head">{{ g.arch }}</h4>
-                <div v-for="row in g.rows" :key="row.os" class="os-row">
-                  <span class="os-name">{{ t(OS_KEYS[row.os]) }}</span>
-                  <span v-if="row.cli" class="tag-kind">CLI</span>
-                  <a v-if="row.cli" :href="row.cli.browser_download_url" :title="row.cli.name">{{ row.cli.name }}</a>
-                  <span v-if="row.lib" class="tag-kind lib">LIB</span>
-                  <a v-if="row.lib" :href="row.lib.browser_download_url" :title="row.lib.name">{{ row.lib.name }}</a>
-                </div>
+        <div class="fpop-results" data-wheel-lock>
+          <template v-if="osGroups.length">
+            <div v-for="g in osGroups" :key="g.os" class="res-os">
+              <h4 class="res-os-head">
+                <span class="res-os-name">{{ t(OS_KEYS[g.os]) }}</span>
+                <span class="res-os-count">{{ g.archs.reduce((n, a) => n + a.items.length, 0) }} {{ t('filter-assets') }}</span>
+              </h4>
+              <div v-for="a in g.archs" :key="a.arch" class="res-arch">
+                <h5 class="res-arch-head">{{ a.arch }}</h5>
+                <a v-for="it in a.items" :key="it.asset.name" class="res-row"
+                   :href="it.asset.browser_download_url" :title="it.asset.name">
+                  <span class="tag-kind" :class="it.kind">{{ kindLabel(it.kind) }}</span>
+                  <span class="res-name">{{ it.short }}</span>
+                  <span v-if="multiVer" class="res-ver">{{ it.tag }}</span>
+                </a>
               </div>
             </div>
           </template>

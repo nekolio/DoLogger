@@ -21,6 +21,14 @@
   --highlight-border: #7fd5ff;
   --card-glow: rgba(127, 213, 255, 0.10);
 
+  /* page-3 focus surface + depth-of-field backdrop (expanded card) */
+  --card-focus-bg: rgba(13, 17, 25, 0.82);
+  --backdrop-alpha: 0.22;
+  --card-dim: 0.85;
+  --focus-shadow-main: 0 24px 70px rgba(0, 0, 0, 0.45);
+  --row-border: rgba(255, 255, 255, 0.03);
+  --svg-panel-bg: rgba(13, 17, 25, 0.7);
+
   /* card typography tokens (page 3) — every card body/meta/link uses
      these, so the cards read as one family */
   --card-body: 0.8rem;
@@ -72,6 +80,13 @@
   --highlight-bg: rgba(11, 107, 191, 0.10);
   --highlight-border: #0b6bbf;
   --card-glow: rgba(11, 107, 191, 0.10);
+
+  --card-focus-bg: rgba(255, 255, 255, 0.92);
+  --backdrop-alpha: 0.10;
+  --card-dim: 0.85;
+  --focus-shadow-main: 0 24px 70px rgba(0, 0, 0, 0.20);
+  --row-border: rgba(30, 40, 60, 0.10);
+  --svg-panel-bg: rgba(235, 240, 250, 0.9);
 
   --color-kw: #5b4fa6;
   --color-str: #2f7d32;
@@ -128,8 +143,14 @@ html, body {
 @media (hover: hover) and (pointer: fine) {
   html { overscroll-behavior-y: none; }
 }
+/* One page = one screen, at every width / height / ratio: the page is
+   exactly the viewport tall and never grows with its content. Anything
+   that doesn't fit scrolls *inside* the page (page 1 hero, page 3 cards)
+   instead of pushing the slide taller — this is what keeps the PPT-slide
+   metaphor intact across platforms and resolutions. */
 .page {
-  min-height: 100svh;
+  height: 100vh; /* fallback for browsers without svh */
+  height: 100svh;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -284,82 +305,25 @@ html, body {
 }
 .btn .chev { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .btn .chev.open { transform: rotate(180deg); }
-
-/* ── filter panel: one rounded bar hosting the asset-browser trigger.
-   The popup itself is teleported to body — this panel never grows or
-   stretches, whatever the popup does. ───────────────────────────── */
-.panel {
-  margin: 0.9rem auto 0;
-  width: 100%;
-  max-width: 880px;
-  max-height: 0;
-  opacity: 0;
-  overflow: hidden;
-  text-align: left;
-  border-radius: 16px;
-  transition: max-height 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.08),
-              opacity 0.4s ease 0.1s;
-}
-.panel.open {
-  /* three-way cap: fixed max, half-viewport, and — the one that
-     actually matters on short screens — the room below the actions
-     row, measured at runtime by PageHero (--panel-avail). The
-     fallback keeps the panel inside the page before the measure runs. */
-  max-height: min(70svh, 560px, var(--panel-avail, calc(100svh - 34rem)));
-  opacity: 1;
-  transition: max-height 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.08),
-              opacity 0.35s ease;
-}
-.panel-filter {
-  padding: 0.5rem;
-  background: var(--bg-card);
-  backdrop-filter: blur(6px);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-}
-
-/* ── filter trigger bar (the only content the panel ever holds) ─── */
-.panel-filter .vs-button {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-}
-.panel-filter .vs-button:hover {
-  border-color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
-}
-.vs-button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text);
-  font: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-.vs-button:hover {
-  border-color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
-}
-.vs-button .icon { width: 15px; height: 15px; color: var(--accent); flex: none; }
-.vs-button .vs-label { color: var(--text-dim); }
-.vs-button .vs-current {
-  margin-left: auto;
+.btn .chev { margin-left: auto; flex: none; width: 13px; height: 13px; color: var(--text-dim); }
+/* the filter trigger's live summary ("3 个资产" / "最新 2 个版本") */
+.btn .vs-current {
   color: var(--accent);
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-  letter-spacing: 0.5px;
+  font-size: 0.72em;
+  font-weight: 400;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.vs-button .chev { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.vs-button .chev.open { transform: rotate(180deg); }
-/* ── the filter popup (teleported to body, fixed against the trigger).
-   Non-linear pop-in, hard wheel-lock, capped to the space below (or
-   above) the anchor — it can never touch the page bottom. ────────── */
+.btn.active { border-color: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
+
+/* ── the asset filter popup (teleported to body, fixed against the
+   hero trigger). Compact by design: the filter block is fully visible
+   with no inner scrollbar, results fit ~4-6 rows (surplus scroll
+   internally), non-linear pop-in, hard wheel-lock, capped to the space
+   below (or above) the anchor — it can never touch the page bottom. ── */
 .fpopup {
   position: fixed;
   z-index: 200;
@@ -377,20 +341,19 @@ html, body {
 .fpop-filters {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 0.75rem 0.8rem 0.55rem;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--accent) transparent;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem 0.5rem;
+  position: relative;
+  flex: none; /* never scrolls — every filter must be visible at once */
 }
-.fgroup { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
-.fg-label {
-  flex: none;
-  width: 88px;
+.frow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem 0.9rem; }
+.fchips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+.fg-inline {
   color: var(--text-dim);
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   letter-spacing: 0.8px;
   text-transform: uppercase;
+  margin-right: 0.1rem;
 }
 .chip {
   padding: 0.18rem 0.6rem;
@@ -411,48 +374,165 @@ html, body {
   color: var(--text);
   box-shadow: 0 0 10px var(--accent-glow);
 }
-.chip-hint { margin-left: auto; font-size: 0.66rem; color: var(--text-dim); }
+
+/* ── version selector: one compact dropdown (all releases), not a
+   chip wall — with many versions chips become unusable ───────────── */
+.vsel { position: relative; flex: 1 1 190px; min-width: 190px; }
+.vsel-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.32rem 0.7rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.vsel-btn:hover { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+.vsel-btn .vsel-summary {
+  color: var(--accent);
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vsel-btn .chev { margin-left: auto; flex: none; width: 13px; height: 13px; color: var(--text-dim);
+                  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.vsel-btn .chev.open { transform: rotate(180deg); }
+.vsel-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 5;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--bg-card);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
+  padding: 0.3rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
+}
+.vsel-menu label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.26rem 0.5rem;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+.vsel-menu label:hover { background: var(--accent-glow); }
+.vsel-menu input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.vsel-menu .vsel-tag { font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+.vsel-menu .prerelease-badge { margin-left: auto; }
+.vsel-all {
+  border-bottom: 1px dashed var(--border);
+  border-radius: 7px 7px 0 0 !important;
+  color: var(--text-dim) !important;
+  font-size: 0.72rem !important;
+}
+
 .fpop-results {
-  flex: 1 1 auto;
+  flex: 1 1 190px;
   min-height: 0;
+  max-height: 244px; /* ~4-6 rows; surplus scrolls inside */
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
   border-top: 1px dashed var(--border);
-  padding: 0.65rem 0.8rem 0.7rem;
+  padding: 0.55rem 0.8rem 0.6rem;
 }
-.ver-group { display: flex; flex-direction: column; gap: 0.5rem; }
-.ver-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  border-bottom: 1px dashed var(--border);
-  padding-bottom: 0.3rem;
-}
-.ver-head b {
-  color: var(--accent);
-  font-weight: 400;
-  font-size: 0.78rem;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-}
-.vs-date { margin-left: auto; color: var(--text-dim); font-size: 0.72rem; }
 .fpopup .prerelease-badge {
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   padding: 0 0.4rem;
   border: 1px solid var(--lv-plugin);
   color: var(--lv-plugin);
   border-radius: 10px;
   white-space: nowrap;
 }
+
+/* results hierarchy — 大分类 OS → 中分类 arch → 小分类 rows (CLI/LIB/插件) */
+.res-os { margin-bottom: 0.55rem; }
+.res-os-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0 0 0.2rem;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.2rem;
+}
+.res-os-count { margin-left: auto; color: var(--text-dim); font-weight: 400; font-size: 0.66rem; }
+.res-arch { margin: 0.3rem 0 0.15rem 0.6rem; }
+.res-arch-head {
+  margin: 0 0 0.15rem;
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.res-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.1rem 0;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  line-height: 1.35;
+}
+.res-row:hover { color: var(--accent); text-decoration: underline; }
+.res-row .tag-kind {
+  flex: none;
+  font-size: 0.62rem;
+  letter-spacing: 1px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 0 0.3rem;
+}
+.res-row .tag-kind.lib { border-color: var(--lv-plugin); color: var(--lv-plugin); }
+.res-row .tag-kind.plugin { border-color: var(--lv-magenta); color: var(--lv-magenta); }
+.res-row .res-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.res-row .res-ver {
+  margin-left: auto;
+  flex: none;
+  color: var(--text-dim);
+  font-size: 0.64rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 0 0.3rem;
+}
 .fpop-foot {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 1.4rem;
-  padding: 0.5rem 0.8rem;
+  padding: 0.45rem 0.8rem;
   border-top: 1px dashed var(--border);
   background: rgba(255, 255, 255, 0.02);
+  flex: none;
 }
 .fpop-foot a {
   display: inline-flex;
@@ -473,8 +553,7 @@ html, body {
   color: var(--text-dim);
   font-size: 0.82rem;
 }
-/* non-linear pop-in — the old panel-curve SVG is gone; the motion
-   the popup gets is pure easing (req 4) */
+/* non-linear pop-in — pure easing, no literal curve */
 .fpop-enter-active {
   transition: transform 0.28s var(--ease-pop), opacity 0.2s ease;
 }
@@ -489,41 +568,6 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .fpop-enter-active, .fpop-leave-active { transition: none; }
   .fpop-enter-from, .fpop-enter-to, .fpop-leave-to { transform: none; }
-}
-
-/* ── assets grouped by architecture → OS (popup results) ────────── */
-.arch-head {
-  margin: 0 0 0.2rem;
-  color: var(--accent);
-  font-weight: 400;
-  font-size: 0.72rem;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-.os-row {
-  display: grid;
-  grid-template-columns: 88px 36px minmax(0, 1fr);
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.14rem 0;
-  font-size: 0.8rem;
-  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-}
-.os-row .os-name { color: var(--text-dim); }
-.os-row .tag-kind { color: var(--accent); font-size: 0.68rem; letter-spacing: 1px; }
-.os-row .tag-kind.lib { color: var(--lv-plugin); }
-.os-row a {
-  color: var(--text);
-  text-decoration: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.os-row a:hover { color: var(--accent); text-decoration: underline; }
-@media (prefers-reduced-motion: reduce) {
-  /* keep the bounded max-height (the panel must never overflow the
-     viewport); only drop the open/close transition */
-  .panel { max-height: min(70svh, 560px, var(--panel-avail, calc(100svh - 34rem))); opacity: 1; transition: none; }
 }
 
 /* Top controls */
@@ -691,14 +735,16 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   position: fixed;
   left: 0;
   top: 0;
-  width: 220px;
-  height: 220px;
-  margin: -110px 0 0 -110px;
-  background: radial-gradient(circle, rgba(127, 213, 255, 0.14) 0%, rgba(199, 146, 234, 0.06) 45%, transparent 70%);
+  width: 300px;
+  height: 300px;
+  margin: -150px 0 0 -150px;
+  background: radial-gradient(circle, rgba(127, 213, 255, 0.08) 0%, rgba(199, 146, 234, 0.04) 45%, transparent 70%);
   mix-blend-mode: screen;
   transform: translate(-100px, -100px);
 }
-/* comet trail — the last 24 positions as a brand-ramp polyline */
+/* comet trail — the last 22 smoothed positions drawn as a 4-layer
+   ribbon: wide blurred tail + solid mid fake the taper, the brand ramp
+   + glow live on the core and head only */
 .cyber-cursor-layer .cursor-comet {
   position: fixed;
   left: 0;
@@ -708,16 +754,30 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 }
 .cyber-cursor-layer .cursor-comet polyline {
   fill: none;
-  stroke: url(#cursor-grad);
-  stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
-  opacity: 0.75;
+}
+.cyber-cursor-layer .cursor-comet .tail {
+  stroke: #C792EA;
+  stroke-width: 5;
+  opacity: 0.10;
+  filter: blur(3px);
+}
+.cyber-cursor-layer .cursor-comet .mid {
+  stroke: #8A9BFF;
+  stroke-width: 2.2;
+  opacity: 0.22;
+}
+.cyber-cursor-layer .cursor-comet .core {
+  stroke: url(#cursor-grad);
+  stroke-width: 1.4;
+  opacity: 0.6;
 }
 .cyber-cursor-layer .cursor-comet .head {
+  stroke: url(#cursor-grad);
   stroke-width: 3;
-  opacity: 1;
-  filter: drop-shadow(0 0 4px rgba(199, 146, 234, 0.9));
+  opacity: 0.95;
+  filter: drop-shadow(0 0 4px rgba(199, 146, 234, 0.6));
 }
 /* twin rings: outer lags far (slow lerp), inner chases close */
 .cyber-cursor-layer .cursor-ring-o,
@@ -733,15 +793,15 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   width: 26px;
   height: 26px;
   margin: -13px 0 0 -13px;
-  border: 1.5px solid rgba(127, 213, 255, 0.55);
-  box-shadow: 0 0 10px rgba(127, 213, 255, 0.25);
+  border: 1.5px solid rgba(127, 213, 255, 0.4);
+  box-shadow: 0 0 10px rgba(127, 213, 255, 0.18);
 }
 .cyber-cursor-layer .cursor-ring-i {
   width: 8px;
   height: 8px;
   margin: -4px 0 0 -4px;
   background: #8A9BFF;
-  box-shadow: 0 0 8px #8A9BFF;
+  box-shadow: 0 0 8px rgba(138, 155, 255, 0.7);
 }
 /* snap frame — lerps onto the hovered click target */
 .cyber-cursor-layer .cursor-snap {
@@ -766,25 +826,25 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 .cyber-cursor-layer .cursor-ripple i {
   position: absolute;
   inset: 0;
-  border: 2px solid rgba(199, 146, 234, 0.9);
+  border: 2px solid rgba(199, 146, 234, 0.6);
   border-radius: 50%;
   opacity: 0;
 }
-.cyber-cursor-layer .cursor-ripple.go i { animation: cursor-ripple 0.4s var(--ease-out) forwards; }
+.cyber-cursor-layer .cursor-ripple.go i { animation: cursor-ripple 0.55s var(--ease-out) forwards; }
 @keyframes cursor-ripple {
-  from { opacity: 0.85; transform: scale(0.3); }
-  to { opacity: 0; transform: scale(2.6); }
+  from { opacity: 0.7; transform: scale(0.3); }
+  to { opacity: 0; transform: scale(2.2); }
 }
 /* state recolors — shape never swaps; the native pointer stays put */
 .cyber-cursor-layer.hot .cursor-glow {
-  background: radial-gradient(circle, rgba(244, 114, 208, 0.18) 0%, rgba(199, 146, 234, 0.08) 45%, transparent 70%);
+  background: radial-gradient(circle, rgba(244, 114, 208, 0.1) 0%, rgba(199, 146, 234, 0.04) 45%, transparent 70%);
 }
-.cyber-cursor-layer.hot .cursor-ring-o { border-color: rgba(244, 114, 208, 0.75); box-shadow: 0 0 14px rgba(244, 114, 208, 0.4); }
-.cyber-cursor-layer.hot .cursor-ring-i { background: #F472D0; box-shadow: 0 0 10px #F472D0; }
+.cyber-cursor-layer.hot .cursor-ring-o { border-color: rgba(244, 114, 208, 0.6); box-shadow: 0 0 14px rgba(244, 114, 208, 0.28); }
+.cyber-cursor-layer.hot .cursor-ring-i { background: #F472D0; box-shadow: 0 0 10px rgba(244, 114, 208, 0.65); }
 .cyber-cursor-layer.text .cursor-glow {
-  background: radial-gradient(circle, rgba(127, 213, 255, 0.18) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(127, 213, 255, 0.12) 0%, transparent 70%);
 }
-.cyber-cursor-layer.text .cursor-ring-o { border-color: rgba(127, 213, 255, 0.8); }
+.cyber-cursor-layer.text .cursor-ring-o { border-color: rgba(127, 213, 255, 0.7); }
 .cyber-cursor-layer.pressed .cursor-ring-o { scale: 0.75; border-color: #F472D0; }
 .cyber-cursor-layer.pressed .cursor-ring-i { scale: 1.8; }
 @media (prefers-reduced-motion: reduce) {
@@ -952,12 +1012,13 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
    Page 3 — Overview (uniform cards, Steam-style tilt)
    ================================================================ */
 #page3 { justify-content: flex-start; padding-top: 3rem; overflow: hidden; height: 100svh; }
-/* while a card is expanded the page may scroll (the card grows past
-   the fold); PageOverview soft-locks the wheel over it meanwhile */
-html.card-expanded #page3 { overflow-y: auto; scrollbar-gutter: stable; }
-html.card-expanded #page3 .container { height: auto; min-height: 100%; }
-/* the right wheel nav hides while a card is expanded */
+/* the right wheel nav hides while a card is expanded (inspect mode) */
 html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
+/* ...and the page scroll is frozen: the inspected card is position:fixed
+   with .grid (perspective) as its containing block, so any #page3 scroll
+   would drag the card away from center. This higher-specificity rule
+   beats the media-query `overflow-y: auto` on narrow screens. */
+html.card-expanded #page3 { overflow: hidden; }
 #page3 .container {
   max-width: 1100px;
   width: 100%;
@@ -985,45 +1046,48 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(2, minmax(0, 1fr)); /* every card is the same size */
   gap: 1.5rem;
+  perspective: 1400px; /* the Z-axis push of the inspected card */
+  perspective-origin: 50% 40%;
 }
-/* an expanded card takes the full first row; the other cards reflow
-   under it (FLIP-animated in PageOverview) instead of being squeezed */
-.grid.has-expanded { grid-template-rows: none; }
-/* dimmed frosted surface behind the cards while one is expanded */
+/* depth-of-field backdrop: --dof is rAF-ramped 0→1 by PageOverview
+   while a card flies out (game-inspect 景深), driving both the blur
+   and the darken. Above the neighbors, below the expanded card. */
 .grid::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.25);
-  backdrop-filter: blur(4px);
   z-index: 1;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.45s var(--ease-out);
+  background: rgba(0, 0, 0, calc(var(--dof, 0) * var(--backdrop-alpha, 0.22)));
+  backdrop-filter: blur(calc(var(--dof, 0) * 14px));
+  -webkit-backdrop-filter: blur(calc(var(--dof, 0) * 14px));
+  opacity: calc(var(--dof, 0));
 }
-.grid.has-expanded::after { opacity: 1; }
 
 .card {
   --mx: 50%;
   --my: 50%;
   --edge: 0;
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 1.2rem 1.5rem;
-  cursor: default;
+  cursor: pointer;
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   min-height: 0;
   z-index: 0;
-  transition: box-shadow 0.3s, scale 0.45s var(--ease-out), filter 0.45s var(--ease-out);
+  transition: box-shadow 0.3s, filter 0.45s var(--ease-out);
 }
 .card:hover { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 20px var(--card-glow); }
-/* spotlight — a soft bloom at the cursor, focusing sharply toward the
-   card's rim (--edge is boosted non-linearly by PageOverview, so the
-   edges light up while the center stays mellow) */
+/* spotlight — a soft ethereal bloom at the cursor plus corner/edge
+   accents that focus with --edge (distance from the center, boosted
+   non-linearly by PageOverview): the rim lights up, the center stays
+   airy. Under reduced motion it is hidden entirely (see below). */
 .card-spot {
   position: absolute;
   inset: 0;
@@ -1032,22 +1096,63 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   opacity: 0;
   transition: opacity 0.3s ease;
   background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(127, 213, 255, calc(0.1 + 0.35 * var(--edge))) 0 60px, transparent 140px),
-    radial-gradient(circle at var(--mx) var(--my), rgba(199, 146, 234, calc(0.05 + 0.25 * var(--edge))) 0 120px, transparent 240px);
+    radial-gradient(circle at var(--mx) var(--my), rgba(127, 213, 255, 0.10) 0, rgba(127, 213, 255, 0.05) 38%, transparent 70%),
+    radial-gradient(130% 130% at 0% 0%, rgba(199, 146, 234, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%),
+    radial-gradient(130% 130% at 100% 0%, rgba(244, 114, 208, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%),
+    radial-gradient(130% 130% at 0% 100%, rgba(138, 155, 255, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%),
+    radial-gradient(130% 130% at 100% 100%, rgba(127, 213, 255, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%);
+  box-shadow: inset 0 0 22px rgba(127, 213, 255, calc(0.04 + 0.10 * var(--edge)));
   mix-blend-mode: screen;
 }
 .card:hover .card-spot { opacity: 1; }
-/* expanded: full row, above the backdrop. The frosted surface
-   (.settled) applies only after the FLIP motion ends — backdrop-filter
-   re-samples every frame, so animating through it is blur churn. */
-.card.expanded { grid-column: 1 / -1; z-index: 2; overflow: visible; max-height: none; }
+/* expanded: overlay mode. Geometry (position/left/top/width/height) is
+   set inline by PageOverview — the card flies from its slot to the
+   viewport center with a Z-axis push; transform is frozen (no tilt)
+   while inspected. The frosted surface (.settled) applies after the
+   flight ends. */
+.card.expanded { z-index: 2; transform: none; cursor: default; }
 .card.expanded.settled {
-  background: rgba(13, 17, 25, 0.82);
+  background: var(--card-focus-bg);
   backdrop-filter: blur(12px);
   border-color: var(--accent);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 24px var(--card-glow);
+  box-shadow: var(--focus-shadow-main), 0 0 30px var(--card-glow);
 }
-.grid.has-expanded .card:not(.expanded) { scale: 0.98; filter: brightness(0.75); }
+/* neighbors 补位推进: slightly dimmed, never hidden */
+.grid.has-expanded .card:not(.expanded) { filter: brightness(var(--card-dim, 0.85)); }
+.card-close {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--highlight-bg);
+  color: var(--text-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.card-close:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+@media (prefers-reduced-motion: no-preference) {
+  /* Steam-style tilt — transform composes with the flight's individual
+     translate/scale properties (no conflict) */
+  .card {
+    transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+    transition: transform 0.22s ease-out, box-shadow 0.3s, filter 0.45s var(--ease-out);
+  }
+  /* soft focus ring as the inspected card settles */
+  .card.expanded.settled { animation: settle-ring 0.8s var(--ease-out) both; }
+}
+@keyframes settle-ring {
+  0% { box-shadow: 0 0 0 3px rgba(127, 213, 255, 0.35), var(--focus-shadow-main), 0 0 30px var(--card-glow); }
+  100% { box-shadow: var(--focus-shadow-main), 0 0 30px var(--card-glow); }
+}
 .card h3 {
   color: var(--accent);
   font-weight: 400;
@@ -1061,7 +1166,7 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
 .card ul { list-style: none; padding: 0; }
 .card ul li {
   padding: 0.25rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--row-border);
   font-size: var(--card-body);
 }
 .card ul li:last-child { border: none; }
@@ -1073,11 +1178,25 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
+  overflow-y: hidden; /* collapsed: never a scrollable sub-window */
   mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
   padding-right: 2px;
 }
-.card.expanded .card-body { mask-image: none; -webkit-mask-image: none; }
+.card.expanded .card-body {
+  mask-image: none;
+  -webkit-mask-image: none;
+  /* inspected: the card must NEVER scroll — every detail is laid out
+     natively to fit the 85svh card, so the body becomes a column that
+     hands the leftover height to the detail block */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.card.expanded .card-detail {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .card-body .sink-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1107,7 +1226,7 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   align-items: baseline;
   gap: 1rem;
   padding: 0.2rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--row-border);
   font-size: var(--card-body); /* body size — matches .card ul li */
 }
 .perf-row .k { color: var(--text-dim); }
@@ -1124,7 +1243,7 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   font-size: var(--card-meta);
   margin-top: 0.3rem;
 }
-.crit-table td { padding: 0.18rem 0.3rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
+.crit-table td { padding: 0.18rem 0.3rem; border-bottom: 1px solid var(--row-border); }
 .crit-table td:first-child {
   width: 62%;
   text-align: left;
@@ -1213,7 +1332,7 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   align-items: center;
   gap: 0.6rem;
   padding: 0.25rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--row-border);
   font-size: var(--card-body); /* body size — matches .card ul li */
 }
 .release-row a { color: var(--text); text-decoration: none; }
@@ -1265,28 +1384,146 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   color: var(--text-dim);
   line-height: 1.55;
 }
-.card-detail img { max-width: 100%; height: auto; display: block; }
-.arch-img {
+/* ── native visualizations — no SVG images. Everything below is plain
+   Vue/HTML/CSS designed to fit the 85svh expanded card: nothing ever
+   scrolls, so each diagram wraps compactly within the card body. ── */
+
+/* architecture pipeline: numbered stage tiles linked by arrows.
+   Single row (nowrap) so the ::after arrows always sit in a gap —
+   wrapping would scatter them. Tiles shrink + ellipsis on narrow cards. */
+.arch-pipe {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.9rem;
+}
+.pipe-stage {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  background: var(--svg-panel-bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.35);
+  padding: 0.45rem 0.3rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
-/* perf mini bar chart */
-.perf-bars { width: 100%; max-width: 320px; height: auto; display: block; }
-.perf-bar { fill: url(#perf-bar-grad); filter: drop-shadow(0 0 4px rgba(199, 146, 234, 0.5)); }
-.perf-bar-label { fill: var(--text-dim); font-size: 9px; }
-.perf-bar-val {
-  fill: var(--accent);
-  font-size: 9px;
+.pipe-stage:hover { border-color: var(--accent); box-shadow: 0 0 12px var(--accent-glow); }
+.pipe-stage .pipe-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+.pipe-stage .pipe-name {
+  font-size: 0.68rem;
+  color: var(--text);
+  text-align: center;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pipe-stage .pipe-sub {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  letter-spacing: 0.3px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pipe-stage:not(:last-child)::after {
+  content: '→';
+  position: absolute;
+  right: -0.82rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent);
+  font-size: 0.75rem;
+  z-index: 1;
+}
+/* the hot path — a highlighted strip under the pipeline */
+.arch-hotpath {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed var(--accent);
+  border-radius: 10px;
+  background: rgba(127, 213, 255, 0.05);
+}
+.arch-hotpath .hp-tag {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--accent);
+  margin-right: 0.2rem;
+}
+.arch-hotpath .hp-chip {
+  font-size: var(--card-meta);
+  color: var(--text);
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  padding: 0.08rem 0.5rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--svg-panel-bg);
 }
-/* security chain + trust chips */
-.sec-chain { width: 100%; max-width: 320px; height: auto; display: block; }
-.chain-box { fill: rgba(13, 17, 25, 0.7); stroke: rgba(127, 213, 255, 0.35); stroke-width: 1; }
-.chain-lsn { fill: var(--accent); font-size: 12px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
-.chain-hash { fill: var(--text-dim); font-size: 8px; letter-spacing: 1px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
-.chain-link { stroke: url(#chain-grad); stroke-width: 2; fill: none; }
-.chain-arrowhead { fill: #C792EA; }
+
+/* security audit chain: LSN boxes linked by arrows */
+.chain-native {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 1.4rem;
+}
+.chain-node {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: var(--svg-panel-bg);
+  border: 1px solid rgba(127, 213, 255, 0.35);
+  border-radius: 10px;
+  padding: 0.4rem 0.4rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+}
+.chain-node:not(:last-child)::after {
+  content: '→';
+  position: absolute;
+  right: -1.12rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+.chain-node .chain-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: linear-gradient(90deg, #7fd5ff, #c792ea, #f472d0);
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+.chain-node .chain-lsn {
+  color: var(--accent);
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+.chain-node .chain-hash {
+  color: var(--text-dim);
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.5px;
+}
+.chain-node .chain-signed {
+  color: var(--lv-info);
+  font-size: 0.6rem;
+  letter-spacing: 0.5px;
+}
 .trust-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
 .trust-chip {
   padding: 0.08rem 0.55rem;
@@ -1299,13 +1536,99 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
 .trust-chip.violet { color: #C792EA; background: rgba(199, 146, 234, 0.1); }
 .trust-chip.magenta { color: #F472D0; background: rgba(244, 114, 208, 0.1); }
 .trust-caption { color: var(--text-dim); font-size: var(--card-meta); }
-/* sinks fan-out */
-.sink-fan { width: 100%; max-width: 320px; height: auto; display: block; }
-.fan-core { fill: rgba(127, 213, 255, 0.12); stroke: url(#fan-grad); stroke-width: 2; }
-.fan-core-label { fill: var(--accent); font-size: 9px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
-.fan-line { stroke: url(#fan-grad); stroke-width: 1; opacity: 0.55; }
-.fan-node { fill: rgba(13, 17, 25, 0.7); stroke: rgba(199, 146, 234, 0.4); stroke-width: 1; }
-.fan-node-label { fill: var(--text); font-size: 8px; font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace; }
+
+/* sinks fan-out: core → trunk → branch grid */
+.fan-native {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+.fan-core {
+  flex: none;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(127, 213, 255, 0.1);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+.fan-trunk {
+  flex: none;
+  width: 34px;
+  border-top: 1px dashed var(--accent);
+}
+.fan-branches {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 0.35rem;
+}
+.fan-branch {
+  background: var(--svg-panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.24rem 0.35rem;
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.fan-branch:hover { border-color: var(--accent); color: var(--accent); }
+
+/* perf mini bar chart — native DOM columns */
+.bars-native {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.7rem;
+  padding-top: 0.2rem;
+}
+.bar-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+.bar-col .bar-val {
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.62rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.bar-col .bar-track {
+  display: block;
+  width: 100%;
+  height: 52px;
+  background: rgba(127, 213, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+}
+.bar-col .bar-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: var(--h);
+  background: linear-gradient(to top, #7fd5ff, #c792ea, #f472d0);
+  border-radius: 6px 6px 0 0;
+  box-shadow: 0 0 6px rgba(199, 146, 234, 0.5);
+}
+.bar-col .bar-label {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* reveal of the detail block — non-linear, staggered in behind the
    card's own FLIP settle */
@@ -1315,6 +1638,19 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
 @keyframes card-detail-in {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* perf bars grow up from the track (scaleY, no layout thrash) */
+@media (prefers-reduced-motion: no-preference) {
+  .bar-fill {
+    transform: scaleY(0);
+    transform-origin: bottom;
+    animation: bar-grow 0.7s var(--ease-out) 0.2s forwards;
+  }
+}
+@keyframes bar-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
 }
 
 /* ── page-3 micro-animations (all gated on motion preference) ────── */
@@ -1361,6 +1697,10 @@ html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
   0% { transform: scale(1); }
   40% { transform: scale(1.15); }
   100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card { transform: none; transition: none; }
+  .card-spot { display: none; }
 }
 @keyframes sep-pulse {
   0%, 100% { color: var(--text-dim); opacity: 0.6; text-shadow: none; }
@@ -1422,20 +1762,23 @@ body::after {
   .ide-sidebar { width: 100px; }
   .ide-sidebar .file-item { font-size: 0.7rem; padding: 0.3rem 0.5rem; }
   .ide-code { font-size: 0.7rem; padding: 0.5rem; }
-  .grid { grid-template-columns: 1fr 1fr; grid-template-rows: none; flex: none; }
-  .card { max-height: 400px; }
-  #page3 { height: auto; overflow: visible; }
-  #page3 .container { height: auto; }
+  .grid { grid-template-columns: 1fr 1fr; grid-template-rows: none; }
+  .card:not(.expanded) { max-height: 400px; }
+  /* page 3 keeps its one-screen frame; the stacked card list scrolls
+     inside the page instead of pushing the slide taller */
+  #page3 { overflow-y: auto; padding-top: 1.5rem; }
+  #page3 .container { height: auto; min-height: 100%; }
   .top-controls { top: 0.5rem; right: 0.5rem; padding: 0.2rem 0.5rem; max-width: 220px; }
   .top-controls .btn-small { font-size: 0.6rem; padding: 0.1rem 0.4rem; }
   .btn { padding: 0.5rem 1.2rem; }
-  .os-row { grid-template-columns: 76px 32px minmax(0, 1fr); }
 }
 @media (max-width: 500px) {
   .grid { grid-template-columns: 1fr; }
   .actions { gap: 0.5rem; }
   .btn { padding: 0.4rem 0.9rem; }
   .term-title { display: none; }
+  /* phone-width logs wrap instead of overflowing the terminal */
+  .term-body .log-line { white-space: pre-wrap; word-break: break-word; }
 }
 /* short landscape screens: keep everything reachable */
 @media (max-height: 720px) and (orientation: landscape) {
@@ -1448,10 +1791,14 @@ body::after {
 /* Touch devices and narrow screens: no wheel hijack, natural stacking.
    The wheel nav (usePageNav.ts) also checks these media queries. */
 @media (hover: none) and (pointer: coarse), (max-width: 700px) {
-  .page { height: auto; min-height: 0; padding: 1rem; }
-  #page1, #page2 { min-height: 100svh; }
-  #page2 { height: auto; }
-  .ide-wrapper { min-height: 65vh; }
+  /* Every page keeps its exact one-screen height (base .page = 100svh +
+     overflow hidden); only the padding softens. Content that doesn't fit
+     scrolls *inside* the page — page 1 hero, page 3 cards — instead of
+     blowing the slide open. */
+  .page { padding: 1rem; }
+  /* narrow hero: page 1 may scroll internally; `safe center` avoids the
+     flex-center clip bug that would cut off the top of overflowing content */
+  #page1 { overflow-y: auto; justify-content: safe center; }
   #page3 { padding-top: 1.5rem; }
   .scroll-hint { bottom: 1.5rem; }
   .page-nav { display: none; }

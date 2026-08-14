@@ -74,6 +74,8 @@ export interface SiteData {
 /* ------------------------------------------------------------------
  * v0.1.0 fallback — the REAL release manifest (asset names match the
  * release.yml build matrix). Used offline / rate-limited / pre-release.
+ * Includes the official-plugins bundle: ONE asset per OS/arch carrying
+ * every official plugin (fmt-json, fmt-text, filter-level, field-container).
  * ---------------------------------------------------------------- */
 export const ASSET_NAMES = [
   'dologctl-linux-x86_64', 'dologctl-linux-aarch64', 'dologctl-linux-i686',
@@ -85,6 +87,12 @@ export const ASSET_NAMES = [
   'libdologger_core-linux-riscv64.so',
   'dologger_core-windows-x86_64.dll', 'dologger_core-windows-aarch64.dll', 'dologger_core-windows-i686.dll',
   'libdologger_core-macos-aarch64.dylib', 'libdologger_core-macos-x86_64.dylib',
+  'dologger-official-plugins-linux-x86_64.so', 'dologger-official-plugins-linux-aarch64.so',
+  'dologger-official-plugins-linux-i686.so', 'dologger-official-plugins-linux-armv7.so',
+  'dologger-official-plugins-linux-riscv64.so',
+  'dologger-official-plugins-windows-x86_64.dll', 'dologger-official-plugins-windows-aarch64.dll',
+  'dologger-official-plugins-windows-i686.dll',
+  'dologger-official-plugins-macos-aarch64.dylib', 'dologger-official-plugins-macos-x86_64.dylib',
   'benchmark-results.json'
 ]
 
@@ -186,8 +194,10 @@ async function withCache<T>(key: string, apiFn: () => Promise<T | null>, bakedUr
 /* ------------------------------------------------------------------ */
 
 function getReleases(): Promise<Release[]> {
+  /* per_page=100 — the filter popup's version selector lists every
+     release, not just the newest handful. */
   return withCache<Release[]>('dologger:releases',
-    () => apiGet<Release[]>('/repos/' + REPO + '/releases?per_page=5'),
+    () => apiGet<Release[]>('/repos/' + REPO + '/releases?per_page=100'),
     './data/releases.json', FALLBACK_RELEASES)
 }
 function getRepo(): Promise<Repo> {
@@ -287,11 +297,15 @@ async function detectPlatform(): Promise<Platform> {
 /* ------------------------------------------------------------------
  * Asset matching. Names are matched by PREFIX + SUFFIX, never by exact
  * string, so both naming schemes resolve:
- *   legacy:    dologctl-linux-x86_64
- *   versioned: dologctl-v0.2.0-linux-x86_64  (release.yml, v0.2.0+)
+ *   legacy:    dologctl-linux-x86_64          (pre-v0.1.0 published assets)
+ *   versioned: dologctl-v0.1.0-linux-x86_64   (release.yml)
  * ------------------------------------------------------------------ */
 const CLI_PREFIX = 'dologctl'
 const LIB_PREFIXES = ['libdologger_core', 'dologger_core']
+/* Official plugins ship as ONE bundle library per platform
+   (naming rule: dologger-official-plugins-{tag}-{os}-{arch}.{ext}),
+   which hosts every official plugin — no per-plugin files. */
+const PLUGIN_PREFIX = 'dologger-official-plugins'
 export const OS_ORDER: Platform['os'][] = ['linux', 'windows', 'macos']
 export const ARCH_ORDER = ['x86_64', 'aarch64', 'i686', 'armv7', 'riscv64']
 const ARCH_RE = /(?:x86_64|aarch64|i686|armv7|riscv64)/
@@ -307,7 +321,23 @@ export function assetFor(release: Release, os: Platform['os'], arch: string): Re
   return hit || null
 }
 
-export interface AssetRow { os: Platform['os']; cli?: ReleaseAsset; lib?: ReleaseAsset }
+/** Human-readable asset name for the popup rows: strip the os-arch tail
+ *  (already conveyed by the group headers) and, for versioned names, the
+ *  -{tag} segment. The bundle asset keeps its full stem
+ *  (`dologger-official-plugins`); the complete name stays in `title`. */
+export function shortName(name: string, tag: string): string {
+  let base = name.replace(ASSET_TAIL, '')
+  if (base.endsWith('-' + tag)) base = base.slice(0, base.length - tag.length - 1)
+  return base
+}
+
+export interface AssetRow {
+  os: Platform['os']
+  cli?: ReleaseAsset
+  lib?: ReleaseAsset
+  /** Official plugins shipped with this release (several per OS/arch). */
+  plugins?: ReleaseAsset[]
+}
 export interface ArchGroup { arch: string; rows: AssetRow[] }
 
 /** Group a release's assets by architecture → OS (both naming schemes). */
@@ -320,7 +350,8 @@ export function groupAssets(release: Release): ArchGroup[] {
   for (const a of assets) {
     const isCli = a.name.startsWith(CLI_PREFIX)
     const isLib = LIB_PREFIXES.some(function (p) { return a.name.startsWith(p) })
-    if (!isCli && !isLib) continue
+    const isPlugin = a.name.startsWith(PLUGIN_PREFIX)
+    if (!isCli && !isLib && !isPlugin) continue
     const m = a.name.match(ASSET_TAIL)
     if (!m) continue
     const os = m[1] as Platform['os']
@@ -329,7 +360,8 @@ export function groupAssets(release: Release): ArchGroup[] {
     if (!osMap) { osMap = new Map(); byArch.set(arch, osMap) }
     const row = osMap.get(os) || { os }
     if (isCli) row.cli = a
-    else row.lib = a
+    else if (isLib) row.lib = a
+    else (row.plugins || (row.plugins = [])).push(a)
     osMap.set(os, row)
   }
 

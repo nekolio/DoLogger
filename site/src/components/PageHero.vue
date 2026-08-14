@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteData, pickRelease, assetFor, type Platform } from '../data'
 import FilterPopup from './FilterPopup.vue'
@@ -12,7 +12,6 @@ const WIKI_URL = REPO_URL + '/wiki'
 const RELEASES_URL = REPO_URL + '/releases'
 const OS_KEYS: Record<string, string> = { windows: 'os-windows', macos: 'os-macos', linux: 'os-linux' }
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-const open = ref(REDUCED_MOTION) // reduced-motion users get the panel pre-opened
 
 /* Everything derives from the SELECTED release (default: latest), so
    picking a single version in the filter popup flips the download
@@ -36,35 +35,11 @@ const docsUrl = computed(() =>
   locale.value === 'zh' ? WIKI_URL + '/Chinese-Home' : WIKI_URL + '/Home'
 )
 
-/* ── filter popup (trigger bar in the panel) ─────────────────────── */
+/* ── filter popup — opened directly from the actions row (no panel) ─ */
 const fOpen = ref(false)
 const filterAnchorEl = ref<HTMLElement | null>(null)
 const popupRef = ref<InstanceType<typeof FilterPopup> | null>(null)
 const filterSummary = computed(() => popupRef.value?.summary ?? '')
-watch(open, (v) => { if (!v) fOpen.value = false }) // closing the panel drops the popup
-
-/* ── panel height cap, measured at runtime ─────────────────────────
- * The open panel must never push the hero past the fold, but the
- * content above it (hero art, title, tags, actions) is not a fixed
- * size — locale, zoom, and width all change it. So measure the real
- * distance from the actions row to the viewport bottom and expose it
- * as --panel-avail; the CSS cap then always leaves the panel inside
- * the page, whatever the layout ends up being. */
-const actionsEl = ref<HTMLElement | null>(null)
-const PAGE_PAD = 24     // .page padding (1.5rem)
-const PANEL_GAP = 14    // .panel margin-top (0.9rem)
-const PANEL_SLACK = 24  // breathing room so nothing sits flush at the fold
-let measureRaf = 0
-function measurePanelAvail() {
-  cancelAnimationFrame(measureRaf)
-  measureRaf = requestAnimationFrame(() => {
-    const el = actionsEl.value
-    if (!el) return
-    const above = el.offsetTop + el.offsetHeight // offsetParent = .hero-content
-    const avail = Math.max(0, window.innerHeight - PAGE_PAD * 2 - above - PANEL_GAP - PANEL_SLACK)
-    document.documentElement.style.setProperty('--panel-avail', avail + 'px')
-  })
-}
 
 /* ── scroll-hint typewriter ───────────────────────────────────────── */
 const hintText = ref('')
@@ -115,18 +90,6 @@ function scrollToDemo() {
 watch(locale, () => restartHintTyping())
 onMounted(restartHintTyping)
 onBeforeUnmount(stopHintTyping)
-
-/* re-measure whenever the layout above the panel could change */
-onMounted(() => {
-  measurePanelAvail()
-  window.addEventListener('resize', measurePanelAvail)
-  if (document.fonts) document.fonts.ready.then(measurePanelAvail).catch(() => {})
-})
-watch(locale, () => nextTick(measurePanelAvail))
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', measurePanelAvail)
-  cancelAnimationFrame(measureRaf)
-})
 </script>
 
 <template>
@@ -150,15 +113,17 @@ onBeforeUnmount(() => {
         <span><svg class="icon"><use href="./assets/icons.svg#icon-cloud"></use></svg> {{ t('tag-sinks') }}</span>
       </div>
 
-      <div class="actions" ref="actionsEl">
+      <div class="actions">
         <a :href="downloadUrl" class="btn btn-primary">
           <svg class="icon"><use href="./assets/icons.svg#icon-download"></use></svg>
           {{ t('download') }} <span>{{ osLabel }}</span>
         </a>
-        <button class="btn btn-outline" type="button" @click="open = !open">
-          <svg class="icon"><use href="./assets/icons.svg#icon-layers"></use></svg>
-          {{ t('panel-title') }}
-          <svg class="icon chev" :class="{ open }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
+        <button ref="filterAnchorEl" type="button" class="btn btn-outline" :class="{ active: fOpen }"
+                :aria-expanded="fOpen" aria-haspopup="dialog" @click="fOpen = !fOpen">
+          <svg class="icon"><use href="./assets/icons.svg#icon-tag"></use></svg>
+          {{ t('panel-filter-title') }}
+          <b class="vs-current">{{ filterSummary }}</b>
+          <svg class="icon chev" :class="{ open: fOpen }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
         </button>
         <a :href="docsUrl" class="btn btn-outline">
           <svg class="icon"><use href="./assets/icons.svg#icon-book"></use></svg>
@@ -168,21 +133,6 @@ onBeforeUnmount(() => {
           <svg class="icon"><use href="./assets/icons.svg#icon-star"></use></svg>
           {{ t('star') }}
         </a>
-      </div>
-
-      <!-- the panel now hosts only the filter trigger — the popup holds
-           the filters AND the live-filtered asset list, positioned
-           against the viewport so it never stretches this panel -->
-      <div class="panel" :class="{ open }" :aria-hidden="!open">
-        <div class="panel-filter" ref="filterAnchorEl">
-          <button type="button" class="vs-button" :aria-expanded="fOpen" aria-haspopup="dialog"
-                  @click="fOpen = !fOpen">
-            <svg class="icon"><use href="./assets/icons.svg#icon-tag"></use></svg>
-            <span class="vs-label">{{ t('panel-filter-title') }}</span>
-            <b class="vs-current">{{ filterSummary }}</b>
-            <svg class="icon chev" :class="{ open: fOpen }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
-          </button>
-        </div>
       </div>
     </div>
 

@@ -3,7 +3,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteData, FALLBACK_BENCHMARKS } from '../../data'
 
-defineProps<{ expanded?: boolean }>()
+const props = defineProps<{ expanded?: boolean }>()
 const { t } = useI18n()
 const siteData = useSiteData()
 
@@ -65,6 +65,28 @@ watch(through, runCountUp)
 onMounted(runCountUp)
 onBeforeUnmount(() => cancelAnimationFrame(countRaf))
 
+/* The mount-time CSS sweep (gauge-pegged) is long over by the time the
+   user reaches page 3 — replay the needle sweep + count-up whenever the
+   card is inspected. WAAPI overrides the CSS animation while it runs;
+   reduced-motion users see only the final state (never replayed). */
+const needleRef = ref<SVGGElement | null>(null)
+let needleAnim: Animation | null = null
+function replayGauge() {
+  runCountUp()
+  const el = needleRef.value
+  if (!el || REDUCED_MOTION) return
+  needleAnim?.cancel()
+  const base = gaugeAngle.value
+  needleAnim = el.animate([
+    { transform: 'rotate(-90deg)' },
+    { transform: 'rotate(' + (base + 16) + 'deg)' },
+    { transform: 'rotate(' + (base - 5) + 'deg)' },
+    { transform: 'rotate(' + base + 'deg)' }
+  ], { duration: 1200, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' })
+}
+watch(() => props.expanded, (v) => { if (v) replayGauge() })
+onBeforeUnmount(() => needleAnim?.cancel())
+
 /* mini bar chart (expanded only): throughput per environment */
 interface Bar { label: string; num: string; v: number }
 const bars = computed<Bar[]>(() =>
@@ -94,7 +116,7 @@ const maxBar = computed(() => Math.max(1, ...bars.value.map(b => b.v)))
         </g>
         <path class="gauge-track" d="M 22 100 A 78 78 0 0 1 178 100" pathLength="1" />
         <path class="gauge-arc" d="M 22 100 A 78 78 0 0 1 178 100" pathLength="1" :stroke-dasharray="gaugeDash + ' 1'" />
-        <g class="gauge-needle" :class="{ pegged }" :style="{ '--gauge-angle': gaugeAngle + 'deg' }">
+        <g ref="needleRef" class="gauge-needle" :class="{ pegged }" :style="{ '--gauge-angle': gaugeAngle + 'deg' }">
           <line x1="100" y1="100" x2="100" y2="34" />
           <circle cx="100" cy="100" r="5" />
         </g>
@@ -118,19 +140,13 @@ const maxBar = computed(() => Math.max(1, ...bars.value.map(b => b.v)))
         </div>
       </template>
 
-      <svg class="perf-bars" viewBox="0 0 320 92" role="img" :aria-label="t('perf-chart-aria')">
-        <defs>
-          <linearGradient id="perf-bar-grad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#7FD5FF" />
-            <stop offset="1" stop-color="#F472D0" />
-          </linearGradient>
-        </defs>
-        <g v-for="(b, i) in bars" :key="i">
-          <rect :x="14 + i * 46" :y="58 - (b.v / maxBar) * 48" width="28" :height="(b.v / maxBar) * 48" rx="4" class="perf-bar" />
-          <text :x="28 + i * 46" y="76" text-anchor="middle" class="perf-bar-label">{{ b.label }}</text>
-          <text :x="28 + i * 46" y="88" text-anchor="middle" class="perf-bar-val">{{ b.num }}</text>
-        </g>
-      </svg>
+      <div class="bars-native" role="img" :aria-label="t('perf-chart-aria')">
+        <div v-for="(b, i) in bars" :key="i" class="bar-col">
+          <span class="bar-val">{{ b.num }}</span>
+          <span class="bar-track"><span class="bar-fill" :style="{ '--h': (b.v / maxBar) * 100 + '%' }"></span></span>
+          <span class="bar-label">{{ b.label }}</span>
+        </div>
+      </div>
 
       <template v-if="benchmarks.criterion && benchmarks.criterion.length">
         <div class="env-label">{{ t('perf-crit') }}</div>

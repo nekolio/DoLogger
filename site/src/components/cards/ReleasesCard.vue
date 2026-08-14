@@ -10,8 +10,9 @@ const siteData = useSiteData()
 const RELEASES_URL = 'https://github.com/Nekolio/DoLogger/releases'
 
 const releases = computed(() => siteData.value?.releases ?? [])
-/* collapsed: the latest few; expanded: the full list */
-const visible = computed(() => props.expanded ? releases.value : releases.value.slice(0, 3))
+/* collapsed: the latest few; expanded: bounded to 8 so the list always
+   fits the 85svh card without an inner scrollbar */
+const visible = computed(() => props.expanded ? releases.value.slice(0, 8) : releases.value.slice(0, 3))
 function fmtDate(iso: string): string {
   const d = new Date(iso)
   return isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)

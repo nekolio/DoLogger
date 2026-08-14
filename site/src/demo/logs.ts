@@ -44,7 +44,7 @@ export const BEFORE_LOGS: DemoLog[] = [
 ]
 
 export const AFTER_LOGS: DemoLog[] = [
-  { side: 'after', cls: 'info',   text: '[INFO]  [core]     DoLogger v0.2.0 — ring buffer + Treiber pool, zero heap on submit' },
+  { side: 'after', cls: 'info',   text: '[INFO]  [core]     DoLogger v0.1.0 — ring buffer + Treiber pool, zero heap on submit' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   sandbox armed: seccomp-bpf · AppContainer · Sandbox' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   4 plugins loaded · trust BLUE · api v3' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   timestamp: plugin attached — human-readable wall-clock format' },

@@ -40,11 +40,11 @@ cp "$ROOT"/Docs/assets/architecture.svg "$OUT/assets/architecture.svg"
 # 3. Bake live data.
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
   echo "> baking live data (GITHUB_TOKEN set)"
-  gh api "repos/$REPO/releases?per_page=5" > "$OUT/data/releases.json" 2>/dev/null \
+  gh api "repos/$REPO/releases?per_page=100" > "$OUT/data/releases.json" 2>/dev/null \
     || echo '[]' > "$OUT/data/releases.json"
   gh api "repos/$REPO/contributors?per_page=12" > "$OUT/data/contributors.json" 2>/dev/null \
     || echo '[]' > "$OUT/data/contributors.json"
-  TAG="$(gh api "repos/$REPO/releases?per_page=5" --jq '.[0].tag_name' 2>/dev/null || true)"
+  TAG="$(gh api "repos/$REPO/releases?per_page=100" --jq '.[0].tag_name' 2>/dev/null || true)"
   if [[ -n "$TAG" ]]; then
     BENCH_URL="$(gh api "repos/$REPO/releases/tags/$TAG" \
       --jq '.assets[] | select(.name=="benchmark-results.json") | .browser_download_url' 2>/dev/null || true)"
