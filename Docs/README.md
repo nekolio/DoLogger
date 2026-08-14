@@ -62,7 +62,7 @@ Deep dive into the full specification?
 | [Host Integration Guide](en_US/guides/HostIntegrationGuide.md) | Full C ABI reference — every function, struct, and error code |
 | [Plugin Development Guide](en_US/guides/PluginDevelopmentGuide.md) | Rust plugin VTable implementation, signing, publishing |
 | [Adapter Development Guide](en_US/guides/AdapterDevelopmentGuide.md) | Creating language adapters (Python, Go, C, C++) |
-| [Extended Plugin Type Guide](en_US/guides/ExtendedPluginTypeGuide.md) | Advanced patterns for all 10 VTable plugin types |
+| [Extended Plugin Type Guide](en_US/guides/ExtendedPluginTypeGuide.md) | Advanced patterns for all 9 VTable plugin types |
 | [dologctl Command Reference](en_US/guides/DologctlCommandReference.md) | Complete CLI reference — every subcommand, option, exit code |
 
 ### English Documents (en_US) — Operations & Security
@@ -99,7 +99,7 @@ Deep dive into the full specification?
 | [宿主集成手册](zh_CN/guides/HostIntegrationGuide.md) | 将 DoLogger 嵌入宿主应用的完整指南 |
 | [插件开发指南](zh_CN/guides/PluginDevelopmentGuide.md) | Rust 插件 VTable 实现、签名、发布流程 |
 | [适配器开发指南](zh_CN/guides/AdapterDevelopmentGuide.md) | 为 Python、Go、C/C++ 创建语言适配器 |
-| [扩展插件类型开发指南](zh_CN/guides/ExtendedPluginTypeGuide.md) | 10 种 VTable 插件类型高级模式 |
+| [扩展插件类型开发指南](zh_CN/guides/ExtendedPluginTypeGuide.md) | 9 种 VTable 插件类型高级模式 |
 | [dologctl 命令参考](zh_CN/guides/DologctlCommandReference.md) | CLI 完整参考 —— 每个子命令、选项、退出码 |
 
 ### 中文文档 (zh_CN) — 运维与安全

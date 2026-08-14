@@ -4,7 +4,7 @@
 
 > **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Advanced Plugin Developers, Core Contributors
 >
-> **Purpose**: This document provides advanced guidance for implementing all 10 VTable plugin types in DoLogger. It covers design decisions for selecting plugin types, sandbox-aware SyscallBroker implementation, custom PolicyProvider patterns, plugin dependency management, state serialization for hot reload, and multi-phase plugin registration.
+> **Purpose**: This document provides advanced guidance for implementing all 9 VTable plugin types in DoLogger. It covers design decisions for selecting plugin types, sandbox-aware SyscallBroker implementation, custom PolicyProvider patterns, plugin dependency management, state serialization for hot reload, and multi-phase plugin registration.
 >
 > **Reading Path**: Plugin developers who have completed the [Plugin Development Guide](PluginDevelopmentGuide.md) should start with [Choosing the Right Plugin Type](#choosing-the-right-plugin-type). Developers implementing security-critical plugins should read [SyscallBroker Implementation](#syscallbroker-implementation) and [Multi-Phase Plugins](#multi-phase-plugins). Plugin ecosystem maintainers should review [Plugin Dependency Management](#plugin-dependency-management).
 
@@ -40,7 +40,7 @@ flowchart TD
     M -->|"Application/business metadata (user ID, session ID, trace ID)"| D["FieldProvider<br/>Mount Phase: field (Stage 2)<br/>Has Ring 2 write access (Blue/Yellow) or Ring 3 (Red)"]
     Q -->|"Transform or redact log content"| E["Processor<br/>Mount Phase: process (Stage 4)<br/>Key Question: Does the record need PII masking, enrichment, or restructuring?"]
     Q -->|"Change how records are serialized"| F["Formatter<br/>Mount Phase: format (Stage 5)<br/>Key Question: Should output be JSON, CSV, protobuf, or custom binary?"]
-    Q -->|"Write records to a destination"| G["IOSink<br/>Mount Phase: sink (Stage 6)<br/>Key Question: Where should formatted records go? File, network, database?"]
+    Q -->|"Write records to a destination"| G["Sink (core built-in, not a plugin)<br/>Stage 6: configure the 11 built-in sinks,<br/>or use Callback Sink for host-owned output"]
     Q -->|"Load configuration from an external source"| H["ConfigProvider<br/>Mount Phase: config (load-time, not in pipeline)<br/>Key Question: Does config come from Vault, etcd, S3, or a database?"]
     Q -->|"Manage cryptographic keys"| I["KeyProvider<br/>Mount Phase: key (load-time, not in pipeline)<br/>Key Question: Should signing keys come from HSM, KMS, or file?"]
     Q -->|"Mediate OS access for sandboxed plugins"| J["SyscallBroker<br/>Mount Phase: syscall (proxy, not in pipeline)<br/>Key Question: Can a sandboxed plugin safely perform file I/O or network calls?"]
@@ -58,7 +58,6 @@ flowchart TD
 | `HostInfoProvider` | No | **Yes** (Ring 1 only) | Ring 1 | 2 |
 | `Processor` | **Yes** | **Yes** | Ring 2 (Blue/Yellow) or Ring 3 (Red) | 4 |
 | `Formatter` | No | No | None (read-only) | 5 |
-| `IOSink` | No | No | None (read-only) | 6 |
 | `ConfigProvider` | N/A | N/A | N/A | Load-time |
 | `KeyProvider` | N/A | N/A | N/A | Load-time |
 | `SyscallBroker` | N/A | N/A | N/A | Proxy |
@@ -755,11 +754,11 @@ The engine discovers additional VTables by symbol lookup. The primary VTable (ma
 **Good use cases:**
 - A PII processor that also filters records containing unredacted secrets in the filter phase (defense in depth)
 - A JSON formatter that also provides JSON-specific fields (FieldProvider + Formatter)
-- An audit plugin that both signs records (Processor) and exports to a WORM sink (IOSink)
+- An audit plugin that both signs records (Processor) and exports to a WORM sink (via the built-in WORM sink)
 
 **Bad use cases:**
 - Unrelated functionality crammed into one plugin (violates single responsibility)
-- A filter that also writes to a file (Filter should filter, IOSink should write)
+- A filter that also writes to a file (Filter should filter; output routing belongs to the built-in sinks)
 - A ConfigProvider that also signs records (ConfigProvider should load config, KeyProvider should sign)
 
 ### Multi-Phase Execution Order

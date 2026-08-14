@@ -216,7 +216,7 @@ Global flags: `--output json|text`, `--color auto|always|never`, `--quiet`, `--c
 
 ---
 
-## Plugin System (10 VTable Types)
+## Plugin System (9 VTable Types)
 
 | Plugin Type | Phase | Description |
 |:-:|:-:|:-:|
@@ -224,12 +224,18 @@ Global flags: `--output json|text`, `--color auto|always|never`, `--quiet`, `--c
 | **FieldProvider** | 2 | Inject fields (HostInfoProvider is a restricted subtype) |
 | **Processor** | 4 | Transform / enrich / detect secrets |
 | **Formatter** | 5 | Serialize records to output format |
-| **IOSink** | 6 | Final output destination |
 | **ConfigProvider** | — | External config source (remote config center) |
 | **KeyProvider** | — | Ed25519 key service (externalize to HSM) |
 | **PolicyProvider** | 0 | Pre-submit policy (rate limiting, level filtering) |
 | **HostInfoProvider** | 2 | System info injection (ring1_only=true) |
 | **SyscallBroker** | — | System call proxy for sandboxed plugins |
+
+Sink is **not** a plugin type. It is a core built-in output executor: the 11
+built-in sinks (Console, File, Callback, Kafka, Syslog, Webhook, SQLite, WORM,
+Security, Shared Memory, OTel) run at pipeline stage 6 and are executed directly
+by the core; plugins process records before the Sink stage. Callback Sink is the
+standard extension point through which a host application receives the final
+output.
 
 ### Trust Levels
 

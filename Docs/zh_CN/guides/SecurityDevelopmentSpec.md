@@ -359,7 +359,6 @@ dologger_error_t rc = dologger_verify_record_signature(
 | `HostInfoProvider` | 否 | 读取操作系统 API；无外部输入 |
 | `Processor` | **是** | 转换记录内容——可能解析结构化数据 |
 | `Formatter` | **是** | 序列化记录——必须处理所有字段值和格式错误的 UTF-8 |
-| `IOSink` | **是** | 解析格式化的输出字节流后才写入 |
 | `ConfigProvider` | **是** | 解析外部配置格式（TOML、JSON、YAML） |
 | `KeyProvider` | **是** | 处理加密关键材料和签名操作 |
 | `SyscallBroker` | **是** | 拦截并代理任意系统调用参数 |

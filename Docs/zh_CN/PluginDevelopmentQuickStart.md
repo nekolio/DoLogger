@@ -76,10 +76,10 @@ bash scripts/dologger-env-check
 
 | 语言 | 插件类型 | 构建系统 | 通过 Conan 的 C 依赖 | 编译输出 |
 |:-:|:-:|:-:|:-:|:-:|
-| **C** | Filter、Formatter、IOSink、Processor | CMake | 是 | `.so` / `.dll` / `.dylib` |
-| **C++** | Filter、Formatter、IOSink、Processor | CMake | 是 | `.so` / `.dll` / `.dylib` |
+| **C** | Filter、Formatter、Processor | CMake | 是 | `.so` / `.dll` / `.dylib` |
+| **C++** | Filter、Formatter、Processor | CMake | 是 | `.so` / `.dll` / `.dylib` |
 | **Go** | Filter、Formatter、Processor | `go build -buildmode=c-shared` | 否（纯 Go） | `.so` / `.dll` / `.dylib` |
-| **Rust** | 全部 10 种 VTable 类型 | Cargo | 通过 `-sys` crates | `.so` / `.dll` / `.dylib` |
+| **Rust** | 全部 9 种 VTable 类型 | Cargo | 通过 `-sys` crates | `.so` / `.dll` / `.dylib` |
 
 **快速决策指南：**
 - 您需要最大可移植性 → **C**（C11，无扩展）
@@ -391,7 +391,7 @@ core/include/dologger_core.h
 |:-:|:-:|
 | **类型** | `dologger_plugin_info_t`、`dologger_filter_vtable_t`、`dologger_formatter_vtable_t`、... |
 | **错误码** | `DO_LOG_OK`、`DO_LOG_ERR_INVALID_ARG`、`DO_LOG_ERR_NOT_SUPPORTED`、... |
-| **阶段常量** | `DO_LOG_PHASE_FILTER`、`DO_LOG_PHASE_FORMATTING`、`DO_LOG_PHASE_SINK`、... |
+| **阶段常量** | `DO_LOG_PHASE_FILTER`、`DO_LOG_PHASE_FORMATTING`、... |
 | **信任级别** | *（规划中 — 沙箱信任级别尚未实现）* |
 | **日志级别** | `DO_LOG_TRACE` 到 `DO_LOG_AUDIT`（`dologger_level_t` 枚举） |
 | **记录访问器** | `dologger_field_get()`、`dologger_field_set()`、... |

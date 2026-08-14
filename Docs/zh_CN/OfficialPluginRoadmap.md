@@ -26,7 +26,7 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 | 3 | Assembly | 仅核心：LSN + Ed25519 签名 |
 | 4 | Processor | 内置核心：`secret_detector` |
 | 5 | Formatter | 官方插件：`fmt_json`、`fmt_text` |
-| 6 | IOSink | 11 个 sink 内置核心 |
+| 6 | Sink（核心内置） | 11 个 sink 内置核心 |
 | — | KeyProvider | 未实现——签名密钥由核心自行加载 |
 | — | ConfigProvider | 未实现 |
 | — | SyscallBroker | 未实现 |

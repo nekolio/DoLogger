@@ -4,7 +4,7 @@
 
 > **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers
 >
-> **Purpose**: This document describes the end-to-end process of developing, testing, signing, and distributing a DoLogger plugin. It covers the plugin lifecycle, all 10 VTable types, the manifest format, sandbox constraints, and license compliance requirements.
+> **Purpose**: This document describes the end-to-end process of developing, testing, signing, and distributing a DoLogger plugin. It covers the plugin lifecycle, all 9 VTable types, the manifest format, sandbox constraints, and license compliance requirements.
 >
 > **Reading Path**: New plugin authors should start with [Overview](#overview) and [Quick Start](#quick-start), then consult the VTable section for their specific plugin type. Security-conscious developers should read the [Three-Color Trust Model](#three-color-trust-model) and [Sandbox Constraints](#sandbox-constraints) sections in full.
 
@@ -137,7 +137,7 @@ path = "./plugins/drop_debug.so"
 
 ## Plugin Types
 
-DoLogger defines 10 plugin types, each with its own VTable. Plugins are dispatched by phase in the pipeline.
+DoLogger defines 9 plugin types, each with its own VTable. Plugins are dispatched by phase in the pipeline.
 
 **Table 1: Plugin Types and Pipeline Phases**
 
@@ -149,10 +149,9 @@ DoLogger defines 10 plugin types, each with its own VTable. Plugins are dispatch
 | 4 | `HostInfoProvider`  | `field`    | 2     | Inject host, process, and environment metadata. |
 | 5 | `Processor`         | `process`  | 4     | Transform, redact, or enrich log content. |
 | 6 | `Formatter`         | `format`   | 5     | Serialize records (JSON, CSV, plain text, custom binary). |
-| 7 | `IOSink`            | `sink`     | 6     | Write formatted output to an external destination. |
-| 8 | `ConfigProvider`    | `config`   | —     | Load configuration from external sources (Vault, etcd, S3). |
-| 9 | `KeyProvider`       | `key`      | —     | Manage Ed25519 key material for log signing. |
-| 10| `SyscallBroker`     | `syscall`  | —     | Proxy platform syscalls for sandboxed plugins. |
+| 7 | `ConfigProvider`    | `config`   | —     | Load configuration from external sources (Vault, etcd, S3). |
+| 8 | `KeyProvider`       | `key`      | —     | Manage Ed25519 key material for log signing. |
+| 9 | `SyscallBroker`     | `syscall`  | —     | Proxy platform syscalls for sandboxed plugins. |
 
 ### Pipeline Phase Ordering
 
@@ -464,36 +463,14 @@ typedef dologger_error_t (*dologger_format_fn_t)(
 
 The `output` buffer is allocated by the engine. The formatter writes serialized bytes into it. If the buffer is too small, return `DO_LOG_ERR_BUFFER_TOO_SMALL` and the engine reallocates.
 
-### IOSink Plugin
+### Sink Stage (Core Built-in)
 
-```c
-// (pseudocode — illustrative of the planned v1.0 ABI, not compiled)
-typedef struct {
-    dologger_sink_open_fn_t   open;
-    dologger_sink_write_fn_t  write;
-    dologger_sink_flush_fn_t  flush;
-    dologger_sink_close_fn_t  close;
-    dologger_sink_health_fn_t health;          // Optional: returns sink status
-} dologger_sink_vtable_t;
-
-typedef dologger_error_t (*dologger_sink_write_fn_t)(
-    void        *sink_state,
-    const uint8_t *data,
-    size_t        length
-);
-
-typedef dologger_sink_health_t (*dologger_sink_health_fn_t)(
-    void *sink_state
-);
-```
-
-**Sink Health States:**
-
-| State                     | Description |
-|:-:|:-:|
-| `DO_LOG_SINK_HEALTHY`     | Sink is accepting writes normally. |
-| `DO_LOG_SINK_DEGRADED`    | Sink is slow but functioning. |
-| `DO_LOG_SINK_CIRCUIT_OPEN`| Circuit breaker tripped; writes are rejected. |
+Sink is not a plugin type. It is a core built-in output executor: the 11 built-in
+sinks (Console, File, Callback, Kafka, Syslog, Webhook, SQLite, WORM, Security,
+Shared Memory, OTel) run at pipeline stage 6 and are executed directly by the
+core; plugins process records before the Sink stage. To receive the final output
+in your host application, use the **Callback Sink** — see the
+[Integration Guide](../IntegrationGuide.md).
 
 ### KeyProvider Plugin
 

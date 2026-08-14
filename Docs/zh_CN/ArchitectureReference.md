@@ -75,7 +75,7 @@ flowchart TD
         C2 --> C3["阶段 3：Assembly<br/>核心：LSN 分配 + Ed25519 签名<br/>+ CRC32C Ring 3 校验 + 密钥检测"]
         C3 --> C4["阶段 4：Processing<br/>Processor 插件<br/>（transform、redact）"]
         C4 --> C5["阶段 5：Formatting<br/>Formatter 插件<br/>（JSON、text、SIF）"]
-        C5 --> C6["阶段 6：Sink Fan-Out<br/>IOSink 插件<br/>（并行写入）"]
+        C5 --> C6["阶段 6：Sink<br/>核心内置接收器<br/>（并行写入）"]
         C6 --> C7["11 种接收器可用"]
     end
 
@@ -96,7 +96,7 @@ flowchart TD
 | Assembly | 3 | 仅核心 | 否 | Ring 0+1 写入 | LSN 分配、Ed25519 签名、CRC32C 校验、密钥检测 |
 | Processing | 4 | Processor | 是 | Ring 2+3 写入 | 转换、脱敏、增强 |
 | Formatting | 5 | Formatter | 否 | 只读 | 序列化为 JSON/文本/SIF |
-| Sink | 6 | IOSink | 否 | 只读 | 写入外部目标 |
+| Sink | 6 | 核心内置 | 否 | 只读 | 写入外部目标 |
 
 ### Record 生命周期
 
@@ -569,7 +569,7 @@ dologger-config-watcher
 
 ## 插件 VTable 规范
 
-### 10 种插件类型
+### 9 种插件类型
 
 | # | 类型 | 阶段 | VTable 函数 |
 |:-:|:-:|:-:|:-:|
@@ -579,10 +579,12 @@ dologger-config-watcher
 | 4 | `HostInfoProvider` | Field (2) | `provide_host_info`（Ring 1 受限） |
 | 5 | `Processor` | Process (4) | `process`, `process_batch` |
 | 6 | `Formatter` | Format (5) | `format`, `flush` |
-| 7 | `IOSink` | Sink (6) | `open`, `write`, `flush`, `close`, `health` |
-| 8 | `ConfigProvider` | Config（加载时） | `load_config`, `watch_config` |
-| 9 | `KeyProvider` | Key（加载时） | `sign`, `public_key`, `rotate` |
-| 10 | `SyscallBroker` | Syscall（代理） | `broker_dispatch` |
+| 7 | `ConfigProvider` | Config（加载时） | `load_config`, `watch_config` |
+| 8 | `KeyProvider` | Key（加载时） | `sign`, `public_key`, `rotate` |
+| 9 | `SyscallBroker` | Syscall（代理） | `broker_dispatch` |
+
+Sink 不是插件类型：它是核心内置的输出执行器（阶段 6），没有 VTable。
+11 种内置接收器由核心直接驱动；参见下文「内置接收器」章节。
 
 ### VTable 模式
 

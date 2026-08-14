@@ -29,7 +29,7 @@ PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4
 | 3 | Assembly | Core-only: LSN + Ed25519 signature |
 | 4 | Processor | Built into the core: `secret_detector` |
 | 5 | Formatter | Official plugins: `fmt_json`, `fmt_text` |
-| 6 | IOSink | 11 sinks built into the core |
+| 6 | Sink (core built-in) | 11 sinks built into the core |
 | — | KeyProvider | Not implemented — the core loads signing keys itself |
 | — | ConfigProvider | Not implemented |
 | — | SyscallBroker | Not implemented |

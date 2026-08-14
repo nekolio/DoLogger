@@ -362,7 +362,6 @@ The engine manages public key distribution, key rotation, and CRL checking. Your
 | `HostInfoProvider` | No | Reads OS APIs; no external input |
 | `Processor` | **Yes** | Transforms record content -- may parse structured data |
 | `Formatter` | **Yes** | Serializes records -- must handle all field values and malformed UTF-8 |
-| `IOSink` | **Yes** | Parses formatted output byte stream before writing |
 | `ConfigProvider` | **Yes** | Parses external configuration formats (TOML, JSON, YAML) |
 | `KeyProvider` | **Yes** | Handles cryptographic key material and signature operations |
 | `SyscallBroker` | **Yes** | Intercepts and proxies arbitrary syscall arguments |

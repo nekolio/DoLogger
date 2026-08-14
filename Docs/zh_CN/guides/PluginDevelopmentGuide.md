@@ -130,7 +130,7 @@ path = "./plugins/drop_debug.so"
 
 ## 插件类型
 
-DoLogger 定义了 10 种插件类型，每种都有自己的 VTable。插件按管道中的阶段进行调度。
+DoLogger 定义了 9 种插件类型，每种都有自己的 VTable。插件按管道中的阶段进行调度。
 
 **表 1：插件类型与管道阶段**
 
@@ -142,10 +142,9 @@ DoLogger 定义了 10 种插件类型，每种都有自己的 VTable。插件按
 | 4 | `HostInfoProvider` | `field` | 2 | 注入主机、进程和环境元数据。 |
 | 5 | `Processor` | `process` | 4 | 转换、脱敏或丰富日志内容。 |
 | 6 | `Formatter` | `format` | 5 | 序列化记录（JSON、CSV、纯文本、自定义二进制）。 |
-| 7 | `IOSink` | `sink` | 6 | 将格式化后的输出写入外部目标。 |
-| 8 | `ConfigProvider` | `config` | — | 从外部来源加载配置（Vault、etcd、S3）。 |
-| 9 | `KeyProvider` | `key` | — | 管理日志签名用的 Ed25519 密钥材料。 |
-| 10 | `SyscallBroker` | `syscall` | — | 为沙箱化插件代理平台系统调用。 |
+| 7 | `ConfigProvider` | `config` | — | 从外部来源加载配置（Vault、etcd、S3）。 |
+| 8 | `KeyProvider` | `key` | — | 管理日志签名用的 Ed25519 密钥材料。 |
+| 9 | `SyscallBroker` | `syscall` | — | 为沙箱化插件代理平台系统调用。 |
 
 ### 管道阶段顺序
 
@@ -217,7 +216,7 @@ max_engine_version = "0.1.0"
 |:-:|:-:|:-:|:-:|
 | `name` | 是 | string | 唯一插件标识符。推荐小写 kebab-case。 |
 | `version` | 是 | string | 语义化版本号（semver 2.0）。 |
-| `plugin_type` | 是 | string | [插件类型](#插件类型)中列出的 10 种类型之一。 |
+| `plugin_type` | 是 | string | [插件类型](#插件类型)中列出的 9 种类型之一。 |
 | `mount_phase` | 是 | string[] | 插件挂载的管道阶段。 |
 | `abi_version` | 是 | integer | 插件编译所针对的 ABI 版本。 |
 | `description` | 否 | string | 简短的人类可读描述（最多 200 字符）。 |
@@ -446,36 +445,13 @@ typedef dologger_error_t (*dologger_format_fn_t)(
 
 `output` 缓冲区由引擎分配。Formatter 将序列化后的字节写入其中。如果缓冲区太小，返回 `DO_LOG_ERR_BUFFER_TOO_SMALL`，引擎会重新分配。
 
-### IOSink 插件
+### Sink 阶段（核心内置）
 
-```c
-// （伪代码 — 示意规划中的 v1.0 ABI，未编译）
-typedef struct {
-    dologger_sink_open_fn_t   open;
-    dologger_sink_write_fn_t  write;
-    dologger_sink_flush_fn_t  flush;
-    dologger_sink_close_fn_t  close;
-    dologger_sink_health_fn_t health;          // 可选：返回 Sink 状态
-} dologger_sink_vtable_t;
-
-typedef dologger_error_t (*dologger_sink_write_fn_t)(
-    void        *sink_state,
-    const uint8_t *data,
-    size_t        length
-);
-
-typedef dologger_sink_health_t (*dologger_sink_health_fn_t)(
-    void *sink_state
-);
-```
-
-**Sink 健康状态：**
-
-| 状态 | 说明 |
-|:-:|:-:|
-| `DO_LOG_SINK_HEALTHY` | Sink 正常接受写入。 |
-| `DO_LOG_SINK_DEGRADED` | Sink 变慢但仍可工作。 |
-| `DO_LOG_SINK_CIRCUIT_OPEN` | 熔断器跳闸；写入被拒绝。 |
+Sink 不是插件类型。它是核心内置的输出执行器：11 种内置接收器（Console、
+File、Callback、Kafka、Syslog、Webhook、SQLite、WORM、Security、Shared
+Memory、OTel）在管道第 6 阶段运行，由核心直接驱动；插件在 Sink 阶段之前
+处理记录。宿主应用如需接收最终输出，请使用 **Callback Sink**——参见
+[集成指南](../IntegrationGuide.md)。
 
 ### KeyProvider 插件
 

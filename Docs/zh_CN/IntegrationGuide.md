@@ -454,7 +454,7 @@ flowchart LR
 | 为每条记录添加元数据 | `FieldProvider` | `field_container` |
 | 转换或脱敏内容 | `Processor` | —（尚未实现） |
 | 更改输出格式 | `Formatter` | `fmt_json`、`fmt_text` |
-| 写入不同目标 | `IOSink` | 11 个内置接收器 |
+| 写入不同目标 | `Sink`（核心内置） | 11 个内置接收器 |
 | 使用外部签名密钥 | `KeyProvider` | —（尚未实现） |
 | 强制速率限制 | `PolicyProvider` | 内置速率限制器 |
 

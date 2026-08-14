@@ -471,7 +471,7 @@ flowchart LR
 | Add metadata to every record | `FieldProvider` | `field_container` |
 | Transform or redact content | `Processor` | — (not implemented yet) |
 | Change output format | `Formatter` | `fmt_json`, `fmt_text` |
-| Write to a different destination | `IOSink` | 11 built-in sinks |
+| Write to a different destination | `Sink` (core built-in) | 11 built-in sinks |
 | Use external signing keys | `KeyProvider` | — (not implemented yet) |
 | Enforce rate limits | `PolicyProvider` | Built-in rate limiter |
 

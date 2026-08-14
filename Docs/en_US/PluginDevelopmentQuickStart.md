@@ -79,10 +79,10 @@ bash scripts/dologger-env-check
 
 | Language | Plugin Type | Build System | C Deps via Conan | Compile Output |
 |:-:|:-:|:-:|:-:|:-:|
-| **C** | Filter, Formatter, IOSink, Processor | CMake | Yes | `.so` / `.dll` / `.dylib` |
-| **C++** | Filter, Formatter, IOSink, Processor | CMake | Yes | `.so` / `.dll` / `.dylib` |
+| **C** | Filter, Formatter, Processor | CMake | Yes | `.so` / `.dll` / `.dylib` |
+| **C++** | Filter, Formatter, Processor | CMake | Yes | `.so` / `.dll` / `.dylib` |
 | **Go** | Filter, Formatter, Processor | `go build -buildmode=c-shared` | No (pure Go) | `.so` / `.dll` / `.dylib` |
-| **Rust** | All 10 VTable types | Cargo | Via `-sys` crates | `.so` / `.dll` / `.dylib` |
+| **Rust** | All 9 VTable types | Cargo | Via `-sys` crates | `.so` / `.dll` / `.dylib` |
 
 **Quick decision guide:**
 - You need maximum portability → **C** (C11, no extensions)
@@ -460,7 +460,7 @@ This header declares:
 |:-:|:-:|
 | **Types** | `dologger_plugin_info_t`, `dologger_filter_vtable_t`, `dologger_formatter_vtable_t`, ... |
 | **Error codes** | `DO_LOG_OK`, `DO_LOG_ERR_INVALID_ARG`, `DO_LOG_ERR_NOT_SUPPORTED`, ... |
-| **Phase constants** | `DO_LOG_PHASE_FILTER`, `DO_LOG_PHASE_FORMATTING`, `DO_LOG_PHASE_SINK`, ... |
+| **Phase constants** | `DO_LOG_PHASE_FILTER`, `DO_LOG_PHASE_FORMATTING`, ... |
 | **Trust levels** | *(planned — sandbox trust levels not yet implemented)* |
 | **Log levels** | `DO_LOG_TRACE` through `DO_LOG_AUDIT` |
 | **Record accessors** | `dologger_field_get()`, `dologger_field_set()`, ... |

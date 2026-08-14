@@ -4,7 +4,7 @@
 
 > **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 高级插件开发者、核心贡献者
 >
-> **用途**: 本文档为 DoLogger 中全部 10 种 VTable 插件类型的实现提供高级指导。涵盖选择插件类型的设计决策、沙箱感知的 SyscallBroker 实现、自定义 PolicyProvider 模式、插件依赖管理、用于热重载的状态序列化以及多阶段插件注册。
+> **用途**: 本文档为 DoLogger 中全部 9 种 VTable 插件类型的实现提供高级指导。涵盖选择插件类型的设计决策、沙箱感知的 SyscallBroker 实现、自定义 PolicyProvider 模式、插件依赖管理、用于热重载的状态序列化以及多阶段插件注册。
 >
 > **阅读路径**: 已阅读[插件开发指南](PluginDevelopmentGuide.md)的插件开发者应从[选择合适的插件类型](#选择合适的插件类型)开始。实现安全关键插件的开发者应阅读 [SyscallBroker 实现](#syscallbroker-实现)和[多阶段插件](#多阶段插件)。插件生态维护者应审查[插件依赖管理](#插件依赖管理)。
 
@@ -37,7 +37,7 @@ flowchart TD
     M -->|"应用程序/业务元数据（用户 ID、会话 ID、追踪 ID）"| D["FieldProvider<br/>挂载阶段：field（阶段 2）<br/>具有 Ring 2 写入权限（Blue/Yellow）或 Ring 3（Red）"]
     Q -->|"转换或脱敏日志内容"| E["Processor<br/>挂载阶段：process（阶段 4）<br/>关键问题：记录是否需要 PII 掩码、丰富或重构？"]
     Q -->|"更改记录的序列化方式"| F["Formatter<br/>挂载阶段：format（阶段 5）<br/>关键问题：输出应为 JSON、CSV、protobuf 还是自定义二进制格式？"]
-    Q -->|"将记录写入目标位置"| G["IOSink<br/>挂载阶段：sink（阶段 6）<br/>关键问题：格式化后的记录应发往哪里？文件、网络、数据库？"]
+    Q -->|"将记录写入目标位置"| G["Sink（核心内置，非插件）<br/>阶段 6：配置 11 种内置接收器，<br/>或用 Callback Sink 承载宿主自有输出"]
     Q -->|"从外部源加载配置"| H["ConfigProvider<br/>挂载阶段：config（加载时，不在管道中）<br/>关键问题：配置是否来自 Vault、etcd、S3 或数据库？"]
     Q -->|"管理加密密钥"| I["KeyProvider<br/>挂载阶段：key（加载时，不在管道中）<br/>关键问题：签名密钥应来自 HSM、KMS 还是文件？"]
     Q -->|"为沙箱插件中介操作系统访问"| J["SyscallBroker<br/>挂载阶段：syscall（代理，不在管道中）<br/>关键问题：沙箱插件能否安全地执行文件 I/O 或网络调用？"]
@@ -55,7 +55,6 @@ flowchart TD
 | `HostInfoProvider` | 否 | **是**（仅 Ring 1） | Ring 1 | 2 |
 | `Processor` | **是** | **是** | Ring 2（Blue/Yellow）或 Ring 3（Red） | 4 |
 | `Formatter` | 否 | 否 | 无（只读） | 5 |
-| `IOSink` | 否 | 否 | 无（只读） | 6 |
 | `ConfigProvider` | N/A | N/A | N/A | 加载时 |
 | `KeyProvider` | N/A | N/A | N/A | 加载时 |
 | `SyscallBroker` | N/A | N/A | N/A | 代理 |
@@ -753,11 +752,11 @@ const dologger_filter_vtable_t dologger_filter_vtable = {
 **适当的用例：**
 - 一个 PII 处理器，也在 filter 阶段过滤包含未脱敏密钥的记录（纵深防御）
 - 一个 JSON 格式化器，也提供 JSON 特定字段（FieldProvider + Formatter）
-- 一个审计插件，既签名记录（Processor）又导出到 WORM 接收器（IOSink）
+- 一个审计插件，既签名记录（Processor）又导出到 WORM 接收器（通过内置 WORM sink）
 
 **不当的用例：**
 - 将不相关的功能塞入一个插件（违反单一职责）
-- 一个也写入文件的 Filter（Filter 应过滤，IOSink 应写入）
+- 一个也写入文件的 Filter（Filter 应过滤；输出路由属于内置接收器）
 - 一个也签名记录的 ConfigProvider（ConfigProvider 应加载配置，KeyProvider 应签名）
 
 ### 多阶段执行顺序

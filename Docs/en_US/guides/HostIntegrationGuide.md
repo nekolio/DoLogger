@@ -33,7 +33,7 @@ DoLogger is a cross-platform, high-security, plugin-architected logging engine. 
 
 - **Stable C ABI**: All public APIs use `dologger_*` prefixed C functions with a fixed ABI version guarantee.
 - **Zero Rust Toolchain Required**: Hosts link a prebuilt dynamic library; no Rust compiler or cargo needed.
-- **Plugin Architecture**: 10 plugin VTable types, loaded on demand at engine startup.
+- **Plugin Architecture**: 9 plugin VTable types, loaded on demand at engine startup.
 - **Ed25519 Signatures with LSN Audit Chain**: Tamper-evident log integrity protection via cryptographic chaining.
 - **Three-Color Trust Model**: Blue, Yellow, and Red plugin isolation tiers (see the [Security Whitepaper](SecurityWhitepaper.md)).
 

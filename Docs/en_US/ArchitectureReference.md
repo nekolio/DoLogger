@@ -77,7 +77,7 @@ flowchart TD
         C2 --> C3["Stage 3: Assembly<br/>Core: LSN assign<br/>+ Ed25519 sign<br/>+ CRC32C Ring 3 check<br/>+ Secret detection"]
         C3 --> C4["Stage 4: Processing<br/>Processor plugins<br/>(transform, redact)"]
         C4 --> C5["Stage 5: Formatting<br/>Formatter plugins<br/>(JSON, text, SIF)"]
-        C5 --> C6["Stage 6: Sink Fan-Out<br/>IOSink plugins<br/>(parallel writes)"]
+        C5 --> C6["Stage 6: Sink<br/>Core built-in sinks<br/>(parallel writes)"]
         C6 --> C7["11 sink types available"]
     end
 
@@ -98,7 +98,7 @@ flowchart TD
 | Assembly | 3 | Core only | No | Ring 0+1 write | LSN assign, Ed25519 sign, CRC32C verify, secret detection |
 | Processing | 4 | Processor | Yes | Ring 2+3 write | Transform, redact, enrich |
 | Formatting | 5 | Formatter | No | Read-only | Serialize to JSON/text/SIF |
-| Sink | 6 | IOSink | No | Read-only | Write to external destinations |
+| Sink | 6 | Core built-in | No | Read-only | Write to external destinations |
 
 ### Record Lifecycle
 
@@ -589,7 +589,7 @@ The pipeline scheduler uses a work-stealing thread pool (`crossbeam_channel`):
 
 ## Plugin VTable Specification
 
-### The 10 Plugin Types
+### The 9 Plugin Types
 
 | # | Type | Phase | VTable Functions |
 |:-:|:-:|:-:|:-:|
@@ -599,10 +599,13 @@ The pipeline scheduler uses a work-stealing thread pool (`crossbeam_channel`):
 | 4 | `HostInfoProvider` | Field (2) | `provide_host_info` (Ring 1 restricted) |
 | 5 | `Processor` | Process (4) | `process`, `process_batch` |
 | 6 | `Formatter` | Format (5) | `format`, `flush` |
-| 7 | `IOSink` | Sink (6) | `open`, `write`, `flush`, `close`, `health` |
-| 8 | `ConfigProvider` | Config (load-time) | `load_config`, `watch_config` |
-| 9 | `KeyProvider` | Key (load-time) | `sign`, `public_key`, `rotate` |
-| 10 | `SyscallBroker` | Syscall (proxy) | `broker_dispatch` |
+| 7 | `ConfigProvider` | Config (load-time) | `load_config`, `watch_config` |
+| 8 | `KeyProvider` | Key (load-time) | `sign`, `public_key`, `rotate` |
+| 9 | `SyscallBroker` | Syscall (proxy) | `broker_dispatch` |
+
+Sink is not a plugin type: it is a core built-in output executor (stage 6) with
+no VTable. The 11 built-in sinks are executed directly by the core; see the
+Built-in Sinks section below.
 
 ### VTable Pattern
 

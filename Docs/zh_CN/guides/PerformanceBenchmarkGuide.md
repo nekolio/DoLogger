@@ -130,7 +130,7 @@ DoLogger 提供三个基准测试目标，每个测量性能的不同维度。
 | Assembly | LSN 分配 + Ed25519 签名 + CRC32C |
 | Processing | Processor 插件转换 |
 | Formatting | Formatter 序列化 |
-| Sink | IOSink 写入调用 |
+| Sink | 核心内置接收器写入调用 |
 
 ### `throughput` — 最大持续速率
 

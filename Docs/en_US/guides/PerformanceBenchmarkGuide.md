@@ -130,7 +130,7 @@ A per-pipeline-stage breakdown is planned but not implemented in v0.1.0 (the shi
 | Assembly | LSN assignment + Ed25519 sign + CRC32C |
 | Processing | Processor plugin transformation |
 | Formatting | Formatter serialization |
-| Sink | IOSink write call |
+| Sink | Core built-in sink write call |
 
 ### `throughput` — Maximum Sustainable Rate
 

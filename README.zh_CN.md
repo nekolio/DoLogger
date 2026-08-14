@@ -211,7 +211,7 @@ dologctl version --licenses      第三方许可证归属
 
 ---
 
-## 插件系统（10 种 VTable 类型）
+## 插件系统（9 种 VTable 类型）
 
 | 插件类型 | 管道阶段 | 说明 |
 |:-:|:-:|:-:|
@@ -219,12 +219,16 @@ dologctl version --licenses      第三方许可证归属
 | **FieldProvider** | 2 | 注入字段(HostInfoProvider 为受限子类型) |
 | **Processor** | 4 | 转换 / 增强 / 检测密钥 |
 | **Formatter** | 5 | 将记录序列化为输出格式 |
-| **IOSink** | 6 | 最终输出目标 |
 | **ConfigProvider** | — | 外部配置源(远程配置中心) |
 | **KeyProvider** | — | Ed25519 密钥服务(可外接 HSM) |
 | **PolicyProvider** | 0 | 提交前策略(限流、级别过滤) |
 | **HostInfoProvider** | 2 | 系统信息注入(ring1_only=true) |
 | **SyscallBroker** | — | 沙箱插件的系统调用代理 |
+
+Sink **不是**插件类型。它是核心内置的输出执行器:11 种内置接收器
+(Console、File、Callback、Kafka、Syslog、Webhook、SQLite、WORM、Security、
+Shared Memory、OTel)在管道第 6 阶段运行,由核心直接驱动;插件在 Sink 阶段
+之前处理记录。Callback Sink 是宿主应用接收最终输出的标准扩展点。
 
 ### 信任级别
 
