@@ -28,7 +28,8 @@ use std::time::{Duration, Instant};
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// WORM durability level controlling fsync behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WormDurability {
     /// `fsync` after each write batch (default for non-AUDIT profiles).
     OsCache,
@@ -39,7 +40,8 @@ pub enum WormDurability {
 }
 
 /// WORM File Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct WormSinkConfig {
     /// Output file path
     pub path: PathBuf,

@@ -12,7 +12,8 @@ use std::time::Duration;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// Kafka Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct KafkaSinkConfig {
     /// Comma-separated list of Kafka brokers
     pub brokers: String,

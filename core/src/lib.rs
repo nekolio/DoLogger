@@ -236,8 +236,10 @@ impl Engine {
         let pool = Arc::new(RecordPool::new(pool_capacity));
         let ring_buffer = Arc::new(RingBuffer::new(pool_capacity));
 
-        // Create and open console sink
-        let mut sink = SinkRef::new(ConsoleSink::new());
+        // Create and open the configured sinks, fanning out to all of them.
+        // `config.sinks` is guaranteed non-empty (console default) by the
+        // config layer.
+        let mut sink = SinkRef::new(crate::sink::registry::build_fanout(&config.sinks)?);
         sink.open()
             .map_err(|e| format!("Failed to open sink: {e}"))?;
 

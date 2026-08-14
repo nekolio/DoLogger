@@ -14,7 +14,8 @@ use std::time::Duration;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// Webhook Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct WebhookSinkConfig {
     /// Target URL (HTTPS recommended)
     pub url: String,

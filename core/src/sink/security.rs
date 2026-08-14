@@ -19,7 +19,8 @@ use crate::record::Record;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// Security File Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct SecuritySinkConfig {
     /// Path to the security log file
     pub path: PathBuf,

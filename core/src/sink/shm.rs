@@ -371,7 +371,8 @@ unsafe fn write_slot(ptr: *mut u8, slot_size: u32, index: usize, data: &[u8]) ->
 // ---------------------------------------------------------------------------
 
 /// Ring buffer full policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ShmFullPolicy {
     /// Drop the record currently being written
     DropNewest,
@@ -384,7 +385,8 @@ pub enum ShmFullPolicy {
 // ---------------------------------------------------------------------------
 
 /// Configuration for sink_shm.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct ShmSinkConfig {
     /// Shared memory object path
     pub path: String,

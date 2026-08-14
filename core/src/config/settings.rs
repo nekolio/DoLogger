@@ -36,6 +36,9 @@ pub struct DologgerConfig {
     pub plugin_trust_anchor: Option<String>,
     /// Allow unsigned (Red) plugins to load outside dev mode.
     pub plugin_allow_red_plugins: bool,
+    /// Configured output sinks. Parsed from `[sinks.<name>]` tables; when the
+    /// section is absent or empty the console default is used.
+    pub sinks: Vec<crate::sink::SinkKindConfig>,
 }
 
 impl DologgerConfig {
@@ -229,6 +232,7 @@ impl Default for DologgerConfig {
             plugin_trust_store: None,
             plugin_trust_anchor: None,
             plugin_allow_red_plugins: false,
+            sinks: vec![crate::sink::SinkKindConfig::console()],
         }
     }
 }
@@ -255,6 +259,7 @@ impl DologgerConfig {
             plugin_trust_store: None,
             plugin_trust_anchor: None,
             plugin_allow_red_plugins: false,
+            sinks: vec![crate::sink::SinkKindConfig::console()],
         }
     }
 
@@ -848,6 +853,22 @@ impl DologgerConfig {
             }
         }
 
+        // Parse `[sinks.<name>]` sections. Declaring any sink replaces the
+        // console default; a broken entry is reported as a warning and skipped
+        // so one bad sink can never take the whole config down.
+        config.sinks.clear();
+        if let Some(sinks) = table.get("sinks").and_then(|v| v.as_table()) {
+            for (name, value) in sinks {
+                match value.clone().try_into::<crate::sink::SinkKindConfig>() {
+                    Ok(kind) => config.sinks.push(kind),
+                    Err(e) => warnings.push(format!("sink '{name}' configuration invalid: {e}")),
+                }
+            }
+        }
+        if config.sinks.is_empty() {
+            config.sinks.push(crate::sink::SinkKindConfig::console());
+        }
+
         // Apply profile overrides
         config.apply_profile();
 
@@ -933,6 +954,7 @@ mod tests {
             plugin_trust_store: None,
             plugin_trust_anchor: None,
             plugin_allow_red_plugins: false,
+            sinks: vec![crate::sink::SinkKindConfig::console()],
         }
     }
 

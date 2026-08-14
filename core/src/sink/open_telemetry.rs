@@ -17,7 +17,8 @@ use std::time::Duration;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// OpenTelemetry Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct OtelSinkConfig {
     /// OTLP HTTP endpoint (e.g. "http://localhost:4318/v1/logs")
     pub endpoint: String,

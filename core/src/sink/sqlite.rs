@@ -22,7 +22,8 @@ use crate::record::Record;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// SQLite Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct SqliteSinkConfig {
     /// Path to the SQLite database file
     pub path: PathBuf,

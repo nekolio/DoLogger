@@ -22,7 +22,8 @@ use std::path::PathBuf;
 use crate::sink::{DurabilityLevel, Sink, SinkError, SinkResult};
 
 /// File sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct FileSinkConfig {
     /// Path to the output file
     pub path: PathBuf,

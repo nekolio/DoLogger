@@ -35,7 +35,8 @@ impl std::fmt::Display for SinkError {
 }
 
 /// Durability level for sink writes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DurabilityLevel {
     /// No durability guarantee — data may be lost on crash
     Unsafe = 0,
@@ -89,6 +90,14 @@ pub trait Sink: Send + Sync {
 // ===========================================================================
 // Console Sink
 // ===========================================================================
+
+/// Console sink configuration.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ConsoleSinkConfig {
+    /// Write to stderr instead of stdout.
+    #[serde(default)]
+    pub use_stderr: bool,
+}
 
 /// Console sink — writes log records to stdout or stderr.
 ///
@@ -228,5 +237,10 @@ impl SinkRef {
     /// Close the sink
     pub fn close(&mut self) -> SinkResult {
         self.inner.close()
+    }
+
+    /// Check if the underlying sink is healthy.
+    pub fn is_healthy(&self) -> bool {
+        self.inner.is_healthy()
     }
 }

@@ -16,7 +16,8 @@ use std::time::Duration;
 use crate::sink::{Sink, SinkError, SinkResult};
 
 /// Syslog transport protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SyslogProtocol {
     /// UDP (RFC 5426) — connectionless, best-effort delivery.
     Udp,
@@ -27,7 +28,8 @@ pub enum SyslogProtocol {
 }
 
 /// Syslog facility codes (RFC 5424).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SyslogFacility {
     /// Kernel messages.
     Kernel = 0,
@@ -78,7 +80,8 @@ impl SyslogFacility {
 }
 
 /// Syslog Sink configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct SyslogSinkConfig {
     /// Syslog server hostname or IP address.
     pub host: String,
