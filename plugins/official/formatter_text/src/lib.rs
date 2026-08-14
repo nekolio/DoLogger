@@ -34,17 +34,36 @@ const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
 
 /// VTable for a Formatter plugin.
 ///
-/// Contains function pointers the engine calls to serialize log records.
+/// Layout MUST exactly match the C ABI `dologger_formatter_vtable_t`
+/// (core/include/dologger_core.h) — a single `format` function pointer. The
+/// engine reinterprets the `vtable` pointer in [`INFO`] as that C type and
+/// calls it with THREE arguments, so this signature must not gain or lose
+/// parameters relative to the header.
+///
+/// (Note: `formatter_json` and the C++ example currently expose *different*
+/// vtable shapes — a `format` that leaks `dologger_core::Record`. That is a
+/// known contract inconsistency to be unified at M6 when the engine's
+/// Formatting stage is wired; the authoritative shape is the one below.)
+///
 /// SAFETY: Function pointers in the static instance point to static functions,
 /// so sharing across threads is safe.
 #[repr(C)]
 struct FormatterVTable {
-    /// Format a single record into the caller-provided output buffer.
-    /// Returns DO_LOG_OK on success, or DO_LOG_ERR_BUF_TOO_SMALL if
-    /// the buffer is insufficient (engine will reallocate and retry).
-    format: unsafe extern "C" fn(*const std::ffi::c_void, *mut std::ffi::c_void) -> i32,
-    /// Flush any buffered output (optional, NULL if not implemented).
-    flush: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> i32>,
+    /// Format one record into the caller-provided output buffer.
+    ///
+    /// Arguments (per `dologger_formatter_vtable_t`):
+    /// - `record` — opaque `dologger_record_handle_t*`; read via a field
+    ///   accessor the engine dispatches (none is dispatched at v0.1.0).
+    /// - `output` — `dologger_output_buffer_t*` `{data, len, capacity}`.
+    /// - `config` — plugin config pointer (`void*`), or NULL at v0.1.0.
+    ///
+    /// Returns DO_LOG_OK on success, or DO_LOG_ERR_BUFFER_TOO_SMALL if the
+    /// buffer is insufficient (engine reallocates and retries).
+    format: unsafe extern "C" fn(
+        *const std::ffi::c_void,
+        *mut std::ffi::c_void,
+        *mut std::ffi::c_void,
+    ) -> i32,
 }
 
 // SAFETY: Function pointers point to static functions.
@@ -59,18 +78,30 @@ unsafe impl Sync for FormatterVTable {}
 // VTable function stubs
 // ---------------------------------------------------------------------------
 
-/// Format stub — returns DO_LOG_OK without writing output.
-/// Real implementation: render colored text with configurable columns.
+/// Format one record as plain, configurable, colored text.
+///
+/// PLACEHOLDER — returns DO_LOG_ERR_NOT_SUPPORTED because the formatting
+/// pipeline is not yet wired at v0.1.0:
+///   1. the engine's Formatting stage does not dispatch Formatter vtables, and
+///   2. no field-access accessor is handed to plugins, so the opaque `record`
+///      handle cannot be read (level/message/timestamp) from inside the bundle.
+///
+/// Both land with M6 (C ABI record access + pipeline dispatch). When they do,
+/// this function reads fields via the dispatched accessor and writes rendered
+/// text into the `dologger_output_buffer_t` pointed to by `output`, honoring
+/// `capacity` and returning DO_LOG_ERR_BUFFER_TOO_SMALL when it overflows.
+///
+/// This is a *documented placeholder*, not dead code — it must not be deleted.
 unsafe extern "C" fn format_impl(
     _record: *const std::ffi::c_void,
     _output: *mut std::ffi::c_void,
+    _config: *mut std::ffi::c_void,
 ) -> i32 {
-    DO_LOG_ERR_NOT_SUPPORTED // stub: not yet implemented
+    DO_LOG_ERR_NOT_SUPPORTED
 }
 
 static VTABLE: FormatterVTable = FormatterVTable {
     format: format_impl,
-    flush: None,
 };
 
 static PLUGIN_NAME: &[u8] = b"formatter-text\0";
