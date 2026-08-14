@@ -99,7 +99,7 @@ Exercises the Record/SIF binary format and field access API:
 
 - Record creation and field_get/set with random field names
 - Ring permission checks (Ring 0-3) for all caller levels
-- RecordString set/as_str round-trip with truncation handling
+- RecordString set/as_str round-trip (inline ≤ 254 B, heap `Arc<str>` ≥ 255 B) with full-length preservation
 - CRC32C computation determinism, incremental update, empty input
 - LogLevel parsing from arbitrary u8 values
 - Ring 2 audit tag appending

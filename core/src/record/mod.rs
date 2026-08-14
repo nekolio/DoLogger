@@ -9,7 +9,9 @@
 //! | Ring 2 | Verified plugin fields                   | Blue/Yellow plugins R/W, audit-tagged |
 //! | Ring 3 | Untrusted extension fields               | Any plugin R/W, CRC32C only |
 
+use std::mem::ManuallyDrop;
 use std::ptr;
+use std::sync::Arc;
 
 use crate::ffi::dologger_uint128_t;
 
@@ -178,78 +180,144 @@ pub struct Record {
 // RecordString: Fixed-buffer string with overflow fallback
 // ---------------------------------------------------------------------------
 
-/// Maximum inline string size for Record fields.
-/// Messages ≤ 256 bytes are stored inline; larger messages use
-/// reference-counted heap allocation (Arc<str>).
+/// Size of the `RecordString` union (one cache line, keeps `Record` layout fixed).
 pub const RECORD_STRING_INLINE_CAPACITY: usize = 256;
 
-/// A string stored either inline (≤256 bytes) or on the heap.
+/// Maximum bytes stored inline. Byte `255` is the variant sentinel, so inline
+/// content is capped at 254 bytes with the NUL terminator at index `len`.
+/// Messages ≥ 255 bytes use the heap (`Arc<str>`) variant instead.
+pub const RECORD_STRING_INLINE_MAX: usize = RECORD_STRING_INLINE_CAPACITY - 2;
+
+/// A string stored either inline (≤ 254 bytes) or on the heap.
 ///
 /// This avoids heap allocation for the vast majority of log messages,
 /// while still supporting arbitrarily long messages when needed.
+///
+/// The two variants share one 256-byte `#[repr(C)]` union so the outer
+/// [`Record`] layout stays fixed. The active variant is tracked by a sentinel
+/// in the union's last byte:
+///
+/// | `inline[255]` | Variant                                        |
+/// |:-------------:|:-----------------------------------------------|
+/// | `0xFF`        | inline — NUL-terminated bytes at `[0..254]`     |
+/// | `0`           | heap  — `Arc<str>` (fat pointer) at `[0..16)`   |
+///
+/// `empty()` and every teardown write the sentinel explicitly, so a torn or
+/// zeroed union can never be misread as the heap variant.
 #[repr(C)]
 pub union RecordString {
-    /// Inline fixed-size buffer (fast path for short strings)
+    /// Inline fixed-size buffer (fast path for short strings).
+    /// Byte `inline[255]` is the variant sentinel, not message content.
     inline: [u8; RECORD_STRING_INLINE_CAPACITY],
-    // Note: Heap variant (pointer to Arc<str>) will be added when
-    // long-string support is implemented. The discriminant is tracked
-    // externally via the `flags` field or length sentinel.
+    /// Heap path: reference-counted string for messages ≥ 255 bytes.
+    /// Only bytes `[0..16)` are used; byte 255 holds the sentinel `0`.
+    heap: ManuallyDrop<Arc<str>>,
 }
 
 impl RecordString {
-    /// Create an empty RecordString (all zeros).
+    /// Create an empty RecordString in the inline variant.
+    ///
+    /// `inline[255]` is set to the inline sentinel so the all-zeros layout
+    /// (used by `Record::new`) never reads as a live heap pointer.
     pub const fn empty() -> Self {
-        Self {
-            inline: [0u8; RECORD_STRING_INLINE_CAPACITY],
-        }
+        let mut inline = [0u8; RECORD_STRING_INLINE_CAPACITY];
+        inline[RECORD_STRING_INLINE_CAPACITY - 1] = 0xFF;
+        Self { inline }
     }
 
-    /// Set the string value, using heap fallback for strings >256 bytes.
+    /// True when the heap variant is active (sentinel byte != `0xFF`).
+    #[inline]
+    fn is_heap(&self) -> bool {
+        // SAFETY: reading a single `u8` through the inline field is valid
+        // regardless of the active variant (`u8` is always well-formed).
+        unsafe { self.inline[RECORD_STRING_INLINE_CAPACITY - 1] != 0xFF }
+    }
+
+    /// Set the string value, using heap fallback for strings ≥ 255 bytes.
     pub fn set(&mut self, s: &str) {
+        self.drop_heap();
         let bytes = s.as_bytes();
-        let len = bytes.len().min(RECORD_STRING_INLINE_CAPACITY - 1);
-        // SAFETY: len is bounded by inline capacity (256 - 1 = 255),
-        // and both source and destination pointers are valid for `len` bytes.
-        unsafe {
-            ptr::copy_nonoverlapping(bytes.as_ptr(), self.inline.as_mut_ptr(), len);
-            self.inline[len] = 0;
-        }
-        // For strings exceeding inline capacity, the rest is silently truncated.
-        // Full heap fallback (Arc<str>) is deferred (not implemented).
-        if bytes.len() >= RECORD_STRING_INLINE_CAPACITY {
-            // Log truncation via diag
-            crate::sys::diag::warn(
-                "record",
-                &format!(
-                    "RecordString truncated: {} bytes → {} bytes",
-                    bytes.len(),
-                    RECORD_STRING_INLINE_CAPACITY - 1
-                ),
-            );
+        if bytes.len() > RECORD_STRING_INLINE_MAX {
+            // Heap path — preserve the full length.
+            // SAFETY: drop_heap() freed any prior heap string; the Arc is
+            // stored in bytes [0..16) and the sentinel write at byte 255 does
+            // not overlap it.
+            unsafe {
+                self.heap = ManuallyDrop::new(Arc::from(s));
+                self.inline[RECORD_STRING_INLINE_CAPACITY - 1] = 0;
+            }
+        } else {
+            // Inline path — NUL-terminated at bytes.len() (≤ 254, so the
+            // sentinel byte 255 stays free).
+            // SAFETY: bytes.len() ≤ 254 and both source and destination
+            // pointers are valid for that many bytes.
+            unsafe {
+                ptr::copy_nonoverlapping(bytes.as_ptr(), self.inline.as_mut_ptr(), bytes.len());
+                self.inline[bytes.len()] = 0;
+                self.inline[RECORD_STRING_INLINE_CAPACITY - 1] = 0xFF;
+            }
         }
     }
 
-    /// Get the string as a &str.
+    /// Get the string as a `&str`.
     pub fn as_str(&self) -> &str {
-        // SAFETY: self.inline is always a valid [u8; 256] with a null terminator
-        // somewhere (guaranteed by set() and empty()). from_raw_parts is bounded by
-        // the null terminator position, so we never read past valid data.
-        unsafe {
-            let len = self.inline.iter().position(|&b| b == 0).unwrap_or(0);
-            let slice = std::slice::from_raw_parts(self.inline.as_ptr(), len);
-            std::str::from_utf8(slice).unwrap_or("")
+        if self.is_heap() {
+            // SAFETY: is_heap() confirms the heap variant is active; the Arc
+            // is never moved out of the union, so the borrowed `&str` stays
+            // tied to `self` and valid for as long as `self` is unmutated.
+            unsafe { &self.heap }
+        } else {
+            // SAFETY: the inline variant is always NUL-terminated
+            // (guaranteed by empty(), set(), and clear()).
+            unsafe {
+                let len = self.inline.iter().position(|&b| b == 0).unwrap_or(0);
+                let slice = std::slice::from_raw_parts(self.inline.as_ptr(), len);
+                std::str::from_utf8(slice).unwrap_or("")
+            }
         }
     }
 
-    /// Get the length of the string (excluding null terminator).
+    /// Get the length of the string (excluding NUL terminator).
     pub fn len(&self) -> usize {
-        // SAFETY: self.inline is a valid [u8; 256] — iterating to find '\0' is safe.
-        unsafe { self.inline.iter().position(|&b| b == 0).unwrap_or(0) }
+        if self.is_heap() {
+            // SAFETY: heap variant is active — `str::len` via the Arc deref.
+            unsafe { self.heap.len() }
+        } else {
+            // SAFETY: inline variant is always NUL-terminated.
+            unsafe { self.inline.iter().position(|&b| b == 0).unwrap_or(0) }
+        }
     }
 
     /// Check if the string is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Free the heap string, if any. A no-op for the inline variant — inline
+    /// content is left untouched because `set()` overwrites it immediately
+    /// (this keeps the hot path free of a 256-byte memset).
+    fn drop_heap(&mut self) {
+        if self.is_heap() {
+            // SAFETY: is_heap() confirms the heap variant is active.
+            unsafe {
+                let arc: Arc<str> = ManuallyDrop::take(&mut self.heap);
+                drop(arc);
+            }
+        }
+    }
+
+    /// Fully clear the string — frees any heap Arc and reinitializes the union
+    /// to the empty inline state. Used by pool reuse ([`Record::reset`]) and
+    /// [`Drop`], so a recycled slot neither leaks an `Arc<str>` nor serves
+    /// stale inline content.
+    fn clear(&mut self) {
+        self.drop_heap();
+        // SAFETY: writing the full `[u8; 256]` reinitializes the inline
+        // variant; the sentinel makes the empty state unambiguous.
+        unsafe {
+            self.inline = [0u8; RECORD_STRING_INLINE_CAPACITY];
+            self.inline[RECORD_STRING_INLINE_CAPACITY - 1] = 0xFF;
+        }
     }
 }
 
@@ -259,11 +327,11 @@ impl std::fmt::Debug for RecordString {
     }
 }
 
-// SAFETY: RecordString currently only uses the inline variant ([u8; 256]),
-// which contains no pointers. It is plain data and safe to send between threads.
-// When the heap variant (Arc<str>) is added, this will need revision.
+// SAFETY: both variants are Send — inline is plain data and the heap variant
+// is an `Arc<str>` (Send + Sync). The union is only ever mutated through
+// `&mut self`, so no data race is possible.
 unsafe impl Send for RecordString {}
-// SAFETY: See Send impl — inline data only, no internal mutability.
+// SAFETY: see Send impl — `Arc<str>` is Sync, inline is plain data.
 unsafe impl Sync for RecordString {}
 
 // ---------------------------------------------------------------------------
@@ -281,6 +349,41 @@ pub enum FieldRing {
     Ring2,
     /// Untrusted extension fields — any plugin, CRC32C only
     Ring3,
+}
+
+/// Free every [`RecordString`] field. Shared by [`Record::reset`] (pool reuse)
+/// and [`Drop`] so the two teardown paths stay in lockstep.
+fn drop_record_strings(r: &mut Record) {
+    r.message.clear();
+    r.source_file.clear();
+    r.source_function.clear();
+    r.thread_name.clear();
+    r.process_name.clear();
+    r.host_name.clear();
+    r.container_id.clear();
+    r.app_name.clear();
+    r.app_version.clear();
+    r.environment.clear();
+    r.user_id.clear();
+    r.session_id.clear();
+    r.request_id.clear();
+    r.trace_id.clear();
+    r.span_id.clear();
+    r.exception_type.clear();
+    r.exception_message.clear();
+    r.exception_stacktrace.clear();
+    r.labels.clear();
+    r.audit_tags.clear();
+    r.ext_data.clear();
+}
+
+impl Drop for Record {
+    /// Safety net for records that leave scope without passing through
+    /// [`Record::reset`] (e.g. test-constructed records). Production records
+    /// are pool-owned and `reset()` runs first, so this is a no-op for them.
+    fn drop(&mut self) {
+        drop_record_strings(self);
+    }
 }
 
 impl Record {
@@ -332,10 +435,15 @@ impl Record {
     }
 
     /// Reset the record for reuse (called when returning to pool).
+    ///
+    /// Clears flags/signature and frees every [`RecordString`] field so the
+    /// slot returns to a pristine state — a reused slot must neither leak an
+    /// `Arc<str>` nor serve stale field content.
     pub(crate) fn reset(&mut self) {
         self.flags = 0;
         self.signature = [0u8; 64];
         self.ext_crc32c = 0;
+        drop_record_strings(self);
     }
 
     /// Get the permission ring for a field by name.
@@ -626,4 +734,138 @@ const _: () = {
     assert!(core::mem::align_of::<Record>() == 64);
     // Record size must be a multiple of cache-line size to avoid false sharing
     assert!(core::mem::size_of::<Record>().is_multiple_of(64));
+    // RecordString must stay a single 256-byte union (heap variant is a fat
+    // pointer living in bytes [0..16); Record layout must not drift).
+    assert!(core::mem::size_of::<RecordString>() == RECORD_STRING_INLINE_CAPACITY);
+    assert!(core::mem::align_of::<RecordString>() == 8);
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recordstring_inline_roundtrip() {
+        let mut rs = RecordString::empty();
+        assert!(rs.is_empty());
+        assert_eq!(rs.len(), 0);
+        assert_eq!(rs.as_str(), "");
+        rs.set("hello");
+        assert!(!rs.is_empty());
+        assert_eq!(rs.len(), 5);
+        assert_eq!(rs.as_str(), "hello");
+        rs.set("");
+        assert!(rs.is_empty());
+        assert_eq!(rs.as_str(), "");
+    }
+
+    #[test]
+    fn recordstring_inline_heap_boundary() {
+        let mut rs = RecordString::empty();
+        // 254 bytes (INLINE_MAX) stays inline.
+        let max_inline = "x".repeat(RECORD_STRING_INLINE_MAX);
+        rs.set(&max_inline);
+        assert_eq!(rs.len(), RECORD_STRING_INLINE_MAX);
+        assert_eq!(rs.as_str(), max_inline);
+        assert!(!rs.is_heap());
+        // Re-setting with another short string must not corrupt the sentinel.
+        rs.set("y");
+        assert_eq!(rs.as_str(), "y");
+
+        // 255 bytes (INLINE_MAX + 1) crosses to the heap path.
+        let first_heap = "y".repeat(RECORD_STRING_INLINE_MAX + 1);
+        rs.set(&first_heap);
+        assert_eq!(rs.len(), RECORD_STRING_INLINE_MAX + 1);
+        assert_eq!(rs.as_str(), first_heap);
+        assert!(rs.is_heap());
+    }
+
+    #[test]
+    fn recordstring_heap_roundtrip() {
+        let mut rs = RecordString::empty();
+        let s = "A".repeat(256);
+        rs.set(&s);
+        assert!(!rs.is_empty());
+        assert_eq!(rs.len(), s.len());
+        assert_eq!(rs.as_str(), s);
+        // Debug impl must reflect the full heap content.
+        let dbg = format!("{rs:?}");
+        assert_eq!(dbg, format!("\"{s}\""));
+    }
+
+    #[test]
+    fn recordstring_heap_switches_back_to_inline() {
+        let mut rs = RecordString::empty();
+        rs.set(&"B".repeat(500));
+        assert_eq!(rs.len(), 500);
+        assert_eq!(rs.as_str(), "B".repeat(500));
+        // Replacing with a short string frees the heap Arc and returns inline.
+        rs.set("short");
+        assert_eq!(rs.as_str(), "short");
+        assert!(!rs.is_heap());
+    }
+
+    #[test]
+    fn recordstring_heap_len_matches_str_len() {
+        let mut rs = RecordString::empty();
+        rs.set(&"Z".repeat(4096));
+        assert_eq!(rs.len(), rs.as_str().len());
+        assert_eq!(rs.len(), 4096);
+        assert_eq!(rs.as_str(), "Z".repeat(4096));
+    }
+
+    #[test]
+    fn recordstring_unicode_roundtrip() {
+        let mut rs = RecordString::empty();
+        rs.set("こんにちは世界");
+        assert_eq!(rs.as_str(), "こんにちは世界");
+        rs.set(&"😀 ".repeat(300)); // multi-byte, crosses into heap
+        assert_eq!(rs.as_str(), &"😀 ".repeat(300));
+    }
+
+    #[test]
+    fn record_reset_frees_heap_strings() {
+        let mut record = Record::new(0);
+        record.message.set(&"M".repeat(300));
+        record.source_file.set(&"F".repeat(300));
+        assert_eq!(record.message.len(), 300);
+        record.reset();
+        assert_eq!(record.message.as_str(), "");
+        assert_eq!(record.source_file.as_str(), "");
+        assert!(record.message.is_empty());
+    }
+
+    #[test]
+    fn record_reset_clears_inline_strings() {
+        let mut record = Record::new(0);
+        record.message.set("hello");
+        record.ext_crc32c = 0xDEADBEEF;
+        record.reset();
+        assert_eq!(record.message.as_str(), "");
+        assert_eq!(record.ext_crc32c, 0);
+        assert_eq!(record.signature, [0u8; 64]);
+    }
+
+    #[test]
+    fn record_drop_heap_string_smoke() {
+        // A record with a heap string that leaves scope without reset() must
+        // not panic or double-free (Drop is the safety net).
+        let mut record = Record::new(7);
+        record.message.set(&"D".repeat(400));
+        record.host_name.set(&"H".repeat(400));
+        assert_eq!(record.message.len(), 400);
+        drop(record);
+    }
+
+    #[test]
+    fn record_strings_are_shared_not_copied_after_drop() {
+        // Dropping one record must not affect another record's independent
+        // Arc (each set() allocates its own Arc — no aliasing across records).
+        let mut a = Record::new(1);
+        let mut b = Record::new(2);
+        a.message.set(&"S".repeat(300));
+        b.message.set(&"T".repeat(300));
+        drop(a);
+        assert_eq!(b.message.as_str(), "T".repeat(300));
+    }
+}

@@ -152,20 +152,19 @@ fuzz_target!(|data: &[u8]| {
 
     rs.set(&value);
     let roundtripped = rs.as_str().to_string();
-    // Truncation may occur for strings > RECORD_STRING_INLINE_CAPACITY
-    let expected_len = value.len().min(dologger_core::record::RECORD_STRING_INLINE_CAPACITY - 1);
+    // Full-length round-trip: inline for ≤ 254 bytes, heap (Arc<str>) beyond —
+    // content must never be truncated.
+    assert_eq!(
+        rs.len(),
+        value.len(),
+        "RecordString must preserve the full length ({} bytes)",
+        value.len()
+    );
+    assert_eq!(roundtripped, value, "RecordString round-trip must preserve content");
     assert_eq!(
         rs.len(),
         roundtripped.len(),
         "RecordString len() and as_str().len() must agree"
-    );
-    assert!(
-        rs.len() <= dologger_core::record::RECORD_STRING_INLINE_CAPACITY - 1,
-        "RecordString len must be <= inline capacity - 1 (null terminator)"
-    );
-    assert!(
-        roundtripped.len() <= dologger_core::record::RECORD_STRING_INLINE_CAPACITY - 1,
-        "roundtripped len must be <= inline capacity - 1"
     );
 
     // Empty after reset
@@ -294,7 +293,9 @@ mod edge_case_tests {
         record.message.set("hello");
         record.ext_crc32c = 0xDEADBEEF;
         record.reset();
-        assert_eq!(record.message.as_str(), ""); // reset doesn't zero message (only flags/sig/crc)
+        // reset() clears every RecordString field (both inline and heap) so a
+        // pooled slot is pristine on reuse.
+        assert_eq!(record.message.as_str(), "");
         assert_eq!(record.ext_crc32c, 0);
         assert_eq!(record.signature, [0u8; 64]);
     }
@@ -319,13 +320,13 @@ mod edge_case_tests {
     }
 
     #[test]
-    fn edge_recordstring_truncation() {
+    fn edge_recordstring_heap_roundtrip() {
         let mut rs = RecordString::empty();
         let long = "A".repeat(500);
         rs.set(&long);
-        // Should be truncated to inline capacity - 1
-        assert_eq!(rs.len(), 255);
-        assert_eq!(rs.as_str().len(), 255);
+        // Long strings are heap-backed (Arc<str>) and preserve their full length.
+        assert_eq!(rs.len(), 500);
+        assert_eq!(rs.as_str(), long);
     }
 
     #[test]

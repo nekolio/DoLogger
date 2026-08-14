@@ -15,7 +15,7 @@ use std::time::Instant;
 use dologger_core::buffer::RecordPool;
 use dologger_core::buffer::RingBuffer;
 use dologger_core::config::DologgerConfig;
-use dologger_core::record::{LogLevel, Record};
+use dologger_core::record::{LogLevel, Record, RECORD_STRING_INLINE_MAX};
 use dologger_core::security::SignatureEngine;
 use dologger_core::sys::TimeSource;
 
@@ -260,9 +260,9 @@ fn bench_percentile_latency(c: &mut Criterion) {
     let pool_size = config.ring_buffer_size; // 65536
     let pid = std::process::id();
 
-    // Redirect diagnostic output to suppress truncation warnings from
-    // oversized messages (1 KB > 255-byte RecordString limit).
-    // On Windows, NUL is the null device; on Unix, /dev/null.
+    // Redirect diagnostic output to a null device so the bench run stays quiet.
+    // (RecordString no longer emits truncation warnings — messages ≥ 255 bytes
+    // take the heap path.) On Windows, NUL is the null device; on Unix, /dev/null.
     #[cfg(target_os = "windows")]
     dologger_core::sys::diag::init("NUL");
     #[cfg(not(target_os = "windows"))]
@@ -311,25 +311,25 @@ fn bench_percentile_latency(c: &mut Criterion) {
     }
 
     // ── 3. single_record_latency_256B ───────────────────────────────────
-    // RecordString inline capacity is 255 bytes (256 buffer - 1 null).
-    // Using 255 bytes exercises the full inline copy without triggering
-    // the truncation diagnostic path.
+    // RecordString inline max is 254 bytes (256 buffer - 1 sentinel - 1 null).
+    // Using 254 bytes exercises the full inline copy at the inline/heap
+    // boundary without spilling onto the heap.
     {
-        let msg_255b = "x".repeat(255);
+        let msg_254b = "x".repeat(RECORD_STRING_INLINE_MAX);
         let pool = RecordPool::new(pool_size);
         let rb = RingBuffer::new(pool_size);
         let ts = TimeSource::new();
         let samples = collect_samples(&pool, &rb, SAMPLES, pool_size, || {
-            push_record(&pool, &rb, &ts, &msg_255b, 1, pid)
+            push_record(&pool, &rb, &ts, &msg_254b, 1, pid)
         });
         drain_all(&pool, &rb);
         report("single_record_latency_256B", samples);
     }
 
     // ── 4. single_record_latency_1KB ────────────────────────────────────
-    // 1 KB message exceeds the 255-byte inline capacity, triggering
-    // truncation + diag warning. This measures the real-world overhead
-    // of the oversized-message path (memcpy 255 bytes + diag log write).
+    // 1 KB message exceeds the 254-byte inline max, taking the heap path
+    // (Arc<str> allocation + copy). Measures the real-world overhead of the
+    // oversized-message path without any truncation.
     {
         let msg_1kb = "y".repeat(1024);
         let pool = RecordPool::new(pool_size);
