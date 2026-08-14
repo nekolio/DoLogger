@@ -66,14 +66,26 @@ unsafe impl Sync for FieldProviderVTable {}
 // VTable function stubs
 // ---------------------------------------------------------------------------
 
-/// Inject fields stub — returns DO_LOG_OK without injecting any fields.
-/// Real implementation: detect container runtime, read /proc/self/cgroup
-/// or environment variables, and inject container.* fields into the record.
+/// Inject container.* fields into a record.
+///
+/// PLACEHOLDER — returns DO_LOG_ERR_NOT_SUPPORTED because the field-injection
+/// pipeline is not yet wired at v0.1.0:
+///   1. the engine's FieldProvider stage does not dispatch this vtable, and
+///   2. no field-access accessor is handed to plugins, so the opaque `record`
+///      handle cannot be written (container.id / pod / namespace / node)
+///      from inside the bundle.
+///
+/// Both land with M6 (C ABI record access + pipeline dispatch). When they do,
+/// this function detects the container runtime (`$CONTAINER_ID`,
+/// `/proc/self/cgroup`, Kubernetes downward API), then writes fields via the
+/// dispatched `dologger_field_set` accessor at Ring 3.
+///
+/// This is a *documented placeholder*, not dead code — it must not be deleted.
 unsafe extern "C" fn inject_fields_impl(
     _record: *mut std::ffi::c_void,
     _plugin_state: *mut std::ffi::c_void,
 ) -> i32 {
-    DO_LOG_ERR_NOT_SUPPORTED // stub: not yet implemented
+    DO_LOG_ERR_NOT_SUPPORTED
 }
 
 static VTABLE: FieldProviderVTable = FieldProviderVTable {
