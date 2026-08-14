@@ -178,8 +178,7 @@ sink_type = "console"
 
 # New (since 1.3):
 [sinks.console]
-type = "sink_console"
-enabled = true
+type = "console"
 ```
 
 ### Deprecation Table

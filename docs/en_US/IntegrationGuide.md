@@ -203,40 +203,13 @@ Enable any combination of sinks. All enabled sinks receive every record:
 # (illustrative — v0.1.0 FileSinkConfig has: path, max_size (bytes),
 # fsync_on_write, durability_level, buffer_size; time-based rotation,
 # compression, and retention are planned)
-[sinks.console]
-type = "sink_console"
-enabled = false                         # Disable in production
-
+# A sink is active iff its [sinks.*] table is defined; there is no "enabled" flag.
+# Disabled sinks are simply not defined.
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "100MB"
-rotation_interval = "24h"
-compression = "zstd"                    # gzip | zstd | none
-retention_days = 90
-retention_total_size = "10GB"
-
-[sinks.kafka]
-type = "sink_kafka"
-enabled = false
-brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
-topic = "app-logs"
-tls = true
-sasl_mechanism = "SCRAM-SHA-256"
-
-[sinks.syslog]
-type = "sink_syslog"
-enabled = false
-server = "syslog.internal:6514"
-protocol = "tcp"
-tls = true
-
-[sinks.webhook]
-type = "sink_webhook"
-enabled = false
-url = "https://logs.internal/api/v1/ingest"
-bearer_token = "tok_abc123"
+max_size = 104857600
+durability_level = "os_cache"
 ```
 
 ### Validation
@@ -291,9 +264,8 @@ ring_buffer_size = 262144
 inherits = "root"
 level = "DEBUG"
 enable_signature = true                 # Non-downgradable: cannot be loosened
-worm_enabled = true                     # Non-downgradable
 performance_profile = "prod-audit"
-sinks = ["worm_file", "security_file"]
+sinks = ["worm", "security"]            # WORM + security selected via worm/security sinks
 array_merge_policy = "replace"          # Replace parent's sinks entirely
 
 # API service -- Kafka output
@@ -314,13 +286,12 @@ array_merge_policy = "unique_append"    # Add to parent's sinks (no duplicates)
 
 ### Non-Downgradable Enforcement
 
-Six security items can only be tightened by child domains. Attempting to loosen them triggers a `CONFIG_RELOAD_DENIED` event:
+Five security items can only be tightened by child domains. Attempting to loosen them triggers a `CONFIG_RELOAD_DENIED` event:
 
 | Item | Tightening | Loosening (REJECTED) |
 |:-:|:-:|:-:|
 | `enable_signature` | `false` to `true` | `true` to `false` |
 | `escape_html` | `false` to `true` | `true` to `false` |
-| `worm_enabled` | `false` to `true` | `true` to `false` |
 | `fsync_on_write` | `false` to `true` | `true` to `false` |
 | `require_tls` | `false` to `true` | `true` to `false` |
 | `sign_ring2` | `false` to `true` | `true` to `false` |
@@ -721,7 +692,7 @@ Change the log level at runtime to debug issues in production:
 **Symptom:** The engine starts but no log output appears.
 
 **Checklist:**
-1. Verify at least one sink has `enabled = true`
+1. Verify at least one sink is defined in the `[sinks.*]` section
 2. Check that the log level is not filtering everything: `DO_LOG_LEVEL=TRACE`
 3. Look for `SINK_CIRCUIT_OPEN` or `SHM_DROP` in sysmon events
 4. Verify file permissions on the output path

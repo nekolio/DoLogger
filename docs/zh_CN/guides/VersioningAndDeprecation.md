@@ -175,8 +175,7 @@ sink_type = "console"
 
 # 新（自 1.3 起）：
 [sinks.console]
-type = "sink_console"
-enabled = true
+type = "console"
 ```
 
 ### 废弃表

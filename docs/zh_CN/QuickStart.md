@@ -179,15 +179,13 @@ ring_buffer_size = 262144   # 必须是 2 的幂（65536、131072、262144、524
 
 ```toml
 [sinks.console]
-type = "sink_console"
-enabled = true
+type = "console"
 
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-rotation_interval = "24h"
-compression = "zstd"
+max_size = 104857600
+durability_level = "os_cache"
 ```
 
 DoLogger 有 11 个内置接收器：console、file、callback、Kafka、syslog、webhook、SQLite、WORM、security file、shared memory 和 OpenTelemetry。按需启用任意数量——输出同时发送到所有启用的接收器。
@@ -244,7 +242,7 @@ dologctl verify-log audit-000001.worm
 |:-:|:-:|
 | 构建失败，提示"CMake not found" | 安装 CMake 3.20+：`apt install cmake` / `brew install cmake` |
 | `dologctl run` 立即退出 | v0.1.0 尚未实现引擎长驻启动；使用 `dologctl run --trace` 运行管道，或 `dologctl run --dry-run` 校验配置 |
-| 无输出出现 | 验证至少有一个接收器 `enabled = true` |
+| 无输出出现 | 验证在 `[sinks.*]` 中至少定义了一个接收器 |
 | 插件加载失败 | 检查 `dologger_internal.log` 以获取 ABI 不匹配详情 |
 
 ---

@@ -377,7 +377,7 @@ Six configuration items are designated as non-downgradable. They can only be **t
 |:-:|:-:|:-:|
 | `enable_signature`| `false`        | Non-repudiation is lost. All audit records become forgeable. |
 | `escape_html`     | `false`        | Log injection attacks become possible. Terminal escape sequences and CRLF injection can hide or forge log output. |
-| `worm_enabled`    | `false`        | Audit log files become mutable. Historical records can be deleted or modified without cryptographic detection. |
+| `durability`      | `os_cache`     | Audit log files become mutable. Historical records can be deleted or modified without cryptographic detection. |
 | `fsync_on_write`  | `false`        | Crash durability is voided. In-flight audit records lost during a crash leave undetectable gaps. |
 | `require_tls`     | `false`        | Network Sinks accept plaintext connections. Passive eavesdropping and active MITM attacks on log data in transit. |
 | `sign_ring2`      | `false`        | Verified extension fields lose their cryptographic binding. `verified.*` fields can be modified undetectably. |
@@ -558,7 +558,7 @@ cargo deny check sources
 # `brokers` as a comma-separated string plus `enable_tls` / `sasl_username` /
 # `sasl_password` — see core/src/sink/kafka.rs)
 [sinks.kafka]
-type = "sink_kafka"
+type = "kafka"
 brokers = ["kafka1.internal:9093"]
 tls = true
 tls_ca_file = "/etc/dologger/certs/ca.pem"

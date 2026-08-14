@@ -130,7 +130,6 @@ performance_profile = "prod-performance"
 
 [sinks.shm]
 type = "sink_shm"
-enabled = true
 path = "dologger_app"
 input_format = "sif"
 buffer_size_mb = 100        # 100 MB
@@ -714,7 +713,7 @@ Every compliance template activates all six non-downgradable security items:
 |:-:|:-:|:-:|
 | `enable_signature` | `true` | Non-repudiation -- cryptographically verifiable log records |
 | `escape_html` | `true` | Log injection prevention -- CRLF and ANSI escape neutralization |
-| `worm_enabled` | `true` | Immutability -- log records cannot be deleted or modified |
+| `[sinks.audit]` (worm sink) | `durability = "media_with_fua"` | Immutability -- log records cannot be deleted or modified |
 | `fsync_on_write` | `true` | Durability -- records committed to media before acknowledgment |
 | `require_tls` | `true` | Transport security -- all network sinks use TLS 1.2+ |
 | `sign_ring2` | `true` | Verified extension integrity -- plugin-provided fields are cryptographically bound |
@@ -744,7 +743,9 @@ dologctl config merge \
 performance_profile = "prod-audit"
 level               = "AUDIT"
 enable_signature    = true    (non-downgradable)
-worm_enabled        = true    (non-downgradable)
+[sinks.audit]                 # WORM immutability (non-downgradable)
+type                = "worm"
+durability          = "media_with_fua"
 sign_ring2          = true    (non-downgradable)
 escape_html         = true    (non-downgradable)
 fsync_on_write      = true    (non-downgradable)

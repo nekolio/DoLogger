@@ -127,7 +127,6 @@ performance_profile = "prod-performance"
 
 [sinks.shm]
 type = "sink_shm"
-enabled = true
 path = "dologger_app"
 input_format = "sif"
 buffer_size_mb = 100        # 100 MB
@@ -239,7 +238,6 @@ sudo systemctl status dologger
   "plugins_loaded": 3,
   "plugins_failed": 0,
   "signature_enabled": false,
-  "worm_enabled": false,
   "ring_buffer": {
     "capacity": 262144,
     "used": 8192,
@@ -694,7 +692,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 |:-:|:-:|:-:|
 | `enable_signature` | `true` | 不可否认性——加密可验证的日志记录 |
 | `escape_html` | `true` | 日志注入防护——CRLF 和 ANSI 转义中和 |
-| `worm_enabled` | `true` | 不可变性——日志记录不可删除或修改 |
+| `[sinks.audit]`（worm 接收器） | `durability = "media_with_fua"` | 不可变性——日志记录不可删除或修改 |
 | `fsync_on_write` | `true` | 持久性——记录在被确认前提交到介质 |
 | `require_tls` | `true` | 传输安全——所有网络接收器使用 TLS 1.2+ |
 | `sign_ring2` | `true` | 已验证扩展的完整性——插件提供字段被加密绑定 |
@@ -722,7 +720,9 @@ dologctl config validate \
 performance_profile = "prod-audit"
 level               = "AUDIT"
 enable_signature    = true    (不可降级)
-worm_enabled        = true    (不可降级)
+[sinks.audit]                 # WORM 不可变性（不可降级）
+type                = "worm"
+durability          = "media_with_fua"
 sign_ring2          = true    (不可降级)
 escape_html         = true    (不可降级)
 fsync_on_write      = true    (不可降级)

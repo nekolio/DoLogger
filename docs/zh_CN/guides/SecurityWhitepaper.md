@@ -373,7 +373,7 @@ Windows 的完整进程级隔离（将插件代码运行在单独、受控的子
 |:-:|:-:|:-:|
 | `enable_signature` | `false` | 不可否认性丧失。所有审计记录变得可伪造。 |
 | `escape_html` | `false` | 日志注入攻击成为可能。终端转义序列和 CRLF 注入可以隐藏或伪造日志输出。 |
-| `worm_enabled` | `false` | 审计日志文件变得可修改。历史记录可被删除或修改而无法被密码学检测。 |
+| `durability` | `os_cache` | 审计日志文件变得可修改。历史记录可被删除或修改而无法被密码学检测。 |
 | `fsync_on_write` | `false` | 崩溃持久性失效。崩溃期间丢失的在途审计记录留下不可检测的间隙。 |
 | `require_tls` | `false` | 网络 Sink 接受明文连接。传输中的日志数据面临被动窃听和主动 MITM 攻击。 |
 | `sign_ring2` | `false` | 已验证扩展字段失去密码学绑定。`verified.*` 字段可被无痕修改。 |
@@ -553,7 +553,7 @@ cargo deny check sources
 # 逗号分隔的 `brokers` 字符串，外加 `enable_tls` / `sasl_username` /
 # `sasl_password` — 见 core/src/sink/kafka.rs）
 [sinks.kafka]
-type = "sink_kafka"
+type = "kafka"
 brokers = ["kafka1.internal:9093"]
 tls = true
 tls_ca_file = "/etc/dologger/certs/ca.pem"

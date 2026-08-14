@@ -193,40 +193,13 @@ key_rotation_grace_period_days = 7      # 轮换后旧密钥有效天数
 ```toml
 # （示意 — v0.1.0 的 FileSinkConfig 仅含：path、max_size（字节）、fsync_on_write、
 # durability_level、buffer_size；按时间滚动、压缩与保留均为规划中）
-[sinks.console]
-type = "sink_console"
-enabled = false                         # 生产环境禁用
-
+# 只要定义了 [sinks.*] 表即视为启用该接收器，没有 "enabled" 标志。
+# 禁用的接收器直接不定义即可。
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-max_size = "100MB"
-rotation_interval = "24h"
-compression = "zstd"                    # gzip | zstd | none
-retention_days = 90
-retention_total_size = "10GB"
-
-[sinks.kafka]
-type = "sink_kafka"
-enabled = false
-brokers = ["kafka1:9092", "kafka2:9092", "kafka3:9092"]
-topic = "app-logs"
-tls = true
-sasl_mechanism = "SCRAM-SHA-256"
-
-[sinks.syslog]
-type = "sink_syslog"
-enabled = false
-server = "syslog.internal:6514"
-protocol = "tcp"
-tls = true
-
-[sinks.webhook]
-type = "sink_webhook"
-enabled = false
-url = "https://logs.internal/api/v1/ingest"
-bearer_token = "tok_abc123"
+max_size = 104857600
+durability_level = "os_cache"
 ```
 
 ### 验证
@@ -278,9 +251,8 @@ ring_buffer_size = 262144
 inherits = "root"
 level = "DEBUG"
 enable_signature = true                 # 不可降级：不能放松
-worm_enabled = true                     # 不可降级
 performance_profile = "prod-audit"
-sinks = ["worm_file", "security_file"]
+sinks = ["worm", "security"]            # 通过 worm/security 接收器实现 WORM 与安全审计
 array_merge_policy = "replace"          # 完全替换父域的接收器
 
 # API 服务——Kafka 输出
@@ -301,13 +273,12 @@ array_merge_policy = "unique_append"    # 添加到父域接收器（无重复�
 
 ### 不可降级强制执行
 
-六项安全项目只能被子域收紧。尝试放松它们会触发 `CONFIG_RELOAD_DENIED` 事件：
+五项安全项目只能被子域收紧。尝试放松它们会触发 `CONFIG_RELOAD_DENIED` 事件：
 
 | 项目 | 收紧 | 放松（被拒绝） |
 |:-:|:-:|:-:|
 | `enable_signature` | `false` 到 `true` | `true` 到 `false` |
 | `escape_html` | `false` 到 `true` | `true` 到 `false` |
-| `worm_enabled` | `false` 到 `true` | `true` 到 `false` |
 | `fsync_on_write` | `false` 到 `true` | `true` 到 `false` |
 | `require_tls` | `false` 到 `true` | `true` 到 `false` |
 | `sign_ring2` | `false` 到 `true` | `true` 到 `false` |
@@ -738,7 +709,7 @@ int main(void) {
 **症状：** 引擎启动但无日志输出出现。
 
 **检查清单：**
-1. 验证至少有一个接收器 `enabled = true`
+1. 验证在 `[sinks.*]` 中至少定义了一个接收器
 2. 检查日志级别是否没有过滤所有内容：`DO_LOG_LEVEL=TRACE`
 3. 在 sysmon 事件中查找 `SINK_CIRCUIT_OPEN` 或 `SHM_DROP`
 4. 验证输出路径的文件权限

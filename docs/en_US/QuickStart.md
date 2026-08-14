@@ -173,15 +173,13 @@ Larger buffers handle bursty workloads better at the cost of memory. Each slot i
 
 ```toml
 [sinks.console]
-type = "sink_console"
-enabled = true
+type = "console"
 
 [sinks.file]
-type = "sink_file"
-enabled = true
+type = "file"
 path = "/var/log/dologger/app.log"
-rotation_interval = "24h"
-compression = "zstd"
+max_size = 104857600
+durability_level = "os_cache"
 ```
 
 DoLogger has 11 built-in sinks: console, file, callback, Kafka, syslog, webhook, SQLite, WORM, security file, shared memory, and OpenTelemetry. Enable as many as you need--output goes to all enabled sinks simultaneously.
@@ -239,7 +237,7 @@ dologctl verify-log audit-000001.worm
 |:-:|:-:|
 | Build fails with "CMake not found" | Install CMake 3.20+: `apt install cmake` / `brew install cmake` |
 | `dologctl run` exits immediately | Engine startup is not implemented in v0.1.0; use `dologctl run --trace` to exercise the pipeline, or `dologctl run --dry-run` to validate configuration |
-| No output appears | Verify at least one sink has `enabled = true` |
+| No output appears | Verify at least one sink is defined in the `[sinks.*]` section |
 | Plugin fails to load | Check `dologger_internal.log` for ABI mismatch details |
 
 ---
