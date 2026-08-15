@@ -60,7 +60,7 @@ function focusShadow(): string {
   return main + ', 0 0 30px ' + glow
 }
 
-function setOverlay(el: HTMLElement, r: DOMRect) {
+function setOverlay(el: HTMLElement, r: { left: number; top: number; width: number; height: number }) {
   const g = gridEl().getBoundingClientRect()
   el.style.position = 'fixed'
   el.style.left = (r.left - g.left) + 'px'
