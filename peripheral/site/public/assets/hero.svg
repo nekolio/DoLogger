@@ -180,7 +180,7 @@
               <text x="44" y="92" font-size="15"><tspan fill="#86C97F">[INFO] </tspan><tspan fill="#B8C2CE">Hello DoLogger</tspan></text>
             </g>
             <g clip-path="url(#c3)">
-              <text x="44" y="120" font-size="15"><tspan fill="#8A9BFF">[PLUGIN] </tspan><tspan fill="#B8C2CE">4 sandboxed · trust BLUE</tspan></text>
+              <text x="44" y="120" font-size="15"><tspan fill="#8A9BFF">[PLUGIN] </tspan><tspan fill="#B8C2CE">formatter_json · filter_level · trust BLUE</tspan></text>
             </g>
             <g clip-path="url(#c4)">
               <text x="44" y="148" font-size="15"><tspan fill="#7FC7D9">[AUDIT] </tspan><tspan fill="#B8C2CE">ed25519 chain armed</tspan></text>

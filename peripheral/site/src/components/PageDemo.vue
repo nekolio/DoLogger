@@ -111,8 +111,8 @@ function appendTermRow(row: TermRow) {
 /* Live timestamps — nothing in the terminal is pre-baked. Both streams
  * get the same wall clock (HH:MM:SS.mmm) generated at push time, so the
  * demo reads like an actual running process. The after stream's
- * human-readable format comes from a DoLogger plugin (timestamps are
- * pluggable — see the boot canon line about the timestamp plugin). */
+ * human-readable format comes from a DoLogger formatter plugin (text
+ * rendering is pluggable — see the formatter_text boot canon line). */
 function stamp(): string {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')

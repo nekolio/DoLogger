@@ -97,7 +97,7 @@ onBeforeUnmount(stopHintTyping)
     <div class="hero-content">
       <div class="hero-frame">
         <img class="hero" src="./assets/hero.svg"
-             alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" />
+             alt="DoLogger boot sequence — Hello DoLogger, formatter_json + filter_level plugins, Ed25519 chain armed, 7-stage pipeline online" />
       </div>
 
       <div class="badge" v-if="badgeRelease">
