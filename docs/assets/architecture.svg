@@ -1,77 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 560" font-family="ui-monospace, SFMono-Regular, Consolas, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="arch-title arch-desc" font-family="'Geist', ui-sans-serif, system-ui, sans-serif">
+  <title id="arch-title">DoLogger pipeline architecture</title>
+  <desc id="arch-desc">A record flows from an application through a lock-free ring into a seven-stage pipeline and out to a sink layer. Stage 3 assembles each audit record and signs it with Ed25519.</desc>
+
   <defs>
-    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M0,0 L10,5 L0,10 z" fill="#00D4FF"/>
+    <marker id="arch-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4f5d75"/>
     </marker>
   </defs>
 
-  <rect width="1040" height="560" fill="#0D1117"/>
+  <!-- background (paper) -->
+  <rect x="0" y="0" width="960" height="600" fill="#f5f5f5"/>
 
-  <!-- Application -->
-  <rect x="24" y="212" width="152" height="136" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="100" y="246" font-size="15" font-weight="700" fill="#FF6B00" text-anchor="middle">APPLICATION</text>
-  <text x="100" y="270" font-size="12" fill="#C9D1D9" text-anchor="middle">dologger_log()</text>
-  <text x="100" y="288" font-size="11" fill="#8B949E" text-anchor="middle">Rust SDK · C ABI</text>
-  <text x="100" y="304" font-size="11" fill="#8B949E" text-anchor="middle">Python · Go adapters</text>
-  <text x="100" y="326" font-size="11" fill="#8B949E" text-anchor="middle">zero malloc on submit</text>
+  <!-- ============ zones ============ -->
+  <rect x="40" y="180" width="352" height="248" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+  <rect x="184" y="184" width="64" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="216" y="196" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="7" font-weight="500" letter-spacing="0.14em" fill="rgba(45,49,66,0.40)" text-anchor="middle">INGEST</text>
 
-  <line x1="176" y1="280" x2="222" y2="280" stroke="#00D4FF" stroke-width="1.5" marker-end="url(#arr)"/>
-  <text x="199" y="266" font-size="10" fill="#8B949E" text-anchor="middle">push</text>
+  <rect x="400" y="60" width="268" height="432" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+  <rect x="476" y="64" width="112" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="532" y="76" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="7" font-weight="500" letter-spacing="0.14em" fill="rgba(45,49,66,0.40)" text-anchor="middle">7-STAGE PIPELINE</text>
 
-  <!-- Lock-free ring -->
-  <rect x="228" y="212" width="196" height="136" fill="#161B22" stroke="#00D4FF" stroke-width="1"/>
-  <text x="326" y="246" font-size="15" font-weight="700" fill="#00D4FF" text-anchor="middle">LOCK-FREE RING</text>
-  <text x="326" y="270" font-size="12" fill="#C9D1D9" text-anchor="middle">MPSC · CAS push</text>
-  <text x="326" y="288" font-size="11" fill="#8B949E" text-anchor="middle">normal 90% · audit 10%</text>
-  <text x="326" y="304" font-size="11" fill="#8B949E" text-anchor="middle">cooperative helping</text>
-  <text x="326" y="326" font-size="11" fill="#8B949E" text-anchor="middle">Treiber object pool</text>
+  <rect x="700" y="160" width="220" height="256" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.10)" stroke-width="0.8"/>
+  <rect x="768" y="164" width="80" height="12" rx="2" fill="#f5f5f5"/>
+  <text x="808" y="176" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="7" font-weight="500" letter-spacing="0.14em" fill="rgba(45,49,66,0.40)" text-anchor="middle">SINK LAYER</text>
 
-  <line x1="424" y1="280" x2="470" y2="280" stroke="#00D4FF" stroke-width="1.5" marker-end="url(#arr)"/>
-  <text x="447" y="266" font-size="10" fill="#8B949E" text-anchor="middle">drain</text>
+  <!-- ============ arrows (before boxes) ============ -->
+  <line x1="180" y1="296" x2="224" y2="296" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+  <rect x="180" y="276" width="40" height="16" rx="2" fill="#f5f5f5"/>
+  <text x="200" y="288" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" letter-spacing="0.06em" fill="#4f5d75" text-anchor="middle">push</text>
 
-  <!-- 7-stage pipeline -->
-  <rect x="476" y="96" width="272" height="368" fill="#0D1117" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="124" font-size="15" font-weight="700" fill="#00D4FF" text-anchor="middle">7-STAGE PIPELINE</text>
+  <line x1="376" y1="296" x2="400" y2="296" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+  <rect x="372" y="276" width="32" height="16" rx="2" fill="#f5f5f5"/>
+  <text x="388" y="288" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" letter-spacing="0.06em" fill="#4f5d75" text-anchor="middle">drain</text>
 
-  <rect x="492" y="138" width="240" height="34" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="159" font-size="11" fill="#C9D1D9" text-anchor="middle">0 · PreFilter — rate, level policy</text>
+  <line x1="668" y1="288" x2="700" y2="288" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#arch-arrow)"/>
+  <rect x="664" y="268" width="40" height="16" rx="2" fill="#f5f5f5"/>
+  <text x="684" y="280" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" letter-spacing="0.06em" fill="#4f5d75" text-anchor="middle">io_pool</text>
 
-  <rect x="492" y="180" width="240" height="34" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="201" font-size="11" fill="#C9D1D9" text-anchor="middle">1 · Filter — drop / pass rules</text>
+  <!-- ============ INGEST nodes ============ -->
+  <rect x="52" y="240" width="128" height="112" rx="4" fill="rgba(79,93,117,0.10)" stroke="#7a8399" stroke-width="1"/>
+  <text x="116" y="272" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">APPLICATION</text>
+  <text x="116" y="296" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">dologger_log()</text>
+  <text x="116" y="316" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">Rust SDK · C ABI</text>
+  <text x="116" y="336" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">Py · Go adapters</text>
 
-  <rect x="492" y="222" width="240" height="34" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="243" font-size="11" fill="#C9D1D9" text-anchor="middle">2 · FieldProvider — inject fields</text>
+  <rect x="224" y="240" width="152" height="112" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+  <text x="300" y="272" font-size="12" font-weight="600" fill="#2d3142" text-anchor="middle">LOCK-FREE RING</text>
+  <text x="300" y="296" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">MPSC · CAS push</text>
+  <text x="300" y="316" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">normal 90% · audit 10%</text>
+  <text x="300" y="336" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">Treiber object pool</text>
 
-  <rect x="492" y="264" width="240" height="34" fill="#161B22" stroke="#FF6B00" stroke-width="1"/>
-  <text x="612" y="285" font-size="11" fill="#FF6B00" text-anchor="middle">3 · Assembly — LSN + Ed25519 + hash</text>
+  <!-- ============ pipeline stages ============ -->
+  <rect x="412" y="120" width="240" height="40" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="532" y="136" font-size="9" font-weight="600" fill="#2d3142" text-anchor="middle">0 · PreFilter</text>
+  <text x="532" y="148" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">rate · level policy</text>
 
-  <rect x="492" y="306" width="240" height="34" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="327" font-size="11" fill="#C9D1D9" text-anchor="middle">4 · Processing — CRC32C, secrets</text>
+  <rect x="412" y="168" width="240" height="40" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="532" y="184" font-size="9" font-weight="600" fill="#2d3142" text-anchor="middle">1 · Filter</text>
+  <text x="532" y="196" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">drop / pass rules</text>
 
-  <rect x="492" y="348" width="240" height="34" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="369" font-size="11" fill="#C9D1D9" text-anchor="middle">5 · Formatting — JSON / text</text>
+  <rect x="412" y="216" width="240" height="40" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="532" y="232" font-size="9" font-weight="600" fill="#2d3142" text-anchor="middle">2 · FieldProvider</text>
+  <text x="532" y="244" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">inject fields</text>
 
-  <rect x="492" y="390" width="240" height="34" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="612" y="411" font-size="11" fill="#C9D1D9" text-anchor="middle">6 · Sink fan-out</text>
+  <!-- focal stage -->
+  <rect x="412" y="264" width="240" height="40" rx="4" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+  <text x="532" y="280" font-size="9" font-weight="600" fill="#eb6c36" text-anchor="middle">3 · Assembly</text>
+  <text x="532" y="292" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">LSN + Ed25519 + hash</text>
 
-  <line x1="748" y1="280" x2="794" y2="280" stroke="#00D4FF" stroke-width="1.5" marker-end="url(#arr)"/>
-  <text x="771" y="266" font-size="10" fill="#8B949E" text-anchor="middle">io_pool</text>
+  <rect x="412" y="312" width="240" height="40" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="532" y="328" font-size="9" font-weight="600" fill="#2d3142" text-anchor="middle">4 · Processing</text>
+  <text x="532" y="340" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">CRC32C · secrets</text>
 
-  <!-- Sink layer -->
-  <rect x="800" y="212" width="216" height="136" fill="#161B22" stroke="#30363D" stroke-width="1"/>
-  <text x="908" y="246" font-size="15" font-weight="700" fill="#00D4FF" text-anchor="middle">SINK LAYER</text>
+  <rect x="412" y="360" width="240" height="40" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="532" y="376" font-size="9" font-weight="600" fill="#2d3142" text-anchor="middle">5 · Formatting</text>
+  <text x="532" y="388" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">JSON / text</text>
 
-  <rect x="812" y="258" width="60" height="26" fill="#161B22" stroke="#FF6B00" stroke-width="1"/>
-  <text x="842" y="275" font-size="11" fill="#FF6B00" text-anchor="middle">Kafka</text>
+  <rect x="412" y="408" width="240" height="40" rx="4" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+  <text x="532" y="424" font-size="9" font-weight="600" fill="#2d3142" text-anchor="middle">6 · Sink fan-out</text>
+  <text x="532" y="436" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">route records</text>
 
-  <rect x="880" y="258" width="60" height="26" fill="#161B22" stroke="#00D4FF" stroke-width="1"/>
-  <text x="910" y="275" font-size="11" fill="#00D4FF" text-anchor="middle">SQLite</text>
+  <!-- ============ SINK nodes ============ -->
+  <rect x="708" y="220" width="64" height="40" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+  <text x="740" y="244" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">Kafka</text>
 
-  <rect x="948" y="258" width="60" height="26" fill="#161B22" stroke="#C9D1D9" stroke-width="1"/>
-  <text x="978" y="275" font-size="11" fill="#C9D1D9" text-anchor="middle">Stdout</text>
+  <rect x="776" y="220" width="64" height="40" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+  <text x="808" y="244" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">SQLite</text>
 
-  <text x="908" y="312" font-size="11" fill="#8B949E" text-anchor="middle">+ 8 more: File · Syslog · Webhook</text>
-  <text x="908" y="328" font-size="11" fill="#8B949E" text-anchor="middle">WORM · Security · SHM · OTel · Callback</text>
+  <rect x="844" y="220" width="64" height="40" rx="4" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+  <text x="876" y="244" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">Stdout</text>
 
-  <text x="520" y="532" font-size="11" fill="#8B949E" text-anchor="middle">Audit records are Ed25519-signed at stage 3 and written to WORM storage — never dropped.</text>
+  <text x="808" y="300" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">+ 8 more: File · Syslog · Webhook</text>
+  <text x="808" y="316" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="8" fill="#4f5d75" text-anchor="middle">WORM · Security · SHM · OTel · Callback</text>
+
+  <!-- ============ legend strip ============ -->
+  <text x="480" y="576" font-family="'Geist Mono', ui-monospace, Consolas, monospace" font-size="9" fill="#4f5d75" text-anchor="middle">Audit records are Ed25519-signed at stage 3 and written to WORM storage — never dropped.</text>
 </svg>
