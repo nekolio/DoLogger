@@ -3,6 +3,16 @@
 //! Human-readable colored text output with configurable field columns.
 //! Phase: Formatting (5), Trust: Blue.
 //!
+//! # M6 — implemented via the host-accessor bridge
+//!
+//! The record handle is opaque to the plugin. The engine hands it a
+//! [`HostAccessors`] table at `plugin_init`; `format_impl` reads fields
+//! (`message`, `level`, `thread.id`, `record.timestamp`) through
+//! `accessors.field_get` and renders a plain-text line into the engine-owned
+//! [`OutputBuffer`], honouring `capacity` and returning
+//! `DO_LOG_ERR_BUFFER_TOO_SMALL` when the line does not fit (the engine grows
+//! the buffer and retries).
+//!
 //! # Bundle member
 //!
 //! This crate provides the plugin LOGIC (VTable + metadata) as an rlib. It is
@@ -10,18 +20,19 @@
 //! the C ABI (`plugin_query_multi` / `plugin_init` / `plugin_shutdown`) for
 //! all official plugins in ONE dynamic library.
 
-use std::ffi::{c_char, CStr};
+use std::ffi::{c_char, CStr, CString};
+use std::sync::Mutex;
 
 use dologger_core::ffi::DologgerPluginInfo;
+use dologger_core::plugin::vtable::{FormatterVTable, HostAccessors, HostInit, OutputBuffer};
 
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
-#[allow(dead_code)]
 const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
-const DO_LOG_ERR_NOT_SUPPORTED: i32 = -0x0103;
+const DO_LOG_ERR_BUFFER_TOO_SMALL: i32 = -0x0107;
 
 // Plugin mount phase — Formatting stage
-const PHASE_FORMATTING: u32 = 0x0010;
+const PHASE_FORMATTING: u32 = dologger_core::plugin::phase::PHASE_FORMATTING;
 
 // Plugin info versioning — abi_version MUST match the core's declared ABI
 // (0.1.0); the host validates it when the bundle is loaded.
@@ -29,77 +40,99 @@ const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
 const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
 
 // ---------------------------------------------------------------------------
-// VTable: Formatter
+// Static state — the host-accessor bridge captured at init
 // ---------------------------------------------------------------------------
 
-/// VTable for a Formatter plugin.
+/// Host accessor bridge captured at `plugin_init`; used by `format_impl`.
+static HOST: Mutex<Option<HostAccessors>> = Mutex::new(None);
+
+// ---------------------------------------------------------------------------
+// Host-accessor helpers
+// ---------------------------------------------------------------------------
+
+/// Read a field via the host accessor, growing the buffer on overflow.
 ///
-/// Layout MUST exactly match the C ABI `dologger_formatter_vtable_t`
-/// (core/include/dologger_core.h) — a single `format` function pointer. The
-/// engine reinterprets the `vtable` pointer in [`INFO`] as that C type and
-/// calls it with THREE arguments, so this signature must not gain or lose
-/// parameters relative to the header.
-///
-/// (Note: `formatter_json` and the C++ example currently expose *different*
-/// vtable shapes — a `format` that leaks `dologger_core::Record`. That is a
-/// known contract inconsistency to be unified at M6 when the engine's
-/// Formatting stage is wired; the authoritative shape is the one below.)
-///
-/// SAFETY: Function pointers in the static instance point to static functions,
-/// so sharing across threads is safe.
-#[repr(C)]
-struct FormatterVTable {
-    /// Format one record into the caller-provided output buffer.
-    ///
-    /// Arguments (per `dologger_formatter_vtable_t`):
-    /// - `record` — opaque `dologger_record_handle_t*`; read via a field
-    ///   accessor the engine dispatches (none is dispatched at v0.1.0).
-    /// - `output` — `dologger_output_buffer_t*` `{data, len, capacity}`.
-    /// - `config` — plugin config pointer (`void*`), or NULL at v0.1.0.
-    ///
-    /// Returns DO_LOG_OK on success, or DO_LOG_ERR_BUFFER_TOO_SMALL if the
-    /// buffer is insufficient (engine reallocates and retries).
-    format: unsafe extern "C" fn(
-        *const std::ffi::c_void,
-        *mut std::ffi::c_void,
-        *mut std::ffi::c_void,
-    ) -> i32,
+/// `field_get` fills a caller buffer and returns `>= 0` (byte count) on
+/// success or a negative error code. We start with a modest buffer and double
+/// it on `DO_LOG_ERR_BUFFER_TOO_SMALL`, capped to avoid unbounded growth.
+unsafe fn read_field(
+    accessors: &HostAccessors,
+    record: *const std::ffi::c_void,
+    name: &str,
+) -> Option<String> {
+    let name_c = CString::new(name).ok()?;
+    let mut size: usize = 64;
+    loop {
+        // SAFETY: `alloc` returns host-owned, writable memory of `size` bytes
+        // (or NULL). We free it on every exit path below.
+        let buf = (accessors.alloc)(size);
+        if buf.is_null() {
+            return None;
+        }
+        let rc = (accessors.field_get)(record, name_c.as_ptr(), buf as *mut c_char, size);
+        if rc >= 0 {
+            // SAFETY: rc is the byte count; `buf` holds a NUL-terminated value
+            // of that length. We copy it out before freeing.
+            let val = CStr::from_ptr(buf as *const c_char)
+                .to_string_lossy()
+                .into_owned();
+            (accessors.free)(buf);
+            return Some(val);
+        }
+        (accessors.free)(buf);
+        if rc == DO_LOG_ERR_BUFFER_TOO_SMALL {
+            size *= 2;
+            if size > (1 << 20) {
+                return None; // safety cap: 1 MiB per field is far more than enough
+            }
+        } else {
+            return None; // field not found / permission denied / other error
+        }
+    }
 }
 
-// SAFETY: Function pointers point to static functions.
-unsafe impl Sync for FormatterVTable {}
-
 // ---------------------------------------------------------------------------
-// Plugin info — canonical `dologger_plugin_info_t` (see core/src/ffi.rs).
-// Registered by the official bundle via `plugin_query_multi`.
+// VTable function: format
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// VTable function stubs
-// ---------------------------------------------------------------------------
-
-/// Format one record as plain, configurable, colored text.
+/// Format one record as a plain-text line into the output buffer.
 ///
-/// PLACEHOLDER — returns DO_LOG_ERR_NOT_SUPPORTED because the formatting
-/// pipeline is not yet wired at v0.1.0:
-///   1. the engine's Formatting stage does not dispatch Formatter vtables, and
-///   2. no field-access accessor is handed to plugins, so the opaque `record`
-///      handle cannot be read (level/message/timestamp) from inside the bundle.
-///
-/// Both land with M6 (C ABI record access + pipeline dispatch). When they do,
-/// this function reads fields via the dispatched accessor and writes rendered
-/// text into the `dologger_output_buffer_t` pointed to by `output`, honoring
-/// `capacity` and returning DO_LOG_ERR_BUFFER_TOO_SMALL when it overflows.
-///
-/// This is a *documented placeholder*, not dead code — it must not be deleted.
+/// Reads `message`, `level`, `thread.id`, and `record.timestamp` through the
+/// host accessor and renders `[ts] [level] [thread] message`. Returns
+/// `DO_LOG_OK` on success or `DO_LOG_ERR_BUFFER_TOO_SMALL` if the line does
+/// not fit the engine-provided buffer (engine grows and retries).
 unsafe extern "C" fn format_impl(
-    _record: *const std::ffi::c_void,
-    _output: *mut std::ffi::c_void,
+    record: *const std::ffi::c_void,
+    output: *mut OutputBuffer,
     _config: *mut std::ffi::c_void,
 ) -> i32 {
-    DO_LOG_ERR_NOT_SUPPORTED
+    if record.is_null() || output.is_null() {
+        return DO_LOG_ERR_INVALID_ARG;
+    }
+    let accessors = match *HOST.lock().unwrap() {
+        Some(a) => a,
+        None => return DO_LOG_ERR_INVALID_ARG, // init() not called — no bridge
+    };
+
+    let message = read_field(&accessors, record, "message").unwrap_or_default();
+    let level = read_field(&accessors, record, "level").unwrap_or_default();
+    let thread = read_field(&accessors, record, "thread.id").unwrap_or_default();
+    let ts = read_field(&accessors, record, "record.timestamp").unwrap_or_default();
+
+    let line = format!("[{ts}] [{level}] [{thread}] {message}");
+    let bytes = line.as_bytes();
+    let ob = &mut *output;
+    if bytes.len() > ob.capacity {
+        return DO_LOG_ERR_BUFFER_TOO_SMALL;
+    }
+    // SAFETY: output is engine-owned; `data[0..capacity]` is writable and we
+    // copy at most `capacity` bytes. The engine reads back `data[0..len]`.
+    std::ptr::copy_nonoverlapping(bytes.as_ptr(), ob.data, bytes.len());
+    ob.len = bytes.len();
+    DO_LOG_OK
 }
 
+/// The plugin's VTable — `format` (matches `dologger_formatter_vtable_t`).
 static VTABLE: FormatterVTable = FormatterVTable {
     format: format_impl,
 };
@@ -128,17 +161,20 @@ pub fn plugin_info() -> &'static DologgerPluginInfo {
 // Lifecycle — called by the bundle's `plugin_init` fan-out
 // ---------------------------------------------------------------------------
 
+/// Initialise the plugin: capture the host-accessor bridge.
+///
+/// `config` points to a [`HostInit`] (`dologger_host_init_t`). For v0.1.0 the
+/// bridge is captured; `config_json` (color/show_thread/timestamp_format) is
+/// reserved for a future formatting-config pass.
 pub fn init(config: *const std::ffi::c_void) -> i32 {
-    if config.is_null() {
-        return DO_LOG_OK; // Use defaults
-    }
-
-    // Config is a JSON string: {"color":true,"show_thread":true,...}
-    let config_str = unsafe { CStr::from_ptr(config as *const c_char) };
-    if let Ok(_s) = config_str.to_str() {
-        // TODO: Parse config fields (color, show_thread, show_timestamp,
-        // timestamp_format) and store in static state.
-    }
+    // SAFETY: config is NULL (defaults) or a HostInit pointer from the host.
+    let accessors = if config.is_null() {
+        HostAccessors::default()
+    } else {
+        // SAFETY: non-null config is a HostInit* from the engine (M6 bridge).
+        unsafe { &*(config as *const HostInit) }.accessors
+    };
+    *HOST.lock().unwrap() = Some(accessors);
     DO_LOG_OK
 }
 
@@ -168,12 +204,45 @@ mod tests {
     }
 
     #[test]
-    fn test_init_with_null_config() {
+    fn test_init_null_config_captures_bridge() {
         assert_eq!(init(std::ptr::null()), DO_LOG_OK);
+        let a = HOST.lock().unwrap().expect("bridge captured");
+        assert_ne!(a.field_get as usize, 0);
+        assert_ne!(a.field_set as usize, 0);
+        assert_ne!(a.alloc as usize, 0);
+        assert_ne!(a.free as usize, 0);
+    }
+
+    #[test]
+    fn test_init_accepts_hostinit_config() {
+        let hi = HostInit::default();
+        assert_eq!(
+            init(&hi as *const HostInit as *const std::ffi::c_void),
+            DO_LOG_OK
+        );
     }
 
     #[test]
     fn test_shutdown_returns_ok() {
         assert_eq!(shutdown(), DO_LOG_OK);
+    }
+
+    #[test]
+    fn test_vtable_format_field_is_non_null() {
+        assert_ne!(VTABLE.format as usize, 0);
+    }
+
+    #[test]
+    fn test_format_without_bridge_returns_error() {
+        *HOST.lock().unwrap() = None;
+        let mut buf = OutputBuffer {
+            data: std::ptr::null_mut(),
+            len: 0,
+            capacity: 0,
+        };
+        assert_eq!(
+            unsafe { format_impl(std::ptr::null(), &mut buf, std::ptr::null_mut()) },
+            DO_LOG_ERR_INVALID_ARG
+        );
     }
 }

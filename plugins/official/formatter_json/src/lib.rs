@@ -3,6 +3,18 @@
 //! Serializes log records to structured JSON with configurable field inclusion.
 //! Phase: Formatting (5), Trust: Blue.
 //!
+//! # M6 — vtable reconciled to the C header
+//!
+//! The formatter VTable now matches `dologger_formatter_vtable_t` exactly:
+//! `format(record, output, config)` where `record` is an opaque
+//! `dologger_record_handle_t*` and `output` is a `dologger_output_buffer_t*`.
+//! Previously it leaked `*const Record` (a core type) and a raw `(buf, len)`
+//! pair — an ABI hazard if two formatters were dispatched from one engine.
+//! Because this plugin links the core rlib, it still reads the record as a
+//! `&Record` internally (the handle is, in this Rust plugin, the `Record`), but
+//! the *vtable shape* is now header-conformant, so the engine can dispatch any
+//! formatter uniformly.
+//!
 //! # Bundle member
 //!
 //! This crate provides the plugin LOGIC (VTable + metadata) as an rlib. It is
@@ -14,51 +26,22 @@ use std::ffi::{c_char, CStr};
 use std::sync::Mutex;
 
 use dologger_core::ffi::DologgerPluginInfo;
+use dologger_core::plugin::vtable::{FormatterVTable, HostInit, OutputBuffer};
 use dologger_core::Record;
 use serde_json::Value;
 
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
 const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
+const DO_LOG_ERR_BUFFER_TOO_SMALL: i32 = -0x0107;
 
 // Plugin mount phase — Formatting stage
-const PHASE_FORMATTING: u32 = 0x0010;
+const PHASE_FORMATTING: u32 = dologger_core::plugin::phase::PHASE_FORMATTING;
 
 // Plugin info versioning — abi_version MUST match the core's declared ABI
 // (0.1.0); the host validates it when the bundle is loaded.
 const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
 const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
-
-// ---------------------------------------------------------------------------
-// VTable: Formatter
-// ---------------------------------------------------------------------------
-
-/// VTable for a Formatter plugin.
-///
-/// SAFETY: Function pointers in the static instance point to static functions,
-/// so sharing across threads is safe.
-#[repr(C)]
-struct FormatterVTable {
-    /// Format a single record into the caller-provided output buffer.
-    ///
-    /// Parameters:
-    /// - `record`: pointer to a `dologger_core::Record` to serialize
-    /// - `output`: pre-allocated output buffer (UTF-8)
-    /// - `output_len`: on input, max bytes available; on output, actual bytes written
-    ///
-    /// Returns 0 on success, -1 on error.
-    format: unsafe extern "C" fn(*const Record, *mut u8, *mut u32) -> i32,
-    /// Flush any buffered output (optional, NULL if not implemented).
-    flush: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> i32>,
-}
-
-// SAFETY: Function pointers point to static functions.
-unsafe impl Sync for FormatterVTable {}
-
-// ---------------------------------------------------------------------------
-// Plugin info — canonical `dologger_plugin_info_t` (see core/src/ffi.rs).
-// Registered by the official bundle via `plugin_query_multi`.
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Helper: check if a u128 timestamp is populated
@@ -163,36 +146,36 @@ fn render_timestamp(hi: u64, lo: u64, fmt: TimestampFormat) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// VTable function: formatter_json_format
+// VTable function: format
 // ---------------------------------------------------------------------------
 
-/// Serialize a Record to JSON and write into the output buffer.
+/// Serialize a Record to JSON and write into the engine-owned output buffer.
 ///
-/// Only non-empty / non-zero fields are included to keep the output compact.
-/// Timestamp fields (128-bit) are converted to human-readable strings.
+/// Reads the record as a `&Record` (this plugin links the core rlib) and writes
+/// the serialized JSON into `output->data`, honouring `output->capacity` and
+/// setting `output->len`. Truncation on overflow is clamped (never overruns);
+/// the engine may grow the buffer and retry on `DO_LOG_ERR_BUFFER_TOO_SMALL`.
 ///
 /// # Safety
 ///
-/// - `record` must be a valid, non-null pointer to a `Record`
-/// - `output` must be a valid, non-null pointer to a buffer of at least
-///   `*output_len` writable bytes
-/// - `output_len` must be a valid, non-null pointer to a `u32` containing
-///   the maximum buffer size on input; on output it will hold the number
-///   of bytes actually written
+/// - `record` must be a valid, non-null opaque record handle (a `Record` here).
+/// - `output` must be a valid, non-null `dologger_output_buffer_t*` whose
+///   `data` points to `capacity` writable bytes.
 unsafe extern "C" fn format_impl(
-    record: *const Record,
-    output: *mut u8,
-    output_len: *mut u32,
+    record: *const std::ffi::c_void,
+    output: *mut OutputBuffer,
+    _config: *mut std::ffi::c_void,
 ) -> i32 {
-    // Null-pointer guards
-    if record.is_null() || output.is_null() || output_len.is_null() {
-        return -1;
+    if record.is_null() || output.is_null() {
+        return DO_LOG_ERR_INVALID_ARG;
     }
+    // SAFETY: record is a valid opaque handle (a `Record` in this plugin).
+    let rec = unsafe { &*(record as *const Record) };
 
-    // SAFETY: All three pointers validated non-null above.
-    // The caller guarantees the pointers are valid for the duration of this call.
-    let max_len = unsafe { *output_len } as usize;
-    let rec = unsafe { &*record };
+    let ob = &mut *output;
+    if ob.data.is_null() || ob.capacity == 0 {
+        return DO_LOG_ERR_BUFFER_TOO_SMALL;
+    }
 
     // Read the formatter config once (set by `init`); the Mutex guard is
     // released as soon as the config is copied out.
@@ -213,17 +196,18 @@ unsafe extern "C" fn format_impl(
         Err(_) => return -1,
     };
 
-    let write_len = json_bytes.len().min(max_len);
+    let write_len = json_bytes.len().min(ob.capacity);
 
-    // SAFETY: output is a valid buffer of at least `max_len` bytes (caller
-    // guarantee). json_bytes is a local Vec<u8> with at least `write_len`
-    // bytes. copy_nonoverlapping copies exactly `write_len` bytes.
-    unsafe {
-        std::ptr::copy_nonoverlapping(json_bytes.as_ptr(), output, write_len);
-        *output_len = write_len as u32;
+    // SAFETY: ob.data is a valid buffer of `capacity` bytes (checked above);
+    // json_bytes is a local Vec<u8> with at least `write_len` bytes.
+    std::ptr::copy_nonoverlapping(json_bytes.as_ptr(), ob.data, write_len);
+    ob.len = write_len;
+
+    if write_len < json_bytes.len() {
+        DO_LOG_ERR_BUFFER_TOO_SMALL
+    } else {
+        DO_LOG_OK
     }
-
-    DO_LOG_OK
 }
 
 // ---------------------------------------------------------------------------
@@ -411,9 +395,9 @@ fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
     Ok(Value::Object(map))
 }
 
+/// The plugin's VTable — `format` (matches `dologger_formatter_vtable_t`).
 static VTABLE: FormatterVTable = FormatterVTable {
     format: format_impl,
-    flush: None,
 };
 
 static PLUGIN_NAME: &[u8] = b"formatter-json\0";
@@ -440,6 +424,12 @@ pub fn plugin_info() -> &'static DologgerPluginInfo {
 // Lifecycle — called by the bundle's `plugin_init` fan-out
 // ---------------------------------------------------------------------------
 
+/// Initialise the plugin: parse the JSON config from the [`HostInit`] payload.
+///
+/// `config` points to a [`HostInit`] (`dologger_host_init_t`): `.config_json`
+/// is a JSON object (`{"pretty":false,"include_ring3":false,...}`) or NULL for
+/// defaults. (The `.accessors` field is not used by this formatter, which reads
+/// the record directly as a `&Record`.)
 pub fn init(config: *const std::ffi::c_void) -> i32 {
     if config.is_null() {
         // Null config ⇒ "use defaults": reset to the initial values.
@@ -447,10 +437,17 @@ pub fn init(config: *const std::ffi::c_void) -> i32 {
         return DO_LOG_OK;
     }
 
+    // SAFETY: non-null config is a HostInit* from the engine (M6 bridge).
+    let cfg_json = unsafe { &*(config as *const HostInit) }.config_json;
+    if cfg_json.is_null() {
+        *CONFIG.lock().unwrap() = JsonConfig::default();
+        return DO_LOG_OK;
+    }
+
     // Config is a JSON string: {"pretty":false,"include_ring3":false,...}
-    // SAFETY: config validated non-null above. CStr::from_ptr reads a
+    // SAFETY: config_json validated non-null above. CStr::from_ptr reads a
     // null-terminated UTF-8 string provided by the host.
-    let config_str = unsafe { CStr::from_ptr(config as *const c_char) };
+    let config_str = unsafe { CStr::from_ptr(cfg_json) };
     let Ok(s) = config_str.to_str() else {
         return DO_LOG_ERR_INVALID_ARG; // Not valid UTF-8
     };
@@ -498,8 +495,32 @@ pub fn shutdown() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dologger_core::plugin::vtable::HostAccessors;
     use dologger_core::Record;
     use std::ffi::CString;
+
+    /// Serializes config-dependent tests. The plugin's [`CONFIG`] is a process
+    /// global, so tests that mutate it via `init` must not run concurrently or
+    /// they clobber each other's output assertions.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Call `format_impl` with a backing buffer of `capacity` bytes, returning
+    /// the return code and the bytes written into the output buffer.
+    unsafe fn call_format(record: &Record, capacity: usize) -> (i32, Vec<u8>) {
+        let mut backing = vec![0u8; capacity.max(1)];
+        let mut ob = OutputBuffer {
+            data: backing.as_mut_ptr(),
+            len: 0,
+            capacity: backing.len(),
+        };
+        let rc = format_impl(
+            record as *const Record as *const std::ffi::c_void,
+            &mut ob,
+            std::ptr::null_mut(),
+        );
+        backing.truncate(ob.len);
+        (rc, backing)
+    }
 
     #[test]
     fn test_plugin_info_returns_valid_entry() {
@@ -516,7 +537,18 @@ mod tests {
 
     #[test]
     fn test_init_with_null_config() {
+        let _guard = TEST_LOCK.lock().unwrap();
         assert_eq!(init(std::ptr::null()), DO_LOG_OK);
+    }
+
+    #[test]
+    fn test_init_with_hostinit_and_null_config_json() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        let hi = HostInit::default(); // config_json = NULL
+        assert_eq!(
+            init(&hi as *const HostInit as *const std::ffi::c_void),
+            DO_LOG_OK
+        );
     }
 
     #[test]
@@ -526,13 +558,21 @@ mod tests {
 
     #[test]
     fn test_init_parses_config_and_affects_output() {
+        let _guard = TEST_LOCK.lock().unwrap();
         // Reset to defaults first, then apply a full non-default config.
         init(std::ptr::null());
         let cfg = CString::new(
             r#"{"pretty":true,"include_ring3":true,"source":false,"timestamp_format":"unix_ms"}"#,
         )
         .unwrap();
-        assert_eq!(init(cfg.as_ptr() as *const std::ffi::c_void), DO_LOG_OK);
+        let hi = HostInit {
+            accessors: HostAccessors::default(),
+            config_json: cfg.as_ptr() as *const c_char,
+        };
+        assert_eq!(
+            init(&hi as *const HostInit as *const std::ffi::c_void),
+            DO_LOG_OK
+        );
 
         let mut record = Record::new(0);
         record.timestamp = dologger_core::ffi::dologger_uint128_t {
@@ -545,12 +585,9 @@ mod tests {
         record.source_line = 7;
         record.ext_data.set(r#"{"tenant":"acme"}"#);
 
-        let mut output_buf = vec![0u8; 8192];
-        let mut output_len: u32 = output_buf.len() as u32;
-        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
-        assert_eq!(result, DO_LOG_OK);
-        let json_str =
-            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid UTF-8");
+        let (rc, output) = unsafe { call_format(&record, 8192) };
+        assert_eq!(rc, DO_LOG_OK);
+        let json_str = std::str::from_utf8(&output).expect("valid UTF-8");
 
         // pretty ⇒ multi-line output with newlines.
         assert!(
@@ -574,16 +611,25 @@ mod tests {
 
     #[test]
     fn test_init_rejects_invalid_config() {
+        let _guard = TEST_LOCK.lock().unwrap();
         let invalid = CString::new("not json").unwrap();
+        let hi = HostInit {
+            accessors: HostAccessors::default(),
+            config_json: invalid.as_ptr() as *const c_char,
+        };
         assert_eq!(
-            init(invalid.as_ptr() as *const std::ffi::c_void),
+            init(&hi as *const HostInit as *const std::ffi::c_void),
             DO_LOG_ERR_INVALID_ARG
         );
 
         // A non-object JSON value is also invalid.
         let arr = CString::new("[1,2,3]").unwrap();
+        let hi2 = HostInit {
+            accessors: HostAccessors::default(),
+            config_json: arr.as_ptr() as *const c_char,
+        };
         assert_eq!(
-            init(arr.as_ptr() as *const std::ffi::c_void),
+            init(&hi2 as *const HostInit as *const std::ffi::c_void),
             DO_LOG_ERR_INVALID_ARG
         );
 
@@ -625,31 +671,32 @@ mod tests {
         // All null → error
         assert_eq!(
             unsafe { format_impl(std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut()) },
-            -1
+            DO_LOG_ERR_INVALID_ARG
         );
 
-        let mut output_buf = [0u8; 256];
-        let mut output_len: u32 = 256;
-        // Null record → error
+        // Null record with a valid output buffer → error
+        let mut backing = [0u8; 256];
+        let mut ob = OutputBuffer {
+            data: backing.as_mut_ptr(),
+            len: 0,
+            capacity: 256,
+        };
         assert_eq!(
-            unsafe { format_impl(std::ptr::null(), output_buf.as_mut_ptr(), &mut output_len) },
-            -1
+            unsafe { format_impl(std::ptr::null(), &mut ob, std::ptr::null_mut()) },
+            DO_LOG_ERR_INVALID_ARG
         );
     }
 
     #[test]
     fn test_format_empty_record() {
+        let _guard = TEST_LOCK.lock().unwrap();
         init(std::ptr::null()); // reset config to defaults
         let record = Record::new(0);
-        let mut output_buf = vec![0u8; 4096];
-        let mut output_len: u32 = output_buf.len() as u32;
+        let (rc, output) = unsafe { call_format(&record, 4096) };
+        assert_eq!(rc, DO_LOG_OK);
+        assert!(!output.is_empty());
 
-        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
-        assert_eq!(result, DO_LOG_OK);
-        assert!(output_len > 0);
-
-        let json_str =
-            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid UTF-8");
+        let json_str = std::str::from_utf8(&output).expect("valid UTF-8");
         let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
 
         // An empty record should have at minimum the "level" field
@@ -661,6 +708,7 @@ mod tests {
 
     #[test]
     fn test_format_populated_record() {
+        let _guard = TEST_LOCK.lock().unwrap();
         init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
 
@@ -683,15 +731,11 @@ mod tests {
         record.lsn = 100;
         record.labels.set(r#"{"key":"value"}"#);
 
-        let mut output_buf = vec![0u8; 4096];
-        let mut output_len: u32 = output_buf.len() as u32;
+        let (rc, output) = unsafe { call_format(&record, 4096) };
+        assert_eq!(rc, DO_LOG_OK);
+        assert!(!output.is_empty());
 
-        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
-        assert_eq!(result, DO_LOG_OK);
-        assert!(output_len > 0);
-
-        let json_str =
-            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid UTF-8");
+        let json_str = std::str::from_utf8(&output).expect("valid UTF-8");
         let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
 
         let obj = parsed.as_object().unwrap();
@@ -715,6 +759,7 @@ mod tests {
 
     #[test]
     fn test_format_respects_output_buffer_limit() {
+        let _guard = TEST_LOCK.lock().unwrap();
         init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
         record
@@ -722,39 +767,26 @@ mod tests {
             .set("A very long message that exceeds the tiny buffer we provide");
         record.level = dologger_core::LogLevel::Error;
 
-        // Provide a very small buffer — only 32 bytes
-        let mut output_buf = vec![0u8; 32];
-        let mut output_len: u32 = output_buf.len() as u32;
-
-        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
-        assert_eq!(result, DO_LOG_OK);
-        // Should not overflow — actual bytes written must be ≤ 32
-        assert!(output_len <= 32);
-        assert!(output_len > 0);
-
-        // The output should be valid truncated UTF-8 at least
-        let json_str =
-            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid truncated UTF-8");
-        // Even truncated, should start with '{'
-        assert!(json_str.starts_with('{'));
+        // Provide a very small buffer — only 32 bytes. JSON does not fit, so
+        // the formatter must report BUFFER_TOO_SMALL (never malformed JSON).
+        let (rc, output) = unsafe { call_format(&record, 32) };
+        assert_eq!(rc, DO_LOG_ERR_BUFFER_TOO_SMALL);
+        assert!(output.len() <= 32);
     }
 
     #[test]
     fn test_format_skips_empty_fields() {
+        let _guard = TEST_LOCK.lock().unwrap();
         init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
         // Set only two fields — everything else is default/empty
         record.level = dologger_core::LogLevel::Info;
         record.message.set("hello");
 
-        let mut output_buf = vec![0u8; 4096];
-        let mut output_len: u32 = output_buf.len() as u32;
+        let (rc, output) = unsafe { call_format(&record, 4096) };
+        assert_eq!(rc, DO_LOG_OK);
 
-        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
-        assert_eq!(result, DO_LOG_OK);
-
-        let json_str =
-            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid UTF-8");
+        let json_str = std::str::from_utf8(&output).expect("valid UTF-8");
         let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
 
         let obj = parsed.as_object().unwrap();
@@ -772,20 +804,17 @@ mod tests {
 
     #[test]
     fn test_format_json_is_valid_utf8() {
+        let _guard = TEST_LOCK.lock().unwrap();
         init(std::ptr::null()); // reset config to defaults
         let mut record = Record::new(0);
         record.level = dologger_core::LogLevel::Debug;
         record.message.set("UTF-8 test: \u{00e9}\u{00f1}\u{00fc}");
 
-        let mut output_buf = vec![0u8; 4096];
-        let mut output_len: u32 = output_buf.len() as u32;
-
-        let result = unsafe { format_impl(&record, output_buf.as_mut_ptr(), &mut output_len) };
-        assert_eq!(result, DO_LOG_OK);
+        let (rc, output) = unsafe { call_format(&record, 4096) };
+        assert_eq!(rc, DO_LOG_OK);
 
         // Should be valid UTF-8
-        let json_str =
-            std::str::from_utf8(&output_buf[..output_len as usize]).expect("valid UTF-8");
+        let json_str = std::str::from_utf8(&output).expect("valid UTF-8");
         // Should parse as JSON
         let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
         assert_eq!(parsed["message"], "UTF-8 test: \u{00e9}\u{00f1}\u{00fc}");
