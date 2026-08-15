@@ -13,7 +13,7 @@ use std::ffi::{c_char, c_void, CStr};
 use crate::config::DologgerConfig;
 use crate::error::{
     DologgerError, DO_LOG_ERR_BUFFER_TOO_SMALL, DO_LOG_ERR_FIELD_NOT_FOUND,
-    DO_LOG_ERR_FIELD_PERMISSION_DENIED, DO_LOG_ERR_INVALID_ARG, DO_LOG_OK,
+    DO_LOG_ERR_FIELD_PERMISSION_DENIED, DO_LOG_ERR_INVALID_ARG, DO_LOG_ERR_SIF_INVALID, DO_LOG_OK,
 };
 use crate::record::thread_id_u64;
 use crate::record::{FieldRing, LogLevel, Record};
@@ -490,6 +490,140 @@ pub extern "C" fn dologger_config_load_from_string(
 }
 
 // ==========================================================================
+// Record lifecycle (for SIF encode/decode round-trips)
+// ==========================================================================
+
+/// Create an un-pooled, zero-initialised [`Record`] for C hosts to populate via
+/// [`dologger_field_set`] and then encode with [`dologger_sif_encode_record`].
+///
+/// Returns an opaque `dologger_record_handle_t*`, or NULL on allocation failure.
+/// Release with [`dologger_record_destroy`]. The record is owned by the host;
+/// it is *not* pooled and is *not* submitted to the ring buffer.
+#[no_mangle]
+pub extern "C" fn dologger_record_create() -> *mut DologgerRecord {
+    let rec = Box::new(Record::new(0));
+    Box::into_raw(rec) as *mut DologgerRecord
+}
+
+/// Destroy a record previously created by [`dologger_record_create`].
+///
+/// # Safety
+///
+/// `record` must have been returned by [`dologger_record_create`] and not yet
+/// destroyed. NULL is a no-op.
+#[no_mangle]
+pub extern "C" fn dologger_record_destroy(record: *mut DologgerRecord) {
+    if record.is_null() {
+        return;
+    }
+    // SAFETY: caller guarantees `record` came from dologger_record_create and
+    // is not yet destroyed. Box::from_raw retakes ownership and drops it.
+    unsafe {
+        drop(Box::from_raw(record as *mut Record));
+    }
+}
+
+// ==========================================================================
+// SIF encode / decode / validate
+// ==========================================================================
+
+/// Validate a SIF frame's magic, version, and length without decoding it.
+///
+/// Returns `DO_LOG_OK` (0) if the frame is structurally valid, or
+/// `DO_LOG_ERR_SIF_INVALID` otherwise (message via `dologger_get_last_error`).
+#[no_mangle]
+pub extern "C" fn dologger_sif_validate_frame(
+    frame: *const u8,
+    frame_len: usize,
+    err: *mut DologgerError,
+) -> i32 {
+    if frame.is_null() || err.is_null() {
+        return DO_LOG_ERR_INVALID_ARG;
+    }
+    // SAFETY: caller supplies a readable `frame` of exactly `frame_len` bytes.
+    let buf = unsafe { std::slice::from_raw_parts(frame, frame_len) };
+    match crate::sif::validate_frame(buf) {
+        Ok(_) => {
+            set_last_error(DO_LOG_OK, "ok");
+            DO_LOG_OK
+        }
+        Err(e) => {
+            set_last_error(DO_LOG_ERR_SIF_INVALID, &e.to_string());
+            DO_LOG_ERR_SIF_INVALID
+        }
+    }
+}
+
+/// Encode a record into a complete SIF frame (magic + header + FlatBuffer).
+///
+/// On success allocates a host-owned buffer via [`dologger_alloc`], stores its
+/// pointer in `*out` and its byte length in `*out_len`, and returns `DO_LOG_OK`.
+/// The caller must release the buffer with [`dologger_free`]. On failure returns
+/// a negative `DO_LOG_ERR_*` code and leaves `*out`/`*out_len` untouched.
+#[no_mangle]
+pub extern "C" fn dologger_sif_encode_record(
+    record: *const DologgerRecord,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+    err: *mut DologgerError,
+) -> i32 {
+    if record.is_null() || out.is_null() || out_len.is_null() || err.is_null() {
+        return DO_LOG_ERR_INVALID_ARG;
+    }
+    // SAFETY: `record` is a valid opaque handle to a live Record; cast back
+    // through the raw pointer the way the engine's record pool hands them out.
+    let rec = unsafe { &*(record as *const Record) };
+    let bytes = crate::sif::encode_record(rec);
+    let len = bytes.len();
+    // SAFETY: allocates `len` bytes of host-owned memory (never freed here).
+    let ptr = dologger_alloc(len) as *mut u8;
+    if ptr.is_null() {
+        set_last_error(crate::error::DO_LOG_ERR_OUT_OF_MEMORY, "alloc failed");
+        return crate::error::DO_LOG_ERR_OUT_OF_MEMORY;
+    }
+    // SAFETY: `ptr` points to `len` freshly-allocated bytes; copy the frame in.
+    unsafe {
+        std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
+        *out = ptr;
+        *out_len = len;
+    }
+    set_last_error(DO_LOG_OK, "ok");
+    DO_LOG_OK
+}
+
+/// Decode a SIF frame into a new record.
+///
+/// On success stores an opaque handle (create via [`dologger_record_destroy`])
+/// in `*out_record` and returns `DO_LOG_OK`. On failure returns a negative
+/// `DO_LOG_ERR_*` code and leaves `*out_record` untouched.
+#[no_mangle]
+pub extern "C" fn dologger_sif_decode_record(
+    frame: *const u8,
+    frame_len: usize,
+    out_record: *mut *mut DologgerRecord,
+    err: *mut DologgerError,
+) -> i32 {
+    if frame.is_null() || out_record.is_null() || err.is_null() {
+        return DO_LOG_ERR_INVALID_ARG;
+    }
+    // SAFETY: caller supplies a readable `frame` of exactly `frame_len` bytes.
+    let buf = unsafe { std::slice::from_raw_parts(frame, frame_len) };
+    match crate::sif::decode_record(buf) {
+        Ok(rec) => {
+            let ptr = Box::into_raw(Box::new(rec)) as *mut DologgerRecord;
+            // SAFETY: `out_record` is non-null; store the fresh handle.
+            unsafe { *out_record = ptr };
+            set_last_error(DO_LOG_OK, "ok");
+            DO_LOG_OK
+        }
+        Err(e) => {
+            set_last_error(DO_LOG_ERR_SIF_INVALID, &e.to_string());
+            DO_LOG_ERR_SIF_INVALID
+        }
+    }
+}
+
+// ==========================================================================
 // Tests
 // ==========================================================================
 
@@ -607,5 +741,76 @@ mod tests {
             &mut err,
         );
         assert_eq!(ret, DO_LOG_ERR_BUFFER_TOO_SMALL);
+    }
+
+    #[test]
+    fn sif_encode_validate_decode_round_trip() {
+        // Build a record via the C ABI create/populate/destroy surface.
+        let rec = dologger_record_create();
+        assert!(!rec.is_null());
+        let mut err = err_out();
+        assert_eq!(
+            dologger_field_set(
+                rec,
+                c("ext.trace_id").as_ptr(),
+                c("abc123").as_ptr(),
+                &mut err
+            ),
+            DO_LOG_OK
+        );
+        assert_eq!(
+            dologger_field_set(
+                rec,
+                c("ext.span_id").as_ptr(),
+                c("hello sif").as_ptr(),
+                &mut err
+            ),
+            DO_LOG_OK
+        );
+
+        // Encode → validate → decode.
+        let mut out: *mut u8 = std::ptr::null_mut();
+        let mut out_len: usize = 0;
+        let ret = dologger_sif_encode_record(rec, &mut out, &mut out_len, &mut err);
+        assert_eq!(ret, DO_LOG_OK);
+        assert!(!out.is_null());
+        assert!(out_len > 0);
+
+        // Validate the frame.
+        assert_eq!(
+            dologger_sif_validate_frame(out, out_len, &mut err),
+            DO_LOG_OK
+        );
+        // A corrupt magic must fail validation.
+        let mut corrupt = vec![0u8; out_len];
+        // SAFETY: `out` points to exactly `out_len` bytes allocated above and
+        // not yet freed; copying them out for corruption is safe.
+        corrupt.copy_from_slice(unsafe { std::slice::from_raw_parts(out, out_len) });
+        corrupt[0] = b'X';
+        assert_eq!(
+            dologger_sif_validate_frame(corrupt.as_ptr(), corrupt.len(), &mut err),
+            DO_LOG_ERR_SIF_INVALID
+        );
+
+        // Decode and read a field back.
+        let mut decoded: *mut DologgerRecord = std::ptr::null_mut();
+        let ret = dologger_sif_decode_record(out, out_len, &mut decoded, &mut err);
+        assert_eq!(ret, DO_LOG_OK);
+        assert!(!decoded.is_null());
+        let mut buf = [0u8; 64];
+        let n = dologger_field_get(
+            decoded,
+            c("ext.span_id").as_ptr(),
+            buf.as_mut_ptr() as *mut std::os::raw::c_char,
+            buf.len(),
+            &mut err,
+        );
+        assert_eq!(n, 9, "bytes written should equal 'hello sif' length");
+        assert_eq!(&buf[..9], b"hello sif");
+
+        // Cleanup.
+        dologger_record_destroy(rec);
+        dologger_record_destroy(decoded);
+        dologger_free(out as *mut std::os::raw::c_void);
     }
 }

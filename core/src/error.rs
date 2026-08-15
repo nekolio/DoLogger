@@ -53,6 +53,7 @@ impl Default for DologgerError {
 // 0x0Axx : Network / RPC
 // 0x0Bxx : Compliance
 // 0x0Cxx : Internal / Fatal
+// 0x0Dxx : SIF / Serialization
 
 // --- General / Initialization (0x01xx) ---
 /// Success (no error)
@@ -155,6 +156,11 @@ pub const DO_LOG_ERR_QUOTA_CPU_EXCEEDED: i32 = -0x0902;
 pub const DO_LOG_ERR_COMPLIANCE_VIOLATION: i32 = -0x0B01;
 /// Circular dependency detected in field requirements
 pub const DO_LOG_ERR_CIRCULAR_DEPENDENCY: i32 = -0x0B02;
+
+// --- SIF / Serialization (0x0Dxx) ---
+/// SIF frame is malformed (bad magic, version, or length) or failed
+/// FlatBuffer structural verification
+pub const DO_LOG_ERR_SIF_INVALID: i32 = -0x0D01;
 
 // ---------------------------------------------------------------------------
 // Domain event structure

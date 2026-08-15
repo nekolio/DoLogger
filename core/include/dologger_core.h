@@ -140,7 +140,10 @@ typedef enum {
 
     /* --- Compliance (0x0Bxx) --- */
     DO_LOG_ERR_COMPLIANCE_VIOLATION  = -0x0B01,  /**< Compliance violation */
-    DO_LOG_ERR_CIRCULAR_DEPENDENCY   = -0x0B02   /**< Circular dependency */
+    DO_LOG_ERR_CIRCULAR_DEPENDENCY   = -0x0B02,  /**< Circular dependency */
+
+    /* --- SIF / Serialization (0x0Dxx) --- */
+    DO_LOG_ERR_SIF_INVALID           = -0x0D01   /**< SIF frame malformed / failed verification */
 } dologger_error_code_t;
 
 /* =========================================================================
@@ -405,6 +408,7 @@ DOLOGGER_API const char *dologger_version(void);
 #define DO_LOG_PHASE_HOSTINFO    0x0100u
 #define DO_LOG_PHASE_SYSCALL     0x0200u
 #define DO_LOG_PHASE_POLICY      0x0400u  /* deprecated, same as PRE_FILTER */
+#define DO_LOG_PHASE_FIELD_PROVIDER 0x0800u  /**< FieldProvider plugins (Stage 2) */
 
 /* =========================================================================
  * Plugin ABI — PluginInfo + nine VTable types
@@ -419,6 +423,51 @@ typedef struct {
     size_t   len;
     size_t   capacity;
 } dologger_output_buffer_t;
+
+/**
+ * @brief Host-accessor bridge handed to a plugin at plugin_init().
+ *
+ * A plugin (especially the official bundle, which is a separate cdylib that
+ * statically links its own copy of the core rlib) cannot call the host's
+ * exported dologger_field_get/set symbols directly. The host fills this table
+ * with function pointers into the *live* engine and passes it via
+ * dologger_host_init_t. The plugin copies the (all-function-pointer) struct
+ * into its own static state for use from the pipeline hot path.
+ *
+ * Bump @ref DO_LOG_HOST_ACCESSORS_ABI on any layout change so a plugin built
+ * against an older core can detect the mismatch at plugin_init().
+ */
+typedef struct {
+    /** Read a field into `buffer`. Returns >=0 (byte count) or negative error.
+     *  `buffer` is NUL-terminated on success. */
+    int32_t (*field_get)(const void *record, const char *field_name,
+                         char *buffer, size_t buffer_size);
+    /** Write a field. Returns 0 on success or negative error
+     *  (e.g. permission denied for a Ring-0 field). */
+    int32_t (*field_set)(void *record, const char *field_name, const char *value);
+    /** Allocate host-owned memory (used to grow formatter buffers). */
+    void *(*alloc)(size_t size);
+    /** Free memory previously returned by alloc(). */
+    void (*free)(void *ptr);
+    /** ABI version of the accessor table (@ref DO_LOG_HOST_ACCESSORS_ABI). */
+    uint32_t abi_version;
+} dologger_host_accessors_t;
+
+/** @brief Current ABI version of dologger_host_accessors_t. */
+#define DO_LOG_HOST_ACCESSORS_ABI 1u
+
+/**
+ * @brief Initialisation payload the host passes to plugin_init().
+ *
+ * Carries BOTH the host-accessor bridge (so the plugin can touch opaque
+ * records) AND the plugin's JSON config string (NULL for defaults). The host
+ * owns it for the duration of the plugin_init() call; the plugin copies
+ * `.accessors` into its own static state and parses `.config_json` immediately.
+ */
+typedef struct {
+    dologger_host_accessors_t accessors;
+    const char              *config_json;   /**< Plugin JSON config, or NULL. */
+} dologger_host_init_t;
 
 /** @brief Plugin information returned by plugin_query(). */
 typedef struct {
@@ -549,7 +598,8 @@ typedef dologger_plugin_info_list_t *(*dologger_plugin_query_multi_fn)(
 
 /**
  * @brief Initialize the plugin (required export).
- * @param config  Opaque config object from the host.
+ * @param config  Pointer to a `dologger_host_init_t` (carries the host-accessor
+ *                bridge + plugin JSON config string), or NULL for defaults.
  * @return 0 on success.
  */
 typedef int (*dologger_plugin_init_fn)(const void *config);
@@ -559,6 +609,65 @@ typedef int (*dologger_plugin_init_fn)(const void *config);
  * @return 0 on success.
  */
 typedef int (*dologger_plugin_shutdown_fn)(void);
+
+/* =========================================================================
+ * Record lifecycle + SIF encode/decode/validate (C ABI)
+ * ======================================================================== */
+
+/**
+ * @brief Create an un-pooled, zero-initialised record for a C host to populate
+ *        (via dologger_field_set) and then encode with dologger_sif_encode_record.
+ * @return Opaque record handle (a `dologger_record_t`, the same opaque type
+ *         field_set/get operate on), or NULL on allocation failure.
+ * @sa dologger_record_destroy
+ */
+DOLOGGER_API dologger_record_t *dologger_record_create(void);
+
+/**
+ * @brief Destroy a record previously returned by dologger_record_create().
+ * @param record  Handle from dologger_record_create(); NULL is a no-op.
+ */
+DOLOGGER_API void dologger_record_destroy(dologger_record_t *record);
+
+/**
+ * @brief Validate a SIF frame's magic, version, and length without decoding.
+ * @param frame      SIF byte buffer.
+ * @param frame_len  Buffer length in bytes.
+ * @param err        Out-param for a structured error.
+ * @return DO_LOG_OK if structurally valid, else a negative DO_LOG_ERR_* code
+ *         (typically DO_LOG_ERR_SIF_INVALID).
+ */
+DOLOGGER_API int32_t dologger_sif_validate_frame(const uint8_t *frame,
+                                                 size_t frame_len,
+                                                 dologger_error_t *err);
+
+/**
+ * @brief Encode a record into a complete SIF frame (magic + header + FlatBuffer).
+ * @param record   Record handle to encode.
+ * @param out      Out-param receiving a host-owned buffer (allocated via
+ *                 dologger_alloc) on success.
+ * @param out_len  Out-param receiving the buffer length in bytes.
+ * @param err      Out-param for a structured error.
+ * @return DO_LOG_OK on success; the caller must free *out with dologger_free().
+ *         Negative DO_LOG_ERR_* on failure (*out/*out_len left untouched).
+ */
+DOLOGGER_API int32_t dologger_sif_encode_record(const dologger_record_t *record,
+                                                uint8_t **out, size_t *out_len,
+                                                dologger_error_t *err);
+
+/**
+ * @brief Decode a SIF frame into a new record.
+ * @param frame       SIF byte buffer.
+ * @param frame_len   Buffer length in bytes.
+ * @param out_record  Out-param receiving an opaque record handle on success
+ *                    (release with dologger_record_destroy).
+ * @param err         Out-param for a structured error.
+ * @return DO_LOG_OK on success, else a negative DO_LOG_ERR_* code.
+ */
+DOLOGGER_API int32_t dologger_sif_decode_record(const uint8_t *frame,
+                                                size_t frame_len,
+                                                dologger_record_t **out_record,
+                                                dologger_error_t *err);
 
 #ifdef __cplusplus
 }
