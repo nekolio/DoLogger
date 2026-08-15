@@ -62,8 +62,8 @@ pub struct LoadedPlugin {
     pub is_initialised: bool,
     /// Trust level assigned by core after signature verification
     pub trust_level: TrustLevel,
-    /// Raw VTable pointer for dispatch (stored for plugin lifecycle)
-    #[allow(dead_code)]
+    /// Raw VTable pointer for dispatch — resolved to a typed vtable by
+    /// [`PluginManager::resolve_dispatch`] (see [`crate::plugin::vtable`]).
     pub(crate) vtable: *const c_void,
     /// Loaded library handle (kept alive until unload). Arc so every plugin
     /// registered from a shared bundle library holds its own reference and
@@ -734,18 +734,28 @@ impl PluginManager {
             return Ok(()); // Already initialised — idempotent
         }
 
-        // Resolve and call plugin_init
+        // Resolve and call plugin_init, passing the host-accessor table as the
+        // config pointer (M6 bridge). The plugin copies the all-function-pointer
+        // table into its own static state; it does not retain this pointer.
         let init_result = if let Some(ref lib) = plugin.library {
             // SAFETY: libloading::Library::get resolves 'plugin_init'.
-            // This symbol is required per C ABI. We pass NULL config;
-            // the FFI is `extern "C" fn(*const c_void) -> i32`.
+            // This symbol is required per C ABI; the FFI is
+            // `extern "C" fn(*const c_void) -> i32`.
             let init_fn: Symbol<'_, PluginInitFn> = unsafe {
                 lib.get(b"plugin_init")
                     .map_err(|_| PluginError::MissingSymbol("plugin_init".into()))?
             };
-            // SAFETY: plugin_init is provided by the plugin and expected to be safe.
-            // We pass NULL config for now; a later version will pass domain-specific config.
-            unsafe { init_fn(std::ptr::null()) }
+            // SAFETY: plugin_init is provided by the plugin and expected to be
+            // safe. We pass a pointer to a HostInit (host-accessor bridge +
+            // plugin JSON config), which the plugin copies the accessor table
+            // from and parses the config string from. For v0.1.0 no per-plugin
+            // config is wired, so config_json is NULL (plugins use defaults).
+            let init = crate::plugin::vtable::HostInit::default();
+            // SAFETY: `init` lives for the duration of the call; the plugin is
+            // expected to copy `init.accessors` (all function pointers) rather
+            // than retain the pointer. Casting `&HostInit` to the plugin's
+            // opaque `const void*` config is the documented C ABI contract.
+            unsafe { init_fn(&init as *const crate::plugin::vtable::HostInit as *const c_void) }
         } else {
             return Err(PluginError::LoadFailed(
                 "Library handle not available".into(),
@@ -832,6 +842,53 @@ impl PluginManager {
     /// Get the core ABI version.
     pub fn abi_version(&self) -> u32 {
         self.core_abi_version
+    }
+
+    /// Resolve the loaded plugins into a hot-path dispatch table.
+    ///
+    /// Each plugin's raw `vtable` pointer is cast to the typed vtable matching
+    /// its declared phase bit, and the resolved function pointers are copied
+    /// into a [`PluginDispatch`] the pipeline can call without touching this
+    /// registry. Formatters come from `PHASE_FORMATTING` plugins; field
+    /// providers from `PHASE_FIELD_PROVIDER` or `PHASE_HOSTINFO` plugins.
+    ///
+    /// # Safety
+    ///
+    /// A plugin's `vtable` must point to a struct whose layout matches the C
+    /// ABI (`dologger_core.h`). We trust the plugin's declared phase to select
+    /// the corresponding vtable type; a malicious or ABI-mismatched plugin is
+    /// out of scope for the v0.1.0 trust model (Ed25519 gating is the boundary).
+    pub fn resolve_dispatch(&self) -> crate::plugin::vtable::PluginDispatch {
+        use crate::plugin::phase::{PHASE_FIELD_PROVIDER, PHASE_FORMATTING, PHASE_HOSTINFO};
+        use crate::plugin::vtable::{FieldProviderVTable, FormatterVTable, PluginDispatch};
+
+        let mut dispatch = PluginDispatch::default();
+        for plugin in self.plugins.values() {
+            if plugin.vtable.is_null() {
+                continue;
+            }
+            if plugin.info.phase & PHASE_FORMATTING != 0 {
+                // SAFETY: phase FORMATTING selects the FormatterVTable layout.
+                let vtable = unsafe { &*(plugin.vtable as *const FormatterVTable) };
+                dispatch
+                    .formatters
+                    .push(crate::plugin::vtable::FormatterEntry {
+                        format: vtable.format,
+                        config: std::ptr::null_mut(),
+                    });
+            }
+            if plugin.info.phase & (PHASE_FIELD_PROVIDER | PHASE_HOSTINFO) != 0 {
+                // SAFETY: phase FIELD_PROVIDER/HOSTINFO selects FieldProviderVTable.
+                let vtable = unsafe { &*(plugin.vtable as *const FieldProviderVTable) };
+                dispatch
+                    .field_providers
+                    .push(crate::plugin::vtable::FieldProviderEntry {
+                        provide: vtable.provide,
+                        config: std::ptr::null_mut(),
+                    });
+            }
+        }
+        dispatch
     }
 }
 

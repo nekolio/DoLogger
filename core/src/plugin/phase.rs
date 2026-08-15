@@ -33,6 +33,13 @@ pub const PHASE_SYSCALL: u32 = 0x0200;
 /// Policy provider (deprecated, same as PRE_FILTER)
 #[deprecated(note = "Use PHASE_PRE_FILTER instead")]
 pub const PHASE_POLICY: u32 = 0x0400;
+/// FieldProvider stage: custom key-value field injection (pipeline stage 2).
+///
+/// Distinct from [`PHASE_HOSTINFO`]: host-info injection is a core-provided
+/// enrichment, whereas a `FieldProvider` plugin mounts the FieldProvider
+/// pipeline stage to inject its own fields. The dispatch treats both bits as
+/// field-provider mount points (a plugin may declare either).
+pub const PHASE_FIELD_PROVIDER: u32 = 0x0800;
 
 /// All valid phase bits.
 pub const PHASE_ALL: u32 = PHASE_PRE_FILTER
@@ -43,7 +50,8 @@ pub const PHASE_ALL: u32 = PHASE_PRE_FILTER
     | PHASE_CONFIG
     | PHASE_KEY
     | PHASE_HOSTINFO
-    | PHASE_SYSCALL;
+    | PHASE_SYSCALL
+    | PHASE_FIELD_PROVIDER;
 
 /// Human-readable name for a phase constant.
 pub fn phase_name(phase: u32) -> &'static str {
@@ -57,6 +65,7 @@ pub fn phase_name(phase: u32) -> &'static str {
         PHASE_KEY => "KEY",
         PHASE_HOSTINFO => "HOSTINFO",
         PHASE_SYSCALL => "SYSCALL",
+        PHASE_FIELD_PROVIDER => "FIELD_PROVIDER",
         _ => "UNKNOWN",
     }
 }
@@ -72,6 +81,7 @@ pub const PHASE_NAMES: &[(&str, u32)] = &[
     ("KEY", PHASE_KEY),
     ("HOSTINFO", PHASE_HOSTINFO),
     ("SYSCALL", PHASE_SYSCALL),
+    ("FIELD_PROVIDER", PHASE_FIELD_PROVIDER),
 ];
 
 #[cfg(test)]
@@ -90,6 +100,7 @@ mod tests {
         assert_eq!(PHASE_KEY, 0x0080);
         assert_eq!(PHASE_HOSTINFO, 0x0100);
         assert_eq!(PHASE_SYSCALL, 0x0200);
+        assert_eq!(PHASE_FIELD_PROVIDER, 0x0800);
     }
 
     #[test]
@@ -104,6 +115,7 @@ mod tests {
             PHASE_KEY,
             PHASE_HOSTINFO,
             PHASE_SYSCALL,
+            PHASE_FIELD_PROVIDER,
         ];
         for i in 0..phases.len() {
             for j in (i + 1)..phases.len() {

@@ -17,6 +17,7 @@ use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
 
+use crate::plugin::vtable::PluginDispatch;
 use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::record::{LogLevel, Record};
 use crate::security::SecretDetector;
@@ -75,15 +76,23 @@ pub struct PipelineContext<'a> {
     pub prev_hash: Mutex<[u8; 32]>,
     /// Format kind set by the Formatting stage (e.g., "plain", "sif", "json")
     pub format_kind: Mutex<Option<String>>,
+    /// Resolved plugin dispatch (formatter + field-provider vtables, M6). The
+    /// consumer loop holds one `PluginDispatch` and loans it to every batch.
+    /// Empty by default (no plugins loaded), in which case the FieldProvider
+    /// and Formatting stages dispatch nothing and the built-in plain-text
+    /// formatting is used — behaviour unchanged from v0.1.0.
+    pub dispatch: &'a PluginDispatch,
 }
 
 impl<'a> PipelineContext<'a> {
     /// Create a new pipeline context.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         signature_engine: &'a SignatureEngine,
         rate_limiter: &'a RateLimiter,
         drop_level_policy: &'a DropLevelPolicy,
         enable_signature: bool,
+        dispatch: &'a PluginDispatch,
     ) -> Self {
         Self {
             signature_engine,
@@ -99,6 +108,7 @@ impl<'a> PipelineContext<'a> {
             // override this when a formatter plugin selects a different format.
             // Pre-initialized to avoid a per-record allocation in the hot path.
             format_kind: Mutex::new(Some("plain".to_string())),
+            dispatch,
         }
     }
 
@@ -194,9 +204,30 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
     ctx.record(StageIndex::Filter, StageAction::Continue);
 
     // ── Stage 2: FieldProvider ──────────────────────────────────────
-    // HostInfoProvider + FieldProvider plugins enrich the record.
-    // Built-in fields (thread_id, process_id, host_name) are set in
-    // the hot-path dologger_log FFI call, not here.
+    // HostInfoProvider + FieldProvider plugins enrich the record. Built-in
+    // fields (thread_id, process_id, host_name) are set in the hot-path
+    // dologger_log FFI call, not here. Loaded FieldProvider plugins (M6) are
+    // dispatched here: each `provide` writes fields via the host accessor.
+    // A provider error is logged and the record continues (enrichment is
+    // best-effort; a field provider must never drop the record).
+    if !ctx.dispatch.field_providers.is_empty() {
+        for fp in &ctx.dispatch.field_providers {
+            // SAFETY: the record pointer is a valid, exclusively-owned Record
+            // during this drain cycle. We hand it to the plugin as an opaque
+            // handle; the plugin only writes it back through the host accessor.
+            let rc =
+                unsafe { (fp.provide)(record as *mut Record as *mut std::ffi::c_void, fp.config) };
+            if rc < 0 {
+                diagnostics::warn(
+                    "pipeline",
+                    &format!(
+                        "FieldProvider plugin returned error {rc} for record LSN={}; continuing",
+                        record.lsn
+                    ),
+                );
+            }
+        }
+    }
     ctx.record(StageIndex::FieldProvider, StageAction::Continue);
 
     // ── Stage 3: Assembly ───────────────────────────────────────────

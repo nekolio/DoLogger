@@ -8,6 +8,7 @@ pub mod manager;
 pub mod phase;
 pub mod quota;
 pub mod sandbox;
+pub mod vtable;
 
 pub use dependency::{
     CircularDep, DependencyValidator, FieldDependency, MissingField, ValidationResult,
@@ -19,10 +20,14 @@ pub use manager::{
 #[allow(deprecated)]
 pub use phase::PHASE_POLICY;
 pub use phase::{
-    phase_name, PHASE_ALL, PHASE_ASSEMBLY, PHASE_CONFIG, PHASE_FILTER, PHASE_FORMATTING,
-    PHASE_HOSTINFO, PHASE_KEY, PHASE_NAMES, PHASE_PRE_FILTER, PHASE_PROCESSING, PHASE_SYSCALL,
+    phase_name, PHASE_ALL, PHASE_ASSEMBLY, PHASE_CONFIG, PHASE_FIELD_PROVIDER, PHASE_FILTER,
+    PHASE_FORMATTING, PHASE_HOSTINFO, PHASE_KEY, PHASE_NAMES, PHASE_PRE_FILTER, PHASE_PROCESSING,
+    PHASE_SYSCALL,
 };
 pub use quota::{PluginQuota, QuotaAction, QuotaConfig, QuotaManager};
 pub use sandbox::{
     SandboxBackend, SandboxEngine, SandboxLevel, SandboxPolicy, SandboxResult, SyscallCategory,
+};
+pub use vtable::{
+    FieldProviderVTable, FormatterVTable, HostAccessors, HostInit, OutputBuffer, HOST_ACCESSORS_ABI,
 };

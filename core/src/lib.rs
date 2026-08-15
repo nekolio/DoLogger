@@ -252,22 +252,6 @@ impl Engine {
             crate::record::LogLevel::Trace, // Allow all levels by default
         ));
 
-        // Create pipeline with all stage dependencies.
-        // Each pipeline and the main engine use independent SignatureEngine
-        // instances for key isolation.  The audit pipeline (below) also
-        // receives its own key pair.
-        let pipeline_sig_engine = Arc::new(SignatureEngine::new());
-        let pipeline = Pipeline::new(
-            &config,
-            Arc::clone(&ring_buffer),
-            Arc::clone(&pool),
-            sink,
-            pipeline_sig_engine,
-            Arc::clone(&rate_limiter),
-            Arc::clone(&drop_level_policy),
-            None,
-        )?;
-
         // Initialise plugin manager
         let mut plugin_manager = PluginManager::new(
             vec![
@@ -302,6 +286,54 @@ impl Engine {
                 ),
             }
         }
+
+        // Resolve the plugin dispatch for the pipeline (M6). When
+        // `plugin_enable_pipeline` is set, load plugins, initialise them
+        // (which hands each its host-accessor bridge), and resolve their
+        // formatter/field-provider vtables. Default off: the engine loads no
+        // plugins at runtime, so the dispatch is empty and the pipeline uses
+        // its built-in plain-text formatting — unchanged from v0.1.0.
+        let dispatch = if config.plugin_enable_pipeline {
+            for (name, e) in plugin_manager.discover() {
+                crate::sys::diagnostics::warn(
+                    "engine",
+                    &format!("plugin load failed: {name} — {e}"),
+                );
+            }
+            let names: Vec<String> = plugin_manager
+                .plugin_names()
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            for name in &names {
+                if let Err(e) = plugin_manager.init_plugin(name) {
+                    crate::sys::diagnostics::warn(
+                        "engine",
+                        &format!("plugin init failed: {name} — {e}"),
+                    );
+                }
+            }
+            plugin_manager.resolve_dispatch()
+        } else {
+            crate::plugin::vtable::PluginDispatch::default()
+        };
+
+        // Create pipeline with all stage dependencies.
+        // Each pipeline and the main engine use independent SignatureEngine
+        // instances for key isolation.  The audit pipeline (below) also
+        // receives its own key pair.
+        let pipeline_sig_engine = Arc::new(SignatureEngine::new());
+        let pipeline = Pipeline::new(
+            &config,
+            Arc::clone(&ring_buffer),
+            Arc::clone(&pool),
+            sink,
+            pipeline_sig_engine,
+            Arc::clone(&rate_limiter),
+            Arc::clone(&drop_level_policy),
+            dispatch,
+            None,
+        )?;
 
         // Start sysmon channel
         let sysmon = Sysmon::start();

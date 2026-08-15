@@ -36,6 +36,12 @@ pub struct DologgerConfig {
     pub plugin_trust_anchor: Option<String>,
     /// Allow unsigned (Red) plugins to load outside dev mode.
     pub plugin_allow_red_plugins: bool,
+    /// Whether to load plugins into the engine and dispatch their formatter /
+    /// field-provider vtables from the pipeline (M6). Default off: the engine
+    /// does not load plugins at runtime unless this is enabled, so existing
+    /// behaviour is unchanged. Plugins are always loadable via `dologctl plugin`
+    /// (the management path) regardless of this flag.
+    pub plugin_enable_pipeline: bool,
     /// Configured output sinks. Parsed from `[sinks.<name>]` tables; when the
     /// section is absent or empty the console default is used.
     pub sinks: Vec<crate::sink::SinkKindConfig>,
@@ -232,6 +238,7 @@ impl Default for DologgerConfig {
             plugin_trust_store: None,
             plugin_trust_anchor: None,
             plugin_allow_red_plugins: false,
+            plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
         }
     }
@@ -259,6 +266,7 @@ impl DologgerConfig {
             plugin_trust_store: None,
             plugin_trust_anchor: None,
             plugin_allow_red_plugins: false,
+            plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
         }
     }
@@ -851,6 +859,12 @@ impl DologgerConfig {
             {
                 config.plugin_allow_red_plugins = allow;
             }
+            if let Some(en) = dologger
+                .get("plugin_enable_pipeline")
+                .and_then(|v| v.as_bool())
+            {
+                config.plugin_enable_pipeline = en;
+            }
         }
 
         // Parse `[sinks.<name>]` sections. Declaring any sink replaces the
@@ -954,6 +968,7 @@ mod tests {
             plugin_trust_store: None,
             plugin_trust_anchor: None,
             plugin_allow_red_plugins: false,
+            plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
         }
     }

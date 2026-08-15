@@ -21,7 +21,9 @@ use std::time::Duration;
 use crate::buffer::RecordPool;
 use crate::buffer::RingBuffer;
 use crate::config::DologgerConfig;
+use crate::error::DO_LOG_ERR_BUFFER_TOO_SMALL;
 use crate::pipeline::{report_stats, run_pipeline, PipelineContext};
+use crate::plugin::vtable::{OutputBuffer, PluginDispatch};
 use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::record::Record;
 use crate::security::SignatureEngine;
@@ -63,6 +65,7 @@ impl Pipeline {
         signature_engine: Arc<SignatureEngine>,
         rate_limiter: Arc<RateLimiter>,
         drop_level_policy: Arc<DropLevelPolicy>,
+        dispatch: PluginDispatch,
         io_pool: Option<Arc<ThreadPool>>,
     ) -> Result<Self, String> {
         let shutdown = Arc::new(AtomicBool::new(false));
@@ -123,6 +126,7 @@ impl Pipeline {
                     rate_limiter: &rate_limiter,
                     drop_level_policy: &drop_level_policy,
                     enable_signature,
+                    dispatch: &dispatch,
                     io_pool,
                     sink_tx,
                 };
@@ -180,6 +184,13 @@ struct ConsumerCtx<'a> {
     rate_limiter: &'a RateLimiter,
     drop_level_policy: &'a DropLevelPolicy,
     enable_signature: bool,
+    /// Resolved plugin dispatch (formatter + field-provider vtables, M6). A
+    /// reference held by the consumer thread (the `PluginDispatch` itself lives
+    /// in `Pipeline::new`'s closure), loaned to each `PipelineContext`. Kept a
+    /// `&'a` reference — like `signature_engine`/`rate_limiter` — so copying it
+    /// into a `PipelineContext` does not re-borrow `self` and block the
+    /// `&mut self` sink writes in `dispatch_write`.
+    dispatch: &'a PluginDispatch,
     /// The channel sender MUST be dropped before `io_pool` so the sink worker
     /// unblocks (channel disconnects) before the thread pool attempts to join
     /// its worker threads in `ThreadPool::drop`.
@@ -228,6 +239,42 @@ impl ConsumerCtx<'_> {
     }
 }
 
+/// Format a record for the sink, dispatching to the first loaded formatter
+/// plugin when present, else falling back to the built-in plain-text format.
+///
+/// When a formatter is loaded, it writes into an engine-owned growable
+/// [`OutputBuffer`]; on `DO_LOG_ERR_BUFFER_TOO_SMALL` the buffer is grown and
+/// retried. A plugin error or an unreasonable size requirement falls back to
+/// the built-in format so a misbehaving formatter can never lose a record.
+fn format_record(record: &Record, dispatch: &PluginDispatch) -> String {
+    let Some(fmt) = dispatch.formatters.first() else {
+        return SinkRef::format_record(record);
+    };
+    let record_ptr = record as *const Record as *const std::ffi::c_void;
+    let mut cap: usize = 256;
+    loop {
+        let mut backing = vec![0u8; cap];
+        let mut ob = OutputBuffer {
+            data: backing.as_mut_ptr(),
+            len: 0,
+            capacity: cap,
+        };
+        // SAFETY: fmt.format is a plugin-provided C-ABI fn; `record` is a live
+        // Record handle and `ob` is a valid engine-owned buffer for the call.
+        let rc = unsafe { (fmt.format)(record_ptr, &mut ob, fmt.config) };
+        if rc == 0 {
+            backing.truncate(ob.len);
+            return String::from_utf8_lossy(&backing).into_owned();
+        }
+        if rc == DO_LOG_ERR_BUFFER_TOO_SMALL && cap < (1 << 20) {
+            cap *= 2;
+            continue;
+        }
+        // Plugin error or unreachable size cap — fall back to built-in format.
+        return SinkRef::format_record(record);
+    }
+}
+
 /// Main consumer loop — drains ring buffer, runs multi-stage pipeline.
 fn consumer_loop(c: &mut ConsumerCtx<'_>) {
     let empty_sleep = Duration::from_micros(100);
@@ -245,6 +292,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
             c.rate_limiter,
             c.drop_level_policy,
             c.enable_signature,
+            c.dispatch,
         );
 
         // Collect formatted records for batch dispatch
@@ -255,7 +303,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
             let record = unsafe { &mut *record_ptr };
 
             if run_pipeline(record, &mut pctx) {
-                pending_writes.push(SinkRef::format_record(record));
+                pending_writes.push(format_record(record, c.dispatch));
                 batch_processed += 1;
             } else {
                 batch_dropped += 1;
@@ -301,6 +349,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         c.rate_limiter,
         c.drop_level_policy,
         c.enable_signature,
+        c.dispatch,
     );
 
     let mut final_writes: Vec<String> = Vec::new();
@@ -308,7 +357,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         // SAFETY: final drain on shutdown — record_ptr has exclusive ownership.
         let record = unsafe { &mut *record_ptr };
         if run_pipeline(record, &mut pctx) {
-            final_writes.push(SinkRef::format_record(record));
+            final_writes.push(format_record(record, c.dispatch));
         }
         // SAFETY: record_ptr was obtained from this pool via alloc() and
         // has exclusive ownership at shutdown (final drain). It has not
@@ -419,7 +468,8 @@ mod tests {
             Arc::new(SignatureEngine::new()),
             Arc::new(RateLimiter::default()),
             Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
-            None, // No io_pool — inline writes
+            PluginDispatch::default(), // no plugins loaded
+            None,                      // No io_pool — inline writes
         )
         .expect("Pipeline creation should succeed");
 
@@ -488,7 +538,8 @@ mod tests {
             Arc::new(SignatureEngine::new()),
             Arc::new(RateLimiter::default()),
             Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
-            Some(io_pool), // io_pool enabled
+            PluginDispatch::default(), // no plugins loaded
+            Some(io_pool),             // io_pool enabled
         )
         .expect("Pipeline creation should succeed");
 
