@@ -33,7 +33,11 @@ jobs:
 
           # 1. PEM-style private-key blocks — no tracked file should ever
           #    contain one. "PRIVATE KEY", "ENCRYPTED PRIVATE KEY", etc.
+          #    Allowlisted: secret_detector.rs (the detector's own rule
+          #    strings) and the SecurityDevelopmentSpec docs (example table)
+          #    deliberately show the marker — they are not real keys.
           KEYFILES="$(git ls-files -z | tr '\0' '\n' \
+            | grep -vE '^(core/src/security/secret_detector\.rs|docs/(en_US|zh_CN)/guides/SecurityDevelopmentSpec\.md)$' \
             | xargs -r grep -lE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' 2>/dev/null || true)"
           if [ -n "$KEYFILES" ]; then
             echo "::error::private-key block found in tracked file(s):"

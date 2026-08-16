@@ -127,13 +127,19 @@
     <filter id="bloom" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="1.6"/>
     </filter>
-    <!-- subtle bloom for the version tag: a gentle halo merged UNDER a crisp
-         copy of the source, so the small 20 px glyphs stay sharp and legible
-         while a soft neon spread hugs their edges -->
-    <filter id="bloomSoft" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1.1" result="halo"/>
+    <!-- version-tag glow: a scaled-down echo of the wordmark's #glow (the same
+         double-layer neon bloom), so the 20 px glyphs read as lit like the
+         logo while staying sharp. wide 3.5 + near 1.4 sit at ~58%/64% of the
+         56 px wordmark's 6 + 2.2 blur radii (well under its intensity once
+         the smaller glyph footprint is factored in). The wider filter region
+         gives the small text enough padding so the 3.5 px blur is never
+         clipped at the top/bottom of the glyphs. -->
+    <filter id="glowSoft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="wide"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="near"/>
       <feMerge>
-        <feMergeNode in="halo"/>
+        <feMergeNode in="wide"/>
+        <feMergeNode in="near"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
@@ -2082,7 +2088,10 @@
                       fill="url(#title)" filter="url(#bloom)" opacity="0.25">v0.1.0</text>
                 <text x="329.6" y="232" font-size="20" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                      fill="url(#title)" filter="url(#bloomSoft)">v0.1.0</text>
+                      fill="url(#title)" filter="url(#glowSoft)">v0.1.0</text>
+                <text x="329.6" y="232" font-size="20" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#title)">v0.1.0</text>
                 <text x="329.6" y="232" font-size="20" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
                       fill="url(#sheen)" opacity="0.6">v0.1.0</text>

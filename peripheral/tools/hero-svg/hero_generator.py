@@ -470,13 +470,19 @@ ap(f'''  <defs>
     <filter id="bloom" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="1.6"/>
     </filter>
-    <!-- subtle bloom for the version tag: a gentle halo merged UNDER a crisp
-         copy of the source, so the small 20 px glyphs stay sharp and legible
-         while a soft neon spread hugs their edges -->
-    <filter id="bloomSoft" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1.1" result="halo"/>
+    <!-- version-tag glow: a scaled-down echo of the wordmark's #glow (the same
+         double-layer neon bloom), so the 20 px glyphs read as lit like the
+         logo while staying sharp. wide 3.5 + near 1.4 sit at ~58%/64% of the
+         56 px wordmark's 6 + 2.2 blur radii (well under its intensity once
+         the smaller glyph footprint is factored in). The wider filter region
+         gives the small text enough padding so the 3.5 px blur is never
+         clipped at the top/bottom of the glyphs. -->
+    <filter id="glowSoft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="wide"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.4" result="near"/>
       <feMerge>
-        <feMergeNode in="halo"/>
+        <feMergeNode in="wide"/>
+        <feMergeNode in="near"/>
         <feMergeNode in="SourceGraphic"/>
       </feMerge>
     </filter>
@@ -550,10 +556,12 @@ for L in TYPED:
 # current), flickers irregularly, cuts out hard, re-ignites, then ramps up
 # slowly to full brightness as the sheen sweep travels the tube. Brightness
 # only (opacity): glyphs never change size. The version tag re-uses the same
-# flow and the title gradient once the wordmark settles, layered as: a faint
-# wide bloom (1.6 blur at low opacity, a much weaker echo of the wordmark's
-# glow), the crisp glyph with a gentle 1.1 px halo (bloomSoft), and the sheen
-# sweep on top - so it keeps a subtle glow while staying legible at 20 px.
+# flow and the title gradient once the wordmark settles, layered back-to-front
+# as: a faint wide bloom echo (1.6 blur at low opacity), a LOGO-LIKE
+# double-layer bloom (glowSoft: 3.5 + 1.4 merged under the crisp source), a
+# crisp unfiltered glyph so the 20 px core stays razor-sharp, and the sheen
+# sweep on top - a visible neon halo like the logo's, scaled down so the small
+# glyphs remain legible.
 wm_adv = advance(WORDMARK["size"])
 # version tag sits HALF a logo character width (half of one glyph's advance)
 # right of the wordmark - tight, reads as a lockup rather than a caption
@@ -576,7 +584,10 @@ ap(f'''            <g>
                       fill="url(#title)" filter="url(#bloom)" opacity="0.25">v{VERSION}</text>
                 <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                      fill="url(#title)" filter="url(#bloomSoft)">v{VERSION}</text>
+                      fill="url(#title)" filter="url(#glowSoft)">v{VERSION}</text>
+                <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#title)">v{VERSION}</text>
                 <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
                       fill="url(#sheen)" opacity="0.6">v{VERSION}</text>

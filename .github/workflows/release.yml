@@ -48,6 +48,11 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-release
 
+      # plugin_security.rs asserts on built plugin bundles — compile the
+      # workspace before the integration tests run (same fix as CI).
+      - name: Cargo build (workspace, needed by plugin-security tests)
+        run: cargo build --workspace
+
       # Match the CI workflow's proven command — NOT --all-targets: criterion
       # benches would run as tests and take 20+ minutes on CI Windows.
       - name: Cargo test (lib + integration + doc)

@@ -46,6 +46,13 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-test
 
+      # plugin_security.rs asserts on built plugin bundles
+      # ("bundle artifact should be built") — the workspace must be
+      # compiled before the integration tests run, otherwise the
+      # trust-store / bundle tests panic on a fresh checkout.
+      - name: Cargo build (workspace, needed by plugin-security tests)
+        run: cargo build --workspace
+
       - name: Cargo test (lib + integration + doc)
         run: cargo test --workspace -- --test-threads=4
 
