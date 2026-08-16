@@ -73,11 +73,11 @@ export function useAutoLoopScroll() {
 
       /* target speed: 0 only while the tab is hidden, during the
          post-interaction cooldown, or while a fine pointer hovers the
-         card. No IntersectionObserver gate — a missed callback must
-         never freeze the loop. */
-      const hovered = finePointer.matches
-        && el.closest('.card, .mcard')?.matches(':hover') === true
-      const idle = document.hidden || now < st.holdUntil || hovered
+         card BODY (not the whole card — hovering the title or edge keeps
+         the loop visible). No IntersectionObserver gate — a missed
+         callback must never freeze the loop. */
+      const hovering = finePointer.matches && el.matches(':hover')
+      const idle = document.hidden || now < st.holdUntil || hovering
       const target = idle ? 0 : Y_SPEED
       st.vel += (target - st.vel) * Math.min(1, dt / ACCEL_TAU)
 

@@ -666,7 +666,7 @@ jobs:
               if [ -n "$bundle_sig" ]; then cp "$bundle_sig" "$STAGE/"; fi
             fi
             cp "$WS/config/dologger.example.toml" "$STAGE/dologger.example.toml"
-            ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=19 -ms=on -mmt=on \
+            ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=19 \
                 "$WS/release-artifacts/dologctl-${TAG}-${os}-${arch}.7z" * )
 
             # LIB category archive: core library + official plugins (+sig) + config.
@@ -679,7 +679,7 @@ jobs:
               fi
               cp "$WS/config/dologger.example.toml" "$STAGE/dologger.example.toml"
               libbase="$(basename "$lib")"
-              ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=19 -ms=on -mmt=on \
+              ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=19 \
                   "$WS/release-artifacts/${libbase%.*}.7z" * )
             else
               echo "::warning::no core library for ${os}-${arch} — LIB archive skipped"

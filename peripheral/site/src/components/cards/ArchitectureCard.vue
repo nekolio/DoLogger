@@ -44,12 +44,16 @@ const subs = [
 /* The pipeline chain wraps to fit its card — flex-wrap with a tracked
    width means every stage stays fully readable at ANY viewport width
    (the chain is content, not a decorative marquee; the duplicated
-   marquee copy is dropped so the chain reads once). */
+   marquee copy is dropped so the chain reads once). `min-width: 0`
+   beats style.css's `min-width: max-content` — without it the track
+   refuses to shrink and the chain overflows instead of wrapping. */
 .pipe-marquee { overflow: visible; }
 .pipe-track {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem 0.6rem;
+  min-width: 0;
+  width: 100%;
 }
 .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
 </style>

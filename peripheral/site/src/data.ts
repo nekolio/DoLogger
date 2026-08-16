@@ -83,21 +83,21 @@ export interface SiteData {
  * every official plugin (formatter-json, formatter-text, filter-level, field-container).
  * ---------------------------------------------------------------- */
 export const ASSET_NAMES = [
-  'dologctl-linux-x86_64', 'dologctl-linux-aarch64', 'dologctl-linux-i686',
-  'dologctl-linux-armv7', 'dologctl-linux-riscv64',
-  'dologctl-windows-x86_64.exe', 'dologctl-windows-aarch64.exe', 'dologctl-windows-i686.exe',
-  'dologctl-macos-aarch64', 'dologctl-macos-x86_64',
-  'libdologger_core-linux-x86_64.so', 'libdologger_core-linux-aarch64.so',
-  'libdologger_core-linux-i686.so', 'libdologger_core-linux-armv7.so',
-  'libdologger_core-linux-riscv64.so',
-  'dologger_core-windows-x86_64.dll', 'dologger_core-windows-aarch64.dll', 'dologger_core-windows-i686.dll',
-  'libdologger_core-macos-aarch64.dylib', 'libdologger_core-macos-x86_64.dylib',
-  'dologger-official-plugins-linux-x86_64.so', 'dologger-official-plugins-linux-aarch64.so',
-  'dologger-official-plugins-linux-i686.so', 'dologger-official-plugins-linux-armv7.so',
-  'dologger-official-plugins-linux-riscv64.so',
-  'dologger-official-plugins-windows-x86_64.dll', 'dologger-official-plugins-windows-aarch64.dll',
-  'dologger-official-plugins-windows-i686.dll',
-  'dologger-official-plugins-macos-aarch64.dylib', 'dologger-official-plugins-macos-x86_64.dylib',
+  'dologctl-v0.1.0-linux-x86_64', 'dologctl-v0.1.0-linux-aarch64', 'dologctl-v0.1.0-linux-i686',
+  'dologctl-v0.1.0-linux-armv7', 'dologctl-v0.1.0-linux-riscv64',
+  'dologctl-v0.1.0-windows-x86_64.exe', 'dologctl-v0.1.0-windows-aarch64.exe', 'dologctl-v0.1.0-windows-i686.exe',
+  'dologctl-v0.1.0-macos-aarch64', 'dologctl-v0.1.0-macos-x86_64',
+  'libdologger_core-v0.1.0-linux-x86_64.so', 'libdologger_core-v0.1.0-linux-aarch64.so',
+  'libdologger_core-v0.1.0-linux-i686.so', 'libdologger_core-v0.1.0-linux-armv7.so',
+  'libdologger_core-v0.1.0-linux-riscv64.so',
+  'dologger_core-v0.1.0-windows-x86_64.dll', 'dologger_core-v0.1.0-windows-aarch64.dll', 'dologger_core-v0.1.0-windows-i686.dll',
+  'libdologger_core-v0.1.0-macos-aarch64.dylib', 'libdologger_core-v0.1.0-macos-x86_64.dylib',
+  'dologger-official-plugins-v0.1.0-linux-x86_64.so', 'dologger-official-plugins-v0.1.0-linux-aarch64.so',
+  'dologger-official-plugins-v0.1.0-linux-i686.so', 'dologger-official-plugins-v0.1.0-linux-armv7.so',
+  'dologger-official-plugins-v0.1.0-linux-riscv64.so',
+  'dologger-official-plugins-v0.1.0-windows-x86_64.dll', 'dologger-official-plugins-v0.1.0-windows-aarch64.dll',
+  'dologger-official-plugins-v0.1.0-windows-i686.dll',
+  'dologger-official-plugins-v0.1.0-macos-aarch64.dylib', 'dologger-official-plugins-v0.1.0-macos-x86_64.dylib',
   'benchmark-results.json'
 ]
 
