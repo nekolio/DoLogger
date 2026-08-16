@@ -470,10 +470,15 @@ ap(f'''  <defs>
     <filter id="bloom" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="1.6"/>
     </filter>
-    <!-- softer bloom for the version tag: keeps the neon halo but leaves the
-         small 20 px glyphs crisp and legible -->
+    <!-- subtle bloom for the version tag: a gentle halo merged UNDER a crisp
+         copy of the source, so the small 20 px glyphs stay sharp and legible
+         while a soft neon spread hugs their edges -->
     <filter id="bloomSoft" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="0.5"/>
+      <feGaussianBlur in="SourceGraphic" stdDeviation="1.1" result="halo"/>
+      <feMerge>
+        <feMergeNode in="halo"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
     </filter>
     <!-- channel-separated copies for the RGB split glitch -->
     <filter id="fRed" x="-10%" y="-10%" width="120%" height="120%">
@@ -545,8 +550,10 @@ for L in TYPED:
 # current), flickers irregularly, cuts out hard, re-ignites, then ramps up
 # slowly to full brightness as the sheen sweep travels the tube. Brightness
 # only (opacity): glyphs never change size. The version tag re-uses the same
-# flow and the title gradient (with a soft bloom and the sheen sweep) once
-# the wordmark settles, so it stays legible at 20 px.
+# flow and the title gradient once the wordmark settles, layered as: a faint
+# wide bloom (1.6 blur at low opacity, a much weaker echo of the wordmark's
+# glow), the crisp glyph with a gentle 1.1 px halo (bloomSoft), and the sheen
+# sweep on top - so it keeps a subtle glow while staying legible at 20 px.
 wm_adv = advance(WORDMARK["size"])
 # version tag sits HALF a logo character width (half of one glyph's advance)
 # right of the wordmark - tight, reads as a lockup rather than a caption
@@ -564,6 +571,9 @@ ap(f'''            <g>
               </g>
               <g>
                 {anim("opacity", neon_ignition(ver_start, VERSION_FLOW), "linear")}
+                <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#title)" filter="url(#bloom)" opacity="0.25">v{VERSION}</text>
                 <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
                       fill="url(#title)" filter="url(#bloomSoft)">v{VERSION}</text>

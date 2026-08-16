@@ -1,17 +1,18 @@
 %% DoLogger architecture — host submission → lock-free ring → 7-stage pipeline
-%% → 11 built-in sinks, with the audit chain and plugin trust model on the side.
+%% → 11 built-in sinks, with the audit chain, plugin trust model, and
+%% compliance/security controls on the side.
 %% Color key: blue = ingest · gray = pipeline · amber = audit-signing stage
-%% (Assembly) · green = sinks · purple = security & extensibility.
+%% (Assembly) · green = sinks · purple = security · extensibility · compliance.
 flowchart LR
     %% ================= INGEST =================
     subgraph INGEST[INGEST — Lock-Free Submission]
         direction TB
         HOST[Host Application]
-        ADAPTERS[Adapters — Rust · C · Python · Go]
+        ADAPTERS[Adapters — Rust SDK · C ABI · Python · Go]
         LOG[dologger_log() — CAS push · 102 ns P50]
         POOL[Treiber Object Pool — zero-alloc]
         RING[Lock-Free MPSC Ring — 90% normal / 10% audit · never drops]
-        BP[Backpressure — 90% help · 95% spill]
+        BP[Backpressure — 90% coop-help · 95% spill]
     end
     %% ================= PIPELINE =================
     subgraph PIPE[7-STAGE PIPELINE]
@@ -22,7 +23,7 @@ flowchart LR
         S3([3 · Assembly — LSN · prev_hash · Ed25519])
         S4[4 · Processing — CRC32C · secret scan]
         S5[5 · Formatting — JSON / text / SIF]
-        S6[6 · Sink fan-out — core built-in · config-driven]
+        S6[6 · Sink fan-out — core built-in · sinks.* config]
     end
     %% ================= SINK LAYER =================
     subgraph SINK[SINK LAYER — 11 Built-in Sinks]
@@ -39,13 +40,17 @@ flowchart LR
         SEC[Security — 0600 · plugin-bypass]
     end
     %% ================= SECURITY & EXTENSIBILITY =================
-    subgraph SECURITY[SECURITY & EXTENSIBILITY]
+    subgraph SECURITY[SECURITY · EXTENSIBILITY · COMPLIANCE]
         direction TB
         P1[Plugins — 9 VTable types · C ABI]
+        SB[Sandbox — seccomp-bpf · AppContainer]
         P2[Trust anchors — active.pub · Blue / Yellow / Red]
         R1[Field permissions — Ring 0–3]
         A1[Audit chain — Ed25519 · LSN · prev_hash]
         A2[dologctl verify-log — offline verification]
+        ND[Non-downgradable config — 6 items]
+        CT[Compliance templates — GDPR · HIPAA · PCI-DSS]
+        PP[Performance profiles — dev · prod-performance · prod-audit · balanced]
     end
 
     %% Ingest flow
@@ -73,7 +78,7 @@ flowchart LR
     S6 --> SEC
 
     %% Security column (list) + audit chain annotations
-    P1 --- P2 --- R1 --- A1 --- A2
+    P1 --- SB --- P2 --- R1 --- A1 --- A2 --- ND --- CT --- PP
     S3 -.->|sign| A1
     WORM -.->|verify| A2
 
@@ -85,4 +90,4 @@ flowchart LR
     class HOST,ADAPTERS,LOG,POOL,RING,BP ingest
     class S3 audit
     class C,F,K,SYS,WEB,SQL,OT,SHM,CB,WORM,SEC sink
-    class A1,A2,P1,P2,R1 sec
+    class A1,A2,P1,P2,R1,SB,ND,CT,PP sec

@@ -1,18 +1,18 @@
 %% DoLogger architecture (ZH labels) — host submission → lock-free ring →
-%% 7-stage pipeline → 11 built-in sinks, with the audit chain and plugin
-%% trust model on the side.
+%% 7-stage pipeline → 11 built-in sinks, with the audit chain, plugin trust
+%% model, and compliance/security controls on the side.
 %% Color key: blue = ingest · gray = pipeline · amber = audit-signing stage
-%% (Assembly) · green = sinks · purple = security & extensibility.
+%% (Assembly) · green = sinks · purple = security · extensibility · compliance.
 flowchart LR
     %% ================= INGEST =================
     subgraph INGEST[采集层 INGEST — 无锁提交]
         direction TB
         HOST[宿主应用 Host Application]
-        ADAPTERS[适配器 Adapters — Rust · C · Python · Go]
+        ADAPTERS[适配器 Adapters — Rust SDK · C ABI · Python · Go]
         LOG[dologger_log() — CAS 入队 · 102 ns P50]
         POOL[Treiber 对象池 Object Pool — 零分配]
         RING[无锁 MPSC 环形缓冲 Ring — 90% 普通 / 10% 审计 · 永不丢弃]
-        BP[背压 Backpressure — 90% 协作 · 95% 溢写]
+        BP[背压 Backpressure — 90% 协作帮助 · 95% 溢写]
     end
     %% ================= PIPELINE =================
     subgraph PIPE[7 级流水线 7-STAGE PIPELINE]
@@ -23,7 +23,7 @@ flowchart LR
         S3([3 · 组装 Assembly — LSN · prev_hash · Ed25519])
         S4[4 · 处理 Processing — CRC32C · 密钥扫描]
         S5[5 · 格式化 Formatting — JSON / 文本 / SIF]
-        S6[6 · 接收器扇出 Sink fan-out — 核心内置 · 配置驱动]
+        S6[6 · 接收器扇出 Sink fan-out — 核心内置 · sinks.* 配置]
     end
     %% ================= SINK LAYER =================
     subgraph SINK[接收器层 SINK LAYER — 11 个内置接收器]
@@ -40,13 +40,17 @@ flowchart LR
         SEC[Security — 0600 · 绕过插件]
     end
     %% ================= SECURITY & EXTENSIBILITY =================
-    subgraph SECURITY[安全与扩展 SECURITY & EXTENSIBILITY]
+    subgraph SECURITY[安全 · 扩展 · 合规 SECURITY · EXTENSIBILITY · COMPLIANCE]
         direction TB
         P1[插件 Plugins — 9 种 VTable · C ABI]
+        SB[沙箱 Sandbox — seccomp-bpf · AppContainer]
         P2[信任锚 Trust anchors — active.pub · Blue / Yellow / Red]
         R1[字段权限 Field permissions — Ring 0–3]
         A1[审计链 Audit chain — Ed25519 · LSN · prev_hash]
         A2[dologctl verify-log — 离线校验]
+        ND[不可降级配置 Non-downgradable — 6 项]
+        CT[合规模板 Compliance templates — GDPR · HIPAA · PCI-DSS]
+        PP[性能预设 Performance profiles — dev · prod-performance · prod-audit · balanced]
     end
 
     %% Ingest flow
@@ -74,7 +78,7 @@ flowchart LR
     S6 --> SEC
 
     %% Security column (list) + audit chain annotations
-    P1 --- P2 --- R1 --- A1 --- A2
+    P1 --- SB --- P2 --- R1 --- A1 --- A2 --- ND --- CT --- PP
     S3 -.->|sign| A1
     WORM -.->|verify| A2
 
@@ -86,4 +90,4 @@ flowchart LR
     class HOST,ADAPTERS,LOG,POOL,RING,BP ingest
     class S3 audit
     class C,F,K,SYS,WEB,SQL,OT,SHM,CB,WORM,SEC sink
-    class A1,A2,P1,P2,R1 sec
+    class A1,A2,P1,P2,R1,SB,ND,CT,PP sec
