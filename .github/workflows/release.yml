@@ -759,6 +759,4 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api repos/${{ github.repository }}/dispatches \
-          -f event_type=pages-update \
-          -f "client_payload[tag]=${{ github.ref_name }}"
+        run: gh api "repos/${{ github.repository }}/dispatches" -f event_type=pages-update -f "client_payload[tag]=${{ github.ref_name }}"
