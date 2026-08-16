@@ -643,6 +643,11 @@ jobs:
           set -euo pipefail
           SEVEN_Z="$RUNNER_TEMP/7z/7zz"
 
+          # Diagnostic: confirm the binary exists and runs (prints its
+          # version banner), so a bad download / missing dep is obvious.
+          ls -la "$RUNNER_TEMP/7z/"
+          "$SEVEN_Z" || true
+
           TAG="${{ github.ref_name }}"
           STAGE="$RUNNER_TEMP/box"
           WS="${{ github.workspace }}"
