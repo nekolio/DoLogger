@@ -618,8 +618,9 @@ jobs:
           ls -la release-artifacts/
 
       # Out-of-box archives — one per product category (CLI and LIB), per
-      # platform, compressed to the extreme with 7-Zip + ZSTD at the method's
-      # maximum (level 22, solid, multithreaded). Each archive bundles the
+      # platform, compressed to the extreme with 7-Zip + ZSTD (level 19 —
+      # the ZSTD method's standard max; 7zz 2501 fails with `System ERROR`
+      # at -mx=22, so 19 is the safe ceiling). Each archive bundles the
       # official plugin bundle + its .sig (so the plugins verify BLUE on
       # unpack) + the example config, so a user extracts one file and has a
       # ready-to-run setup. The official 7-Zip binary (7zz) is downloaded and
@@ -665,7 +666,7 @@ jobs:
               if [ -n "$bundle_sig" ]; then cp "$bundle_sig" "$STAGE/"; fi
             fi
             cp "$WS/config/dologger.example.toml" "$STAGE/dologger.example.toml"
-            ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=22 -ms=on -mmt=on -bso0 -bsp0 \
+            ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=19 -ms=on -mmt=on \
                 "$WS/release-artifacts/dologctl-${TAG}-${os}-${arch}.7z" * )
 
             # LIB category archive: core library + official plugins (+sig) + config.
@@ -678,7 +679,7 @@ jobs:
               fi
               cp "$WS/config/dologger.example.toml" "$STAGE/dologger.example.toml"
               libbase="$(basename "$lib")"
-              ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=22 -ms=on -mmt=on -bso0 -bsp0 \
+              ( cd "$STAGE" && "$SEVEN_Z" a -t7z -m0=zstd -mx=19 -ms=on -mmt=on \
                   "$WS/release-artifacts/${libbase%.*}.7z" * )
             else
               echo "::warning::no core library for ${os}-${arch} — LIB archive skipped"
