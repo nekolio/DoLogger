@@ -13,7 +13,7 @@ const subs = [
 
 <template>
   <div>
-    <div class="arch-hot">{{ t('arch-hot') }}</div>
+    <div class="card-label">{{ t('arch-hot') }}</div>
     <!-- the pipeline plays as a horizontal marquee (track = stages × 2,
          loop-scrolled seamlessly by useAutoLoopScroll). Full names are
          never truncated — the track is content-sized. -->

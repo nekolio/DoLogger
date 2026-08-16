@@ -140,10 +140,15 @@ function attachGyro() {
   gyroHandler = (e: DeviceOrientationEvent) => {
     const b = e.beta ?? 0
     const g = e.gamma ?? 0
-    /* beta ~45° is "upright". The card leans WITH the device, so the
-       pitch/roll signs are inverted relative to the raw sensor deltas. */
+    /* --tilt-x drives rotateX (pitch, up/down): beta ~45° is "upright",
+       so `(45 - b)` leans the card with the device — user-confirmed
+       correct, left as-is.
+       --tilt-y drives rotateY (roll, left/right). Tilting the phone RIGHT
+       (right edge down) gives POSITIVE gamma; the matching visual is the
+       card's right edge receding, which is POSITIVE rotateY. So gamma maps
+       with the SAME sign (+g). The old `-g` inverted left/right. */
     gyroCard?.style.setProperty('--tilt-x', clamp((45 - b) * 0.22, 10).toFixed(2) + 'deg')
-    gyroCard?.style.setProperty('--tilt-y', clamp(-g * 0.3, 10).toFixed(2) + 'deg')
+    gyroCard?.style.setProperty('--tilt-y', clamp(g * 0.3, 10).toFixed(2) + 'deg')
   }
   window.addEventListener('deviceorientation', gyroHandler)
 }
@@ -158,10 +163,20 @@ function detachGyro() {
   gyroCard = null
 }
 
-/* non-linear FLIP for the window changing: existing cards animate
-   height + position from their old rects to the new ones; entering
-   cards are covered by the TransitionGroup enter animation. */
+/* non-linear FLIP for the window changing. `.mcard` is flex-sized
+   (flex-basis / flex-grow drive the main size), so a WAAPI `height`
+   keyframe is ignored by flex layout — the height used to snap instantly
+   while only the translate moved. The fix is a transform-only FLIP
+   (translate + scale from the old rect to the new rect), which flex cannot
+   override, for every KEPT card; cards that ENTER the window pop in via
+   WAAPI too, so no card ever snaps into place. */
 const flipAnims = new Set<Animation>()
+function trackFlip(el: HTMLElement, anim: Animation) {
+  flipAnims.add(anim)
+  const cleanup = () => { el.style.transformOrigin = ''; flipAnims.delete(anim) }
+  anim.onfinish = () => { anim.cancel(); cleanup() }
+  anim.oncancel = () => { cleanup() }
+}
 async function flipMobile(next: number | null) {
   /* expand/collapse re-entries use the quick settle, not the staggered
      page-entry push-in */
@@ -170,40 +185,63 @@ async function flipMobile(next: number | null) {
      not its root DOM element, so query the element directly. */
   const listEl = document.querySelector<HTMLElement>('#page3 .mob-stack')
   if (!listEl || REDUCED_MOTION) { expanded.value = next; return }
-  const items = Array.from(listEl.querySelectorAll<HTMLElement>('.mcard'))
-  const before = new Map(items.map(el => [el.dataset.i, el.getBoundingClientRect()]))
+  /* capture every CURRENT card's rect before the reactive reflow */
+  const before = new Map<string, DOMRect>()
+  listEl.querySelectorAll<HTMLElement>('.mcard').forEach(el => {
+    before.set(el.dataset.i || '', el.getBoundingClientRect())
+  })
+  const collapsing = next === null
   expanded.value = next
   await nextTick()
-  /* cancel any FLIP still in flight, then animate EVERY kept card (not
-     just the last one — a single shared reference dropped all but one
-     of the moving cards) */
+  /* cancel any FLIP still in flight so two animations never stack */
   flipAnims.forEach(a => a.cancel())
   flipAnims.clear()
-  const kept = new Set(mobileCards.value.map(m => String(m.i)))
-  const afterItems = Array.from(listEl.querySelectorAll<HTMLElement>('.mcard'))
+  const order = mobileCards.value.map(m => String(m.i))
+  const nowEls = new Map<string, HTMLElement>()
+  listEl.querySelectorAll<HTMLElement>('.mcard').forEach(el => {
+    nowEls.set(el.dataset.i || '', el)
+  })
   /* opening pops with a springy overshoot; collapsing settles softer */
-  const collapsing = next === null
-  for (const el of afterItems) {
-    const key = el.dataset.i || ''
-    if (!kept.has(key)) continue
-    const old = before.get(key)
-    if (!old) continue // newly entered — its own enter animation plays
+  const pop = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+  const soft = 'cubic-bezier(0.22, 1, 0.36, 1)'
+  for (const key of order) {
+    const el = nowEls.get(key)
+    if (!el) continue
     const now = el.getBoundingClientRect()
-    const dx = old.left - now.left
-    const dy = old.top - now.top
-    const dh = old.height - now.height
-    const dw = old.width - now.width
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dh) < 0.5 && Math.abs(dw) < 0.5) continue
-    const anim = el.animate([
-      { height: old.height + 'px', transform: `translate(${dx}px, ${dy}px)` },
-      { height: now.height + 'px', transform: 'translate(0, 0)' }
-    ], {
-      duration: collapsing ? 420 : 540,
-      easing: collapsing ? 'cubic-bezier(0.22, 1, 0.36, 1)' : 'cubic-bezier(0.34, 1.56, 0.64, 1)',
-      fill: 'both'
-    })
-    flipAnims.add(anim)
-    anim.onfinish = () => { anim.cancel(); flipAnims.delete(anim) }
+    const old = before.get(key)
+    if (old) {
+      /* kept card — transform-only FLIP (translate + scale around the
+         top-left), so the card starts EXACTLY at its old rect and springs
+         to the new one. Flex layout is untouched, so nothing can snap. */
+      const dx = old.left - now.left
+      const dy = old.top - now.top
+      const sx = now.width > 0 ? old.width / now.width : 1
+      const sy = now.height > 0 ? old.height / now.height : 1
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(1 - sx) < 0.005 && Math.abs(1 - sy) < 0.005) continue
+      el.style.transformOrigin = '0 0'
+      const anim = el.animate([
+        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` },
+        { transform: 'translate(0px, 0px) scale(1, 1)' }
+      ], {
+        duration: collapsing ? 420 : 540,
+        easing: collapsing ? soft : pop,
+        fill: 'both'
+      })
+      trackFlip(el, anim)
+    } else {
+      /* newly entering card (a neighbour joining the window, or a card
+         returning on collapse) — springy pop-in instead of snapping */
+      const fromY = collapsing ? -26 : 26
+      const anim = el.animate([
+        { opacity: 0, transform: `translateY(${fromY}px) scale(0.96)` },
+        { opacity: 1, transform: 'translateY(0px) scale(1)' }
+      ], {
+        duration: collapsing ? 380 : 460,
+        easing: collapsing ? soft : pop,
+        fill: 'both'
+      })
+      trackFlip(el, anim)
+    }
   }
   syncLoops()
 }
@@ -353,6 +391,14 @@ onBeforeUnmount(() => {
    body stays a plain scroll surface */
 .mcard-title { cursor: pointer; }
 .mcard .card-body { cursor: auto; }
+
+/* Expand/collapse (reflow): entering cards are animated by WAAPI in
+   flipMobile, so the TransitionGroup's CSS enter keyframe is disabled —
+   otherwise two drivers fight over transform/opacity. Leaving cards keep
+   style.css's fade-out (and its position:absolute removal choreography). */
+.mob-stack.reflow .mcard-enter-active {
+  animation: none;
+}
 
 /* PC hover: drop the symmetric edge fade so the end content (e.g. the
    "每次发布的实测数据 →" release link) is fully readable. Not-hovered keeps

@@ -347,12 +347,14 @@ onBeforeUnmount(() => {
               </h4>
               <div v-for="a in g.archs" :key="a.arch" class="res-arch">
                 <h5 class="res-arch-head">{{ a.arch }}</h5>
-                <a v-for="it in a.items" :key="it.asset.name" class="res-row"
-                   :href="it.asset.browser_download_url" :title="it.asset.name">
-                  <span class="tag-kind" :class="it.kind">{{ kindLabel(it.kind) }}</span>
-                  <span class="res-name">{{ it.short }}</span>
-                  <span v-if="multiVer" class="res-ver">{{ it.tag }}</span>
-                </a>
+                <TransitionGroup name="resrow" tag="div" class="res-arch-rows">
+                  <a v-for="it in a.items" :key="it.asset.name" class="res-row"
+                     :href="it.asset.browser_download_url" :title="it.asset.name">
+                    <span class="tag-kind" :class="it.kind">{{ kindLabel(it.kind) }}</span>
+                    <span class="res-name">{{ it.short }}</span>
+                    <span v-if="multiVer" class="res-ver">{{ it.tag }}</span>
+                  </a>
+                </TransitionGroup>
               </div>
             </div>
           </template>
@@ -448,6 +450,21 @@ onBeforeUnmount(() => {
   100% { transform: scale(1); }
 }
 
+/* asset-row list transitions — rows are keyed by asset name so inserts,
+   removes and reorders animate. Enter slides down + fades in; leave fades
+   out while sliding down out-of-flow (absolute) so the rows beneath it
+   FLIP-glide up into the gap via .resrow-move. Non-linear easing mirrors
+   the panel/chip motion language. */
+.fpop2 .res-arch-rows { position: relative; }
+.fpop2 .resrow-enter-active,
+.fpop2 .resrow-leave-active {
+  transition: opacity 0.2s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fpop2 .resrow-enter-from { opacity: 0; transform: translateY(-8px); }
+.fpop2 .resrow-leave-to { opacity: 0; transform: translateY(6px); }
+.fpop2 .resrow-leave-active { position: absolute; left: 0; right: 0; }
+.fpop2 .resrow-move { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
+
 /* enter/leave — MIRROR IMAGES: open scales up, fades in and drifts
    slightly upward (toward the anchor); close reverses exactly. The
    flip-up (.up) panel mirrors the drift vertically. */
@@ -469,5 +486,11 @@ onBeforeUnmount(() => {
   .fpop2-enter-from, .fpop2-enter-to,
   .fpop2-leave-from, .fpop2-leave-to { transform: none; opacity: 1; }
   .fpop2 .chip, .fpop2 .chip.on, .fpop2 .chip:not(.on) { animation: none; }
+  .fpop2 .resrow-enter-active,
+  .fpop2 .resrow-leave-active,
+  .fpop2 .resrow-move { transition: none; }
+  .fpop2 .resrow-enter-from,
+  .fpop2 .resrow-leave-to { transform: none; opacity: 1; }
+  .fpop2 .resrow-leave-active { position: static; }
 }
 </style>

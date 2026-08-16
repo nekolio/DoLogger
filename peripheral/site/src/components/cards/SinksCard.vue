@@ -13,7 +13,7 @@ const sinks = [
     <div class="sink-tags">
       <span v-for="(name, i) in sinks" :key="name" :style="{ '--i': i }">{{ name }}</span>
     </div>
-    <div class="sinks-note">{{ t('sinks-note') }}</div>
+    <div class="card-label">{{ t('sinks-note') }}</div>
 
     <!-- fan-out: one core → every sink, exactly how the pipeline ends.
          A light pulse travels the trunk branch by branch, forever. -->

@@ -85,8 +85,8 @@ const changelog = computed<Changelog>(() => {
       <span class="chlog-date">{{ fmtDate(latest?.published_at) }}</span>
     </div>
 
-    <p v-if="changelog.heading" class="chlog-heading">{{ changelog.heading }}</p>
-    <p v-else class="chlog-heading">{{ t('chlog-heading') }}</p>
+    <div v-if="changelog.heading" class="card-label">{{ changelog.heading }}</div>
+    <div v-else class="card-label">{{ t('chlog-heading') }}</div>
 
     <ul class="chlog-list">
       <li v-for="(c, i) in changelog.commits" :key="i">
@@ -119,12 +119,6 @@ const changelog = computed<Changelog>(() => {
   margin-left: auto;
   color: var(--text-dim);
   font-size: var(--card-meta);
-  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-}
-.chlog-heading {
-  font-size: var(--card-meta);
-  color: var(--text-dim);
-  margin: 0.35rem 0 0.25rem;
 }
 .chlog-list {
   list-style: none;
