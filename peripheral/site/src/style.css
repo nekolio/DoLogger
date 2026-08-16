@@ -1242,13 +1242,13 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
      many rows exist (2 now, 3 when the wall grows), so every card stays
      the same size. The clamp() floors a row at a 3-row-equivalent height
      so cards never collapse below readable on short viewports. */
-  /* equal implicit rows. Rows are deliberately COMPACT (not 1fr): a row
-     sized to fill the whole grid height would fit every card's content
-     and the loop-scroll would never trigger. The clamp() keeps cards
-     equal-sized with an upper bound (~30vh — long content overflows and
-     loops) and a lower bound (~3-row equivalent — never below readable),
-     so the card wall reads as a dense 3×2 grid with looping bodies. */
-  grid-auto-rows: clamp(11rem, 30vh, 18rem);
+  /* equal implicit rows. Rows are a FIXED compact height (not vh-based —
+     a vh row on a large monitor fits every card's content and the
+     ping-pong loop never triggers). ~19rem keeps two rows inside a
+     1080p viewport while long card bodies (Performance, Changelog)
+     overflow and loop; shorter cards that fully fit simply don't loop,
+     per the "content must overflow to loop" rule. */
+  grid-auto-rows: minmax(14rem, 19rem);
   gap: 1.5rem;
 }
 
@@ -1921,10 +1921,10 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  /* top padding so the first content row clears the title bar / rounded
-     corner; bottom padding so the last row isn't clipped by the card's
-     overflow:hidden at the scroll end */
-  padding: 0.6rem 1.1rem 0.8rem;
+  /* generous top/bottom padding so the first and last content rows fully
+     clear the title bar and the rounded bottom corners — the previous
+     smaller padding still let the ends get visually clipped */
+  padding: 1rem 1.1rem 1.4rem;
   /* mobile cards show their content directly — no edge-fade mask (that
      mask exists for the PC loop-scroll aesthetic; mobile has no loop) */
 }

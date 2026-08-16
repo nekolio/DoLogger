@@ -56,9 +56,19 @@ const subs = [
   width: 100%;
 }
 .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
-/* In the wrapped layout the inter-stage arrows would dangle at line
-   ends (they're drawn on every non-last DOM child, and after wrapping
-   the first row's last stage is NOT the DOM :last-child). The chain
-   reads as a flow — drop the arrows entirely. */
-.pipe-stage::after { display: none; }
+/* Flow arrows: each stage carries a LEADING → (flow INTO it) instead of
+   style.css's trailing arrow on every non-last DOM child. In a wrapped
+   row a trailing arrow dangles at the line end; a leading arrow rides
+   with its stage into the next line, so every stage still reads as
+   connected without any line-end orphan. The first stage has no arrow. */
+.pipe-stage::after { display: none; } /* kill style.css's trailing arrows */
+.pipe-stage::before {
+  content: '→';
+  margin-right: 0.15rem;
+  color: var(--accent);
+  font-size: 0.7rem;
+  align-self: center;
+  flex: none;
+}
+.pipe-stage:first-child::before { display: none; }
 </style>

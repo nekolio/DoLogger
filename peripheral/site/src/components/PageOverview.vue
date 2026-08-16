@@ -288,7 +288,10 @@ async function toggleMobile(i: number) {
 const loops = useAutoLoopScroll()
 function syncLoops() {
   nextTick(() => {
-    loops.attachAll('#page3 .card-body', '')
+    /* PC GRID card bodies only — '#page3 .grid .card-body' excludes the
+       mobile .mcard bodies (mobile cards show content statically; the
+       ping-pong loop is a PC feature). */
+    loops.attachAll('#page3 .grid .card-body', '')
   })
 }
 
