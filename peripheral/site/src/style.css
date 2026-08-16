@@ -141,9 +141,22 @@ html {
   -webkit-tap-highlight-color: transparent;
   tap-highlight-color: transparent;
 }
-html, body {
+/* Only <html> scrolls the page stack. body must NOT be a scroll container
+   of its own: with `height:100% + overflow-y:scroll` on BOTH, the body
+   box becomes the REAL scroller (its scrollTop moves while window.scrollY
+   stays 0), which silently broke every window-scroll listener (popup
+   close-on-scroll, page-nav active tracking). body now grows with its
+   content and the viewport does the scrolling. */
+html {
   height: 100%;
   overflow-y: scroll;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  transition: background 0.3s, color 0.3s;
+}
+body {
+  min-height: 100%;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, 'Segoe UI', 'Microsoft YaHei', sans-serif;
@@ -1334,6 +1347,10 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  /* programmatically-driven scroller: the browser must never
+     anchor-adjust its position (e.g. when a card re-renders) or the
+     ping-pong loop fights the adjustment */
+  overflow-anchor: none;
   scrollbar-width: none;
   mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
