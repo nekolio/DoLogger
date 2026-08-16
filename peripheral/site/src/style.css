@@ -129,6 +129,12 @@
    Reset & base
    ================================================================ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
+/* The site is a presentation, not a document: dragging across a page
+   must never select text (hero art, buttons, card captions). The page-2
+   terminal keeps native selection so visitors can copy log lines. */
+html { -webkit-user-select: none; user-select: none; }
+input, textarea, [contenteditable], .term-body { -webkit-user-select: text; user-select: text; }
+img { -webkit-user-drag: none; user-drag: none; }
 html, body {
   height: 100%;
   overflow-y: scroll;
@@ -319,6 +325,72 @@ html, body {
 }
 .btn.active { border-color: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
 
+/* ── live repo stats (star/fork cluster, before the Docs button) ────
+   GitHub icon + stars + hollow heart | forks + git-branch icon. The
+   whole cluster is one repo link; counts come live from data.ts. The
+   heart fills solid on hover with a non-linear spring; the branch icon
+   plays a soft "commit lands" bounce. */
+.repo-stats-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 1.2rem;
+  border-radius: 40px;
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-text);
+  font-size: clamp(0.8rem, 1.6vw, 0.95rem);
+  font-family: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+}
+.repo-stats-cta:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+  box-shadow: 0 0 30px var(--accent-glow);
+  transform: translateY(-3px) scale(1.03);
+}
+.repo-stats-cta .rs-gh { color: var(--accent); }
+.repo-stats-cta:hover .rs-gh { color: inherit; }
+.repo-stats-cta .rs-item { display: inline-flex; align-items: center; gap: 0.35rem; }
+.repo-stats-cta .rs-num {
+  font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  font-weight: 600;
+  font-size: 0.95em;
+  font-variant-numeric: tabular-nums;
+}
+.repo-stats-cta .rs-sep { color: var(--text-dim); font-weight: 400; }
+.repo-stats-cta:hover .rs-sep { color: inherit; opacity: 0.7; }
+/* heart: outline + filled stacked; hover fills solid (non-linear spring) */
+.repo-stats-cta .rs-heart { position: relative; width: 1em; height: 1em; display: inline-block; }
+.repo-stats-cta .rs-heart .icon { position: absolute; inset: 0; width: 100%; height: 100%; }
+.repo-stats-cta .rs-heart .heart-outline {
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+}
+.repo-stats-cta .rs-heart .heart-fill {
+  color: #f472d0;
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+}
+.repo-stats-cta:hover .rs-heart .heart-outline { transform: scale(0.2); opacity: 0; }
+.repo-stats-cta:hover .rs-heart .heart-fill { transform: scale(1); opacity: 1; }
+/* branch icon: gentle "commit lands" bounce + glow on hover */
+.repo-stats-cta .rs-fork .icon { transition: filter 0.3s ease; }
+.repo-stats-cta:hover .rs-fork .icon {
+  animation: fork-land 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+  filter: drop-shadow(0 0 5px rgba(244, 114, 208, 0.7));
+}
+@keyframes fork-land {
+  0% { transform: scale(1); }
+  40% { transform: translateY(-1.5px) scale(1.18); }
+  68% { transform: translateY(0) scale(0.94); }
+  100% { transform: scale(1); }
+}
+
 /* ── the asset filter popup (teleported to body, fixed against the
    hero trigger). Compact by design: the filter block is fully visible
    with no inner scrollbar, results fit ~4-6 rows (surplus scroll
@@ -341,28 +413,28 @@ html, body {
 .fpop-filters {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.7rem 0.8rem 0.5rem;
+  gap: 0.7rem;
+  padding: 1rem 1.1rem 0.7rem;
   position: relative;
   flex: none; /* never scrolls — every filter must be visible at once */
 }
-.frow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.5rem 0.9rem; }
-.fchips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+.frow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.7rem 1.2rem; }
+.fchips { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .fg-inline {
   color: var(--text-dim);
-  font-size: 0.66rem;
+  font-size: 0.9rem;
   letter-spacing: 0.8px;
   text-transform: uppercase;
   margin-right: 0.1rem;
 }
 .chip {
-  padding: 0.18rem 0.6rem;
+  padding: 0.28rem 0.9rem;
   border-radius: 20px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-dim);
   font: inherit;
-  font-size: 0.74rem;
+  font-size: 1.05rem;
   cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease,
               box-shadow 0.18s ease;
@@ -377,19 +449,19 @@ html, body {
 
 /* ── version selector: one compact dropdown (all releases), not a
    chip wall — with many versions chips become unusable ───────────── */
-.vsel { position: relative; flex: 1 1 190px; min-width: 190px; }
+.vsel { position: relative; flex: 1 1 260px; min-width: 260px; }
 .vsel-btn {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  padding: 0.32rem 0.7rem;
+  padding: 0.45rem 1rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
   font: inherit;
-  font-size: 0.78rem;
+  font-size: 1.1rem;
   cursor: pointer;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -411,14 +483,14 @@ html, body {
   right: 0;
   top: calc(100% + 6px);
   z-index: 5;
-  max-height: 280px;
+  max-height: 400px;
   overflow-y: auto;
   background: var(--bg-card);
   backdrop-filter: blur(14px);
   border: 1px solid var(--accent);
   border-radius: 10px;
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.45);
-  padding: 0.3rem;
+  padding: 0.4rem;
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
 }
@@ -426,10 +498,10 @@ html, body {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  padding: 0.26rem 0.5rem;
+  padding: 0.35rem 0.7rem;
   border-radius: 7px;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 1.1rem;
   color: var(--text);
 }
 .vsel-menu label:hover { background: var(--accent-glow); }
@@ -440,21 +512,21 @@ html, body {
   border-bottom: 1px dashed var(--border);
   border-radius: 7px 7px 0 0 !important;
   color: var(--text-dim) !important;
-  font-size: 0.72rem !important;
+  font-size: 1rem !important;
 }
 
 .fpop-results {
   flex: 1 1 190px;
   min-height: 0;
-  max-height: 244px; /* ~4-6 rows; surplus scrolls inside */
+  max-height: 360px; /* ~4-6 rows; surplus scrolls inside */
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--accent) transparent;
   border-top: 1px dashed var(--border);
-  padding: 0.55rem 0.8rem 0.6rem;
+  padding: 0.8rem 1.1rem 0.9rem;
 }
 .fpopup .prerelease-badge {
-  font-size: 0.6rem;
+  font-size: 0.85rem;
   padding: 0 0.4rem;
   border: 1px solid var(--lv-plugin);
   color: var(--lv-plugin);
@@ -463,64 +535,68 @@ html, body {
 }
 
 /* results hierarchy — 大分类 OS → 中分类 arch → 小分类 rows (CLI/LIB/插件) */
-.res-os { margin-bottom: 0.55rem; }
+.res-os { margin-bottom: 0.8rem; }
 .res-os-head {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin: 0 0 0.2rem;
+  margin: 0 0 0.3rem;
   color: var(--accent);
   font-weight: 600;
-  font-size: 0.82rem;
+  font-size: 1.15rem;
   letter-spacing: 0.8px;
   text-transform: uppercase;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 0.2rem;
+  padding-bottom: 0.3rem;
 }
-.res-os-count { margin-left: auto; color: var(--text-dim); font-weight: 400; font-size: 0.66rem; }
-.res-arch { margin: 0.3rem 0 0.15rem 0.6rem; }
+.res-os-count { margin-left: auto; color: var(--text-dim); font-weight: 400; font-size: 0.92rem; }
+.res-arch { margin: 0.4rem 0 0.2rem 0.85rem; }
 .res-arch-head {
-  margin: 0 0 0.15rem;
+  margin: 0 0 0.2rem;
   color: var(--text-dim);
   font-weight: 400;
-  font-size: 0.7rem;
+  font-size: 1rem;
   letter-spacing: 1px;
   text-transform: uppercase;
 }
 .res-row {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.1rem 0;
+  gap: 0.6rem;
+  padding: 0.14rem 0;
   color: var(--text);
   text-decoration: none;
-  font-size: 0.78rem;
+  font-size: 1.08rem;
   font-family: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
-  line-height: 1.35;
+  line-height: 1.5;
 }
 .res-row:hover { color: var(--accent); text-decoration: underline; }
 .res-row .tag-kind {
   flex: none;
-  font-size: 0.62rem;
+  font-size: 0.88rem;
   letter-spacing: 1px;
   border: 1px solid var(--accent);
   color: var(--accent);
-  border-radius: 8px;
-  padding: 0 0.3rem;
+  border-radius: 10px;
+  padding: 0 0.45rem;
+  /* the kind label is decorative — it must not show the pointer */
+  cursor: default;
 }
 .res-row .tag-kind.lib { border-color: var(--lv-plugin); color: var(--lv-plugin); }
 .res-row .tag-kind.plugin { border-color: var(--lv-magenta); color: var(--lv-magenta); }
+/* the asset name is the FULL file name (extension included) — it wraps
+   instead of truncating, so nothing is hidden behind an ellipsis */
 .res-row .res-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   min-width: 0;
+  white-space: normal;
+  word-break: break-all;
+  overflow: visible;
 }
 .res-row .res-ver {
   margin-left: auto;
   flex: none;
   color: var(--text-dim);
-  font-size: 0.64rem;
+  font-size: 0.9rem;
   border: 1px dashed var(--border);
   border-radius: 8px;
   padding: 0 0.3rem;
@@ -529,7 +605,7 @@ html, body {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem 1.4rem;
-  padding: 0.45rem 0.8rem;
+  padding: 0.6rem 1.1rem;
   border-top: 1px dashed var(--border);
   background: rgba(255, 255, 255, 0.02);
   flex: none;
@@ -539,11 +615,11 @@ html, body {
   align-items: center;
   gap: 0.35rem;
   color: var(--accent);
-  font-size: 0.8rem;
+  font-size: 1.1rem;
   text-decoration: none;
 }
 .fpop-foot a:hover { text-decoration: underline; }
-.fpop-foot .icon { width: 14px; height: 14px; }
+.fpop-foot .icon { width: 20px; height: 20px; }
 .fpop-empty {
   padding: 1.4rem 0.4rem;
   display: flex;
@@ -551,7 +627,7 @@ html, body {
   align-items: center;
   gap: 0.7rem;
   color: var(--text-dim);
-  font-size: 0.82rem;
+  font-size: 1.15rem;
 }
 /* non-linear pop-in — pure easing, no literal curve */
 .fpop-enter-active {
@@ -640,8 +716,9 @@ html, body {
 }
 
 /* ================================================================
-   Right-edge page navigation — notched-diamond chips that expand
-   into labeled pills on hover/active
+   Right-edge page navigation — dot + label as ONE pill unit that
+   expands into a labeled chip on hover/active. Soft non-linear
+   transitions; the whole nav idles out after ~1.8s without input.
    ================================================================ */
 .page-nav {
   position: fixed;
@@ -651,9 +728,9 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 0.7rem;
+  gap: 0.6rem;
   z-index: 90;
-  transition: opacity 0.7s var(--ease-inout), transform 0.7s var(--ease-inout);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* idles out (non-linear fade + slide) after ~1.8s without interaction */
 .page-nav.idle {
@@ -661,24 +738,43 @@ html, body {
   transform: translateY(-50%) translateX(6px);
   pointer-events: none;
 }
+/* suppressed while the pointer is over the page-2 terminal */
+.page-nav.suppressed {
+  opacity: 0;
+  pointer-events: none;
+}
 .page-nav:focus-within {
   opacity: 1;
   transform: translateY(-50%);
   pointer-events: auto;
 }
+/* the pill unit — background grows with the label, softly */
 .page-nav button {
   display: flex;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0;
-  border: none;
+  gap: 0.5rem;
+  padding: 0.32rem 0.7rem 0.32rem 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: transparent;
   cursor: pointer;
+  transition: background 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
-/* small dot — quietly there until the pill expands. Deliberately NOT
-   classed .chip: a lower-specificity padding/border declaration on the
-   same element makes Chromium drop the declared width entirely (measured
-   ~21px instead of 8px), so the dot uses its own class. */
+.page-nav button:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+.page-nav button.active {
+  background: rgba(127, 213, 255, 0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
+/* small diamond dot — quietly there until the pill expands. Deliberately
+   NOT classed .chip: a lower-specificity padding/border declaration on
+   the same element makes Chromium drop the declared width entirely, so
+   the dot uses its own class. */
 .page-nav .dot {
   width: 8px;
   height: 8px;
@@ -687,20 +783,23 @@ html, body {
   border: 1.5px solid var(--accent);
   background: transparent;
   clip-path: polygon(25% 0, 75% 0, 100% 25%, 100% 75%, 75% 100%, 25% 100%, 0 75%, 0 25%);
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: background 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .page-nav .label {
   max-width: 0;
   overflow: hidden;
   white-space: nowrap;
   font-size: 0.65rem;
+  color: var(--text-dim);
   color: color-mix(in srgb, var(--text-dim) 70%, transparent);
   text-transform: uppercase;
   letter-spacing: 1.5px;
   opacity: 0;
-  transition: max-width 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+  transition: max-width 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s ease;
 }
-.page-nav .label b { color: var(--accent); font-weight: 500; }
 .page-nav button:hover .label,
 .page-nav button.active .label {
   max-width: 150px;
@@ -729,7 +828,10 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   z-index: 9999;
   pointer-events: none;
   overflow: hidden;
+  /* leaving the window fades the whole layer out — no frozen ghost */
+  transition: opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
+.cyber-cursor-layer.leaving { opacity: 0; }
 /* soft bloom around the cursor — the main glow */
 .cyber-cursor-layer .cursor-glow {
   position: fixed;
@@ -742,15 +844,17 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   mix-blend-mode: screen;
   transform: translate(-100px, -100px);
 }
-/* comet trail — the last 22 smoothed positions drawn as a 4-layer
-   ribbon: wide blurred tail + solid mid fake the taper, the brand ramp
-   + glow live on the core and head only */
+/* comet trail — the smoothed position history drawn as a 4-layer
+   ribbon (wide blurred tail + solid mid fake the taper; brand ramp +
+   glow live on the core and head). Point count follows cursor SPEED:
+   fast = long ribbon, stopped = nothing but the dot. */
 .cyber-cursor-layer .cursor-comet {
   position: fixed;
   left: 0;
   top: 0;
   width: 100%;
   height: 100%;
+  transition: opacity 0.25s ease;
 }
 .cyber-cursor-layer .cursor-comet polyline {
   fill: none;
@@ -779,78 +883,70 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   opacity: 0.95;
   filter: drop-shadow(0 0 4px rgba(199, 146, 234, 0.6));
 }
-/* twin rings: outer lags far (slow lerp), inner chases close */
-.cyber-cursor-layer .cursor-ring-o,
-.cyber-cursor-layer .cursor-ring-i {
+/* chasing ring + the resting dot (the dot is what remains when the
+   trail has fully collapsed — a stopped cursor is a single light dot) */
+.cyber-cursor-layer .cursor-ring,
+.cyber-cursor-layer .cursor-dot {
   position: fixed;
   left: 0;
   top: 0;
-  border-radius: 50%;
   transform: translate(-100px, -100px);
-  transition: border-color 0.2s, box-shadow 0.2s, scale 0.15s ease;
+  transition: border-color 0.2s, box-shadow 0.2s, scale 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.cyber-cursor-layer .cursor-ring-o {
-  width: 26px;
-  height: 26px;
-  margin: -13px 0 0 -13px;
+.cyber-cursor-layer .cursor-ring {
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
   border: 1.5px solid rgba(127, 213, 255, 0.4);
+  border-radius: 50%;
   box-shadow: 0 0 10px rgba(127, 213, 255, 0.18);
 }
-.cyber-cursor-layer .cursor-ring-i {
-  width: 8px;
-  height: 8px;
-  margin: -4px 0 0 -4px;
+.cyber-cursor-layer .cursor-dot {
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 50%;
   background: #8A9BFF;
   box-shadow: 0 0 8px rgba(138, 155, 255, 0.7);
 }
-/* snap frame — lerps onto the hovered click target */
-.cyber-cursor-layer .cursor-snap {
+/* restrained press: the ring squeezes (springy) while a small
+   shockwave ring expands and fades — simple, not plain */
+.cyber-cursor-layer .cursor-pulse {
   position: fixed;
   left: 0;
   top: 0;
-  width: 0;
-  height: 0;
-  border: 1.5px solid rgba(244, 114, 208, 0.85);
-  border-radius: 6px;
-  box-shadow: 0 0 12px rgba(244, 114, 208, 0.35), inset 0 0 8px rgba(244, 114, 208, 0.12);
-  opacity: 0;
+  width: 44px;
+  height: 44px;
 }
-/* click ripple — one pooled ring retriggered on mousedown */
-.cyber-cursor-layer .cursor-ripple {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: 48px;
-  height: 48px;
-}
-.cyber-cursor-layer .cursor-ripple i {
+.cyber-cursor-layer .cursor-pulse i {
   position: absolute;
   inset: 0;
-  border: 2px solid rgba(199, 146, 234, 0.6);
+  border: 1.5px solid rgba(199, 146, 234, 0.55);
   border-radius: 50%;
   opacity: 0;
 }
-.cyber-cursor-layer .cursor-ripple.go i { animation: cursor-ripple 0.55s var(--ease-out) forwards; }
-@keyframes cursor-ripple {
-  from { opacity: 0.7; transform: scale(0.3); }
-  to { opacity: 0; transform: scale(2.2); }
+.cyber-cursor-layer .cursor-pulse.go i { animation: cursor-pulse 0.5s var(--ease-out) forwards; }
+@keyframes cursor-pulse {
+  from { opacity: 0.55; transform: scale(0.45); }
+  to { opacity: 0; transform: scale(2.4); }
 }
 /* state recolors — shape never swaps; the native pointer stays put */
 .cyber-cursor-layer.hot .cursor-glow {
   background: radial-gradient(circle, rgba(244, 114, 208, 0.1) 0%, rgba(199, 146, 234, 0.04) 45%, transparent 70%);
 }
-.cyber-cursor-layer.hot .cursor-ring-o { border-color: rgba(244, 114, 208, 0.6); box-shadow: 0 0 14px rgba(244, 114, 208, 0.28); }
-.cyber-cursor-layer.hot .cursor-ring-i { background: #F472D0; box-shadow: 0 0 10px rgba(244, 114, 208, 0.65); }
+.cyber-cursor-layer.hot .cursor-ring { border-color: rgba(244, 114, 208, 0.6); box-shadow: 0 0 14px rgba(244, 114, 208, 0.28); }
+.cyber-cursor-layer.hot .cursor-dot { background: #F472D0; box-shadow: 0 0 10px rgba(244, 114, 208, 0.65); }
 .cyber-cursor-layer.text .cursor-glow {
   background: radial-gradient(circle, rgba(127, 213, 255, 0.12) 0%, transparent 70%);
 }
-.cyber-cursor-layer.text .cursor-ring-o { border-color: rgba(127, 213, 255, 0.7); }
-.cyber-cursor-layer.pressed .cursor-ring-o { scale: 0.75; border-color: #F472D0; }
-.cyber-cursor-layer.pressed .cursor-ring-i { scale: 1.8; }
+.cyber-cursor-layer.text .cursor-ring { border-color: rgba(127, 213, 255, 0.7); }
+.cyber-cursor-layer.pressed .cursor-ring { scale: 0.68; border-color: #F472D0; box-shadow: 0 0 16px rgba(244, 114, 208, 0.4); }
+.cyber-cursor-layer.pressed .cursor-dot { scale: 1.5; background: #F472D0; }
 @media (prefers-reduced-motion: reduce) {
-  .cyber-cursor-layer .cursor-ring-o,
-  .cyber-cursor-layer .cursor-ring-i { transition: none; }
-  .cyber-cursor-layer .cursor-ripple.go i { animation: none; opacity: 0; }
+  .cyber-cursor-layer { transition: none; }
+  .cyber-cursor-layer .cursor-ring,
+  .cyber-cursor-layer .cursor-dot { transition: none; }
+  .cyber-cursor-layer .cursor-pulse.go i { animation: none; opacity: 0; }
 }
 
 /* ================================================================
@@ -990,7 +1086,10 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 .term-body {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  /* no scrollbar and no wheel/touch scrolling: the log auto-scrolls
+     programmatically (scrollTop), and the terminal must not respond to
+     the mouse wheel (the page nav takes over) */
+  overflow-y: hidden;
   padding: 0.4rem 1rem;
   color: var(--text-dim);
 }
@@ -1009,16 +1108,9 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
 .term-body .log-line.ok    { color: var(--lv-info); opacity: 0.85; }
 
 /* ================================================================
-   Page 3 — Overview (uniform cards, Steam-style tilt)
+   Page 3 — Overview (card wall, Steam-style tilt)
    ================================================================ */
 #page3 { justify-content: flex-start; padding-top: 3rem; overflow: hidden; height: 100svh; }
-/* the right wheel nav hides while a card is expanded (inspect mode) */
-html.card-expanded .page-nav { opacity: 0 !important; pointer-events: none; }
-/* ...and the page scroll is frozen: the inspected card is position:fixed
-   with .grid (perspective) as its containing block, so any #page3 scroll
-   would drag the card away from center. This higher-specificity rule
-   beats the media-query `overflow-y: auto` on narrow screens. */
-html.card-expanded #page3 { overflow: hidden; }
 #page3 .container {
   max-width: 1100px;
   width: 100%;
@@ -1041,27 +1133,10 @@ html.card-expanded #page3 { overflow: hidden; }
 .grid {
   flex: 1;
   min-height: 0;
-  position: relative;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(2, minmax(0, 1fr)); /* every card is the same size */
   gap: 1.5rem;
-  perspective: 1400px; /* the Z-axis push of the inspected card */
-  perspective-origin: 50% 40%;
-}
-/* depth-of-field backdrop: --dof is rAF-ramped 0→1 by PageOverview
-   while a card flies out (game-inspect 景深), driving both the blur
-   and the darken. Above the neighbors, below the expanded card. */
-.grid::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background: rgba(0, 0, 0, calc(var(--dof, 0) * var(--backdrop-alpha, 0.22)));
-  backdrop-filter: blur(calc(var(--dof, 0) * 14px));
-  -webkit-backdrop-filter: blur(calc(var(--dof, 0) * 14px));
-  opacity: calc(var(--dof, 0));
 }
 
 .card {
@@ -1073,8 +1148,7 @@ html.card-expanded #page3 { overflow: hidden; }
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 1.2rem 1.5rem;
-  cursor: pointer;
+  padding: 1.1rem 1.3rem;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -1083,11 +1157,14 @@ html.card-expanded #page3 { overflow: hidden; }
   z-index: 0;
   transition: box-shadow 0.3s, filter 0.45s var(--ease-out);
 }
-.card:hover { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 20px var(--card-glow); }
+.card:hover {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 26px var(--card-glow);
+}
 /* spotlight — a soft ethereal bloom at the cursor plus corner/edge
    accents that focus with --edge (distance from the center, boosted
-   non-linearly by PageOverview): the rim lights up, the center stays
-   airy. Under reduced motion it is hidden entirely (see below). */
+   non-linearly by PageOverview). The rim lights up STRONGLY — the 3D
+   edge deformation is meant to be visible — while the center stays
+   airy. Under reduced motion it is hidden entirely. */
 .card-spot {
   position: absolute;
   inset: 0;
@@ -1096,62 +1173,24 @@ html.card-expanded #page3 { overflow: hidden; }
   opacity: 0;
   transition: opacity 0.3s ease;
   background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(127, 213, 255, 0.10) 0, rgba(127, 213, 255, 0.05) 38%, transparent 70%),
-    radial-gradient(130% 130% at 0% 0%, rgba(199, 146, 234, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%),
-    radial-gradient(130% 130% at 100% 0%, rgba(244, 114, 208, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%),
-    radial-gradient(130% 130% at 0% 100%, rgba(138, 155, 255, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%),
-    radial-gradient(130% 130% at 100% 100%, rgba(127, 213, 255, calc(0.04 + 0.10 * var(--edge))) 0%, transparent 45%);
-  box-shadow: inset 0 0 22px rgba(127, 213, 255, calc(0.04 + 0.10 * var(--edge)));
+    radial-gradient(circle at var(--mx) var(--my), rgba(127, 213, 255, 0.14) 0, rgba(127, 213, 255, 0.06) 38%, transparent 70%),
+    radial-gradient(130% 130% at 0% 0%, rgba(199, 146, 234, calc(0.05 + 0.16 * var(--edge))) 0%, transparent 48%),
+    radial-gradient(130% 130% at 100% 0%, rgba(244, 114, 208, calc(0.05 + 0.16 * var(--edge))) 0%, transparent 48%),
+    radial-gradient(130% 130% at 0% 100%, rgba(138, 155, 255, calc(0.05 + 0.16 * var(--edge))) 0%, transparent 48%),
+    radial-gradient(130% 130% at 100% 100%, rgba(127, 213, 255, calc(0.05 + 0.16 * var(--edge))) 0%, transparent 48%);
+  box-shadow: inset 0 0 26px rgba(127, 213, 255, calc(0.05 + 0.16 * var(--edge)));
   mix-blend-mode: screen;
 }
 .card:hover .card-spot { opacity: 1; }
-/* expanded: overlay mode. Geometry (position/left/top/width/height) is
-   set inline by PageOverview — the card flies from its slot to the
-   viewport center with a Z-axis push; transform is frozen (no tilt)
-   while inspected. The frosted surface (.settled) applies after the
-   flight ends. */
-.card.expanded { z-index: 2; transform: none; cursor: default; }
-.card.expanded.settled {
-  background: var(--card-focus-bg);
-  backdrop-filter: blur(12px);
-  border-color: var(--accent);
-  box-shadow: var(--focus-shadow-main), 0 0 30px var(--card-glow);
-}
-/* neighbors 补位推进: slightly dimmed, never hidden */
-.grid.has-expanded .card:not(.expanded) { filter: brightness(var(--card-dim, 0.85)); }
-.card-close {
-  position: absolute;
-  top: 10px;
-  right: 14px;
-  z-index: 1;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--highlight-bg);
-  color: var(--text-dim);
-  font-size: 15px;
-  line-height: 1;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-}
-.card-close:hover { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 @media (prefers-reduced-motion: no-preference) {
-  /* Steam-style tilt — transform composes with the flight's individual
-     translate/scale properties (no conflict) */
+  /* Steam-style tilt, strengthened: ±8° with a stronger perspective so
+     the corner deformation reads clearly. The fly-in animation (WAAPI)
+     owns `transform` during the flight and cancels on finish, handing
+     control back to this CSS transform — never a conflict. */
   .card {
-    transform: perspective(900px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
-    transition: transform 0.22s ease-out, box-shadow 0.3s, filter 0.45s var(--ease-out);
+    transform: perspective(700px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg));
+    transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s, filter 0.45s var(--ease-out);
   }
-  /* soft focus ring as the inspected card settles */
-  .card.expanded.settled { animation: settle-ring 0.8s var(--ease-out) both; }
-}
-@keyframes settle-ring {
-  0% { box-shadow: 0 0 0 3px rgba(127, 213, 255, 0.35), var(--focus-shadow-main), 0 0 30px var(--card-glow); }
-  100% { box-shadow: var(--focus-shadow-main), 0 0 30px var(--card-glow); }
 }
 .card h3 {
   color: var(--accent);
@@ -1171,32 +1210,23 @@ html.card-expanded #page3 { overflow: hidden; }
 }
 .card ul li:last-child { border: none; }
 
-/* collapsed cards fade their tail out instead of showing a scrollbar —
-   the overflow becomes readable by expanding the card */
+/* card body — the loop-scroll surface. Overflowing content scrolls
+   inside it (programmatically, driven by useAutoLoopScroll) with no
+   visible scrollbar; a symmetric mask softens the seamless wrap. The
+   page-nav scroller-walk treats it as a scrollable sub-window: wheel
+   with room scrolls the card, at the edge the page flips. */
 .card-body {
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
-  overflow-y: hidden; /* collapsed: never a scrollable sub-window */
-  mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+  overflow-y: auto;
+  scrollbar-width: none;
+  mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
   padding-right: 2px;
 }
-.card.expanded .card-body {
-  mask-image: none;
-  -webkit-mask-image: none;
-  /* inspected: the card must NEVER scroll — every detail is laid out
-     natively to fit the 85svh card, so the body becomes a column that
-     hands the leftover height to the detail block */
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-.card.expanded .card-detail {
-  flex: 1 1 auto;
-  min-height: 0;
-}
+.card-body::-webkit-scrollbar { display: none; }
 .card-body .sink-tags {
   display: flex;
   flex-wrap: wrap;
@@ -1304,22 +1334,6 @@ html.card-expanded #page3 { overflow: hidden; }
   line-height: 1.6;
   margin-bottom: 0.5rem;
 }
-.arch-flow {
-  margin: 0.5rem 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  align-items: center;
-}
-.arch-flow span {
-  background: rgba(127, 213, 255, 0.08);
-  border: 1px solid rgba(127, 213, 255, 0.15);
-  padding: 0.15rem 0.6rem;
-  border-radius: 10px;
-  font-size: var(--card-meta);
-  color: var(--text);
-}
-.arch-flow .sep { background: none; border: none; color: var(--text-dim); padding: 0; }
 
 .sinks-note {
   margin-top: 0.8rem;
@@ -1370,41 +1384,37 @@ html.card-expanded #page3 { overflow: hidden; }
 .repo-stats .stat a { color: var(--text-dim); text-decoration: none; }
 .repo-stats .stat a:hover { color: var(--accent); }
 
-/* ── expanded-card detail blocks (revealed with the card) ────────── */
-.card-detail {
-  margin-top: 0.6rem;
-  padding-top: 0.6rem;
-  border-top: 1px dashed var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
+/* ── card captions (always-on detail lines) ───────────────────────── */
 .card-caption {
   font-size: var(--card-meta);
   color: var(--text-dim);
   line-height: 1.55;
+  margin-top: 0.5rem;
 }
 /* ── native visualizations — no SVG images. Everything below is plain
-   Vue/HTML/CSS designed to fit the 85svh expanded card: nothing ever
-   scrolls, so each diagram wraps compactly within the card body. ── */
+   Vue/HTML/CSS that lives INSIDE the card and loops. ── */
 
-/* architecture pipeline: numbered stage tiles linked by arrows.
-   Single row (nowrap) so the ::after arrows always sit in a gap —
-   wrapping would scatter them. Tiles shrink + ellipsis on narrow cards. */
-.arch-pipe {
-  display: flex;
-  flex-wrap: nowrap;
+/* architecture pipeline: a seamless horizontal marquee. The track is
+   the stages duplicated twice; useAutoLoopScroll scrolls the container
+   and wraps at half the track (pixel-identical content → seamless).
+   The track is content-sized, so full stage names are NEVER truncated
+   (pre-filter, field provider, … stay whole on every screen). */
+.pipe-marquee {
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+.pipe-track {
+  display: inline-flex;
   align-items: stretch;
   gap: 0.9rem;
+  min-width: max-content;
 }
 .pipe-stage {
-  flex: 1 1 0;
-  min-width: 0;
   position: relative;
   background: var(--svg-panel-bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 0.45rem 0.3rem;
+  padding: 0.45rem 0.6rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1421,19 +1431,13 @@ html.card-expanded #page3 { overflow: hidden; }
   font-size: 0.68rem;
   color: var(--text);
   text-align: center;
-  max-width: 100%;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .pipe-stage .pipe-sub {
   font-size: 0.58rem;
   color: var(--text-dim);
   letter-spacing: 0.3px;
-  max-width: 100%;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .pipe-stage:not(:last-child)::after {
   content: '→';
@@ -1630,60 +1634,42 @@ html.card-expanded #page3 { overflow: hidden; }
   text-overflow: ellipsis;
 }
 
-/* reveal of the detail block — non-linear, staggered in behind the
-   card's own FLIP settle */
-@media (prefers-reduced-motion: no-preference) {
-  .card-detail { animation: card-detail-in 0.45s var(--ease-out) 0.1s both; }
-}
-@keyframes card-detail-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+/* perf bars are static readouts — the grow animation was dropped with
+   the dashboard gauges */
 
-/* perf bars grow up from the track (scaleY, no layout thrash) */
+/* ── page-3 loop animations (all gated on motion preference) ────────
+   The looping "details" that replaced the click-to-expand views: the
+   audit chain glows LSN 1 → 2 → 3 forever, the sink fan-out pulses
+   branch by branch, the shield icon breathes. No dashboard gauges. */
 @media (prefers-reduced-motion: no-preference) {
-  .bar-fill {
-    transform: scaleY(0);
-    transform-origin: bottom;
-    animation: bar-grow 0.7s var(--ease-out) 0.2s forwards;
-  }
-}
-@keyframes bar-grow {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
-}
-
-/* ── page-3 micro-animations (all gated on motion preference) ────── */
-@media (prefers-reduced-motion: no-preference) {
-  /* needle: pegs past the value with an overshoot, settles back */
-  .gauge-needle { animation: gauge-pegged 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both; }
-  .gauge-needle.pegged { animation: gauge-pegged 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both, gauge-flash 0.8s ease 1.1s infinite; }
   .pulse-shield { animation: shield-pulse 2.4s ease-in-out infinite; }
+  /* audit chain: each node lights up in sequence, then the loop restarts */
+  .chain-node { animation: chain-glow 3.6s ease-in-out infinite; }
+  .chain-node:nth-child(1) { animation-delay: 0s; }
+  .chain-node:nth-child(2) { animation-delay: 1.2s; }
+  .chain-node:nth-child(3) { animation-delay: 2.4s; }
+  /* sink fan-out: a light pulse hops from branch to branch */
+  .fan-branch { animation: fan-pulse 4.4s ease-in-out infinite; }
+  .fan-branch:nth-child(3n+1) { animation-delay: 0s; }
+  .fan-branch:nth-child(3n+2) { animation-delay: 0.4s; }
+  .fan-branch:nth-child(3n) { animation-delay: 0.8s; }
+  /* gentle stagger on mount for lists / sink tags */
   .card-body .sink-tags span,
-  .arch-flow span:not(.sep),
   .release-row, .contrib-row {
     animation: card-in 0.5s ease both;
     animation-delay: calc(var(--i, 0) * 60ms);
   }
-  /* data pulse traveling the 7-stage arrows (alternating rows) */
-  .arch-flow .sep { animation: sep-pulse 1.6s ease-in-out infinite; }
-  .arch-flow .sep:nth-child(4n+2) { animation-delay: 0s; }
-  .arch-flow .sep:nth-child(4n+4) { animation-delay: 0.4s; }
 }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .card-body .sink-tags span:hover { animation: sink-ping 0.35s ease; border-color: var(--accent); color: var(--accent); }
 }
-@keyframes gauge-pegged {
-  0% { transform: rotate(-90deg); }
-  62% { transform: rotate(calc(var(--gauge-angle, 0deg) + 16deg)); }
-  82% { transform: rotate(calc(var(--gauge-angle, 0deg) - 5deg)); }
-  100% { transform: rotate(var(--gauge-angle, 0deg)); }
+@keyframes chain-glow {
+  0%, 100% { border-color: rgba(127, 213, 255, 0.35); box-shadow: none; }
+  18%, 42% { border-color: var(--accent); box-shadow: 0 0 14px var(--accent-glow); }
 }
-/* 爆表 — the needle clips past the top of the scale with a glow pulse */
-@keyframes gauge-flash {
-  0% { filter: drop-shadow(0 0 2px var(--accent-glow)); }
-  50% { filter: drop-shadow(0 0 14px var(--lv-plugin)) brightness(1.4); }
-  100% { filter: drop-shadow(0 0 2px var(--accent-glow)); }
+@keyframes fan-pulse {
+  0%, 100% { border-color: var(--border); color: var(--text); box-shadow: none; }
+  12%, 32% { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
 }
 @keyframes shield-pulse {
   0%, 100% { opacity: 0.75; }
@@ -1702,10 +1688,81 @@ html.card-expanded #page3 { overflow: hidden; }
   .card { transform: none; transition: none; }
   .card-spot { display: none; }
 }
-@keyframes sep-pulse {
-  0%, 100% { color: var(--text-dim); opacity: 0.6; text-shadow: none; }
-  50% { color: var(--accent); opacity: 1; text-shadow: 0 0 8px var(--accent-glow); }
+
+/* ── mobile card stack (touch / narrow): collapsed title pills that
+   expand into a window of three. Entering the page pushes the cards in
+   from the direction OPPOSITE to the swipe (--enter-dy), staggered
+   with a Q-bounce; expanding / 补位 is FLIP-animated by PageOverview. ── */
+.mob-stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
 }
+.mcard {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  flex: 0 0 56px;
+  min-height: 56px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  transform: perspective(700px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+}
+.mcard.open {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-color: var(--accent);
+  box-shadow: 0 0 22px var(--accent-glow);
+}
+.mcard-title {
+  flex: 0 0 56px;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 1.1rem;
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+.mcard-chev {
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.mcard-chev.open { transform: rotate(180deg); }
+.mcard.closed .card-body { display: none; }
+.mcard .card-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 0 1.1rem 1rem;
+  mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
+}
+.mcard .card-body::-webkit-scrollbar { display: none; }
+/* TransitionGroup: staggered push-in (enter), quick exit (leave) */
+.mcard-enter-active {
+  transition: transform 0.55s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.4s ease;
+  transition-delay: var(--delay, 0ms);
+}
+.mcard-enter-from { transform: translateY(var(--enter-dy, 0px)); opacity: 0; }
+.mcard-leave-active {
+  position: absolute;
+  width: 100%;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
+}
+.mcard-leave-to { transform: translateY(calc(var(--enter-dy, 0px) * -0.4)); opacity: 0; }
 
 .site-footer {
   margin-top: 1.2rem;
@@ -1763,12 +1820,15 @@ body::after {
   .ide-sidebar .file-item { font-size: 0.7rem; padding: 0.3rem 0.5rem; }
   .ide-code { font-size: 0.7rem; padding: 0.5rem; }
   .grid { grid-template-columns: 1fr 1fr; grid-template-rows: none; }
-  .card:not(.expanded) { max-height: 400px; }
+  .card { max-height: 400px; }
   /* page 3 keeps its one-screen frame; the stacked card list scrolls
      inside the page instead of pushing the slide taller */
   #page3 { overflow-y: auto; padding-top: 1.5rem; }
   #page3 .container { height: auto; min-height: 100%; }
-  .top-controls { top: 0.5rem; right: 0.5rem; padding: 0.2rem 0.5rem; max-width: 220px; }
+  /* the top bar wraps to its content — never capped at a fixed width,
+     so the rounded background always contains every control */
+  .top-controls { top: 0.5rem; right: 0.5rem; padding: 0.3rem 0.6rem; max-width: min(96vw, 100%); }
+  .top-controls .group { white-space: nowrap; }
   .top-controls .btn-small { font-size: 0.6rem; padding: 0.1rem 0.4rem; }
   .btn { padding: 0.5rem 1.2rem; }
 }
@@ -1779,6 +1839,11 @@ body::after {
   .term-title { display: none; }
   /* phone-width logs wrap instead of overflowing the terminal */
   .term-body .log-line { white-space: pre-wrap; word-break: break-word; }
+  /* tight screens: drop the group labels (icons keep their tooltips) so
+     the bar never overflows its rounded background */
+  .top-controls { gap: 0.3rem; padding: 0.25rem 0.5rem; }
+  .top-controls .group-label { display: none; }
+  .top-controls .divider { height: 16px; }
 }
 /* short landscape screens: keep everything reachable */
 @media (max-height: 720px) and (orientation: landscape) {

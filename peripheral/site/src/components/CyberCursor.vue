@@ -1,22 +1,32 @@
 <script setup lang="ts">
-/* CyberCursor — native pointer + effects layer (3rd revision).
+/* CyberCursor — native pointer + effects layer (5th revision).
  *
  * The SYSTEM pointer stays visible and usable; this layer only adds
- * flash on top of it: a soft glow bloom, a brand-ramp comet trail
- * (fixed-size point history, no innerHTML churn — polylines updated
- * via setAttribute), twin chasing rings, a snap frame that lerps onto
- * the hovered click target, and a click ripple.
+ * polish on top of it:
+ *   - a soft glow bloom;
+ *   - a comet trail whose LENGTH follows cursor SPEED with a fast attack
+ *     but a slow, relaxed release: moving stretches a ribbon, stopping
+ *     lets it linger ~0.6-1s and then retract back into a single light
+ *     dot — it never freezes behind a resting cursor;
+ *   - one chasing ring;
+ *   - a restrained press: the ring squeezes subtly and a soft, brief
+ *     glow pulse blooms and fades (no expanding shockwave, no snap frame).
  *
- * States are recolor-only (shape never swaps — the native I-beam
- * already handles text zones):
- *   hover over clickable → magenta recolor (+ snap frame on the target)
- *   over text/terminal   → cyan recolor
- *   mousedown            → rings tighten + ripple
+ * The trail is fed by an exponentially low-passed position, so hand
+ * jitter is smoothed away before it is ever recorded. Leaving the
+ * window fades the whole layer out via a CSS transition (no frozen
+ * ghost frame); re-entering fades it back in.
  *
- * Memory safety: one rAF loop stopped on unmount; the point history is
- * a fixed-size array. Disabled for touch devices and reduced-motion
- * users. The toggle only controls the effects — the pointer is always
- * the native one (html:not(.cyber-cursor) .cyber-cursor-layer hides).
+ * The click path is cheap and idempotent: pointerdowns only set a flag
+ * and add a class, and the pooled pulse is driven by the Web Animations
+ * API from inside the rAF tick (throttled to once per ~150ms) — rapid
+ * clicks never force a reflow or churn classes mid-frame.
+ *
+ * States are recolor-only (the native I-beam already handles text
+ * zones): hover over clickable → magenta recolor, over text → cyan.
+ * Disabled for touch devices and reduced-motion users; the toggle in
+ * the top bar turns the effects on/off live (the pointer is always the
+ * native one — html:not(.cyber-cursor) hides this layer).
  */
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useCursorEnabled } from '../cursor'
@@ -31,38 +41,35 @@ const cometTailEl = ref<SVGPolylineElement | null>(null)
 const cometMidEl = ref<SVGPolylineElement | null>(null)
 const cometCoreEl = ref<SVGPolylineElement | null>(null)
 const cometHeadEl = ref<SVGPolylineElement | null>(null)
-const ringOEl = ref<HTMLDivElement | null>(null)
-const ringIEl = ref<HTMLDivElement | null>(null)
-const snapEl = ref<HTMLDivElement | null>(null)
-const rippleEl = ref<HTMLDivElement | null>(null)
+const ringEl = ref<HTMLDivElement | null>(null)
+const dotEl = ref<HTMLDivElement | null>(null)
+const pulseEl = ref<HTMLDivElement | null>(null)
 
 let raf = 0
-let x = -100
-let y = -100
-/* per-layer positions with different lerp speeds */
-let gox = -100, goy = -100 // glow   (fast)
-let ox = -100, oy = -100   // ring-o (slow)
-let ixx = -100, iyy = -100 // ring-i (fast)
+let x = -100, y = -100            // raw target
+let sx = -100, sy = -100          // smoothed (low-passed) position
 let visible = false
 let textMode = false
+let lastT = 0
 
-/* Trail point history — min-distance sampled + exponentially low-passed.
-   Raw mouse events carry hand-jitter; the smoothed position (sx, sy)
-   is what the comet actually traces. A point is recorded only when the
-   smoothed pos has moved ≥ MIN_DIST from the last recorded point, or
-   (slow-but-real movement) ≥ 0.6px within TIME_FALLBACK ms — the time
-   branch keeps the ribbon flowing at walking speed without ever spamming
-   rest points into the buffer. */
-const PTS = 22
-const MIN_DIST = 2.5
-const TIME_FALLBACK = 33
+/* Trail: min-distance sampled from the smoothed position. The number of
+   points we draw follows a normalized trail length (0..1) that rises with
+   speed quickly but releases slowly — fast movement stretches a long
+   ribbon, and stopping retracts it over ~0.6-1s back to the head dot. */
+const PTS = 36                    // max points drawn (≈ 36 × MIN_DIST px ribbon)
+const MIN_DIST = 2.0              // px between sampled points
+const SPEED_MAX = 1.1             // px/ms → normalized 1 (saturates sooner)
+const TAIL_ATTACK = 45            // ms time constant while growing (snappy)
+const TAIL_RELEASE = 260          // ms time constant while shrinking (relaxed)
 const pts: { x: number; y: number }[] = []
-let sx = -100, sy = -100
-let lastX = -100, lastY = -100, lastT = 0
+let lastPush = { x: -100, y: -100 }
+let speed = 0                     // EMA px/ms
+let tailLen = 0                   // 0..1 — fast attack, slow release
 
-/* snap frame: lerps toward the hovered click target's rect */
-const snap = { x: 0, y: 0, w: 0, h: 0, active: 0 }
-const snapCur = { x: 0, y: 0, w: 0, h: 0, a: 0 }
+/* click pulse: one pooled element + WAAPI — no reflow, coalesced per 150ms */
+let pulseAnim: Animation | null = null
+let pulseLockUntil = 0
+let pulsePending = false
 
 const CLICKABLE = 'a, button, summary, .file-item, .scroll-hint, .page-nav, [role="button"]'
 const TEXT_ZONE = '.ide-code, .term-body, input, select, textarea, [contenteditable]'
@@ -72,9 +79,10 @@ function onMove(e: MouseEvent) {
   y = e.clientY
   if (!visible) {
     visible = true
-    ox = ixx = gox = sx = lastX = x
-    oy = iyy = goy = sy = lastY = y
+    sx = x; sy = y
+    lastPush = { x, y }
     lastT = performance.now()
+    layer.value?.classList.remove('leaving')
   }
   const el = e.target instanceof Element ? e.target : null
   const clickable = !!el && !!el.closest(CLICKABLE)
@@ -83,88 +91,118 @@ function onMove(e: MouseEvent) {
   const hot = clickable && !text
   layer.value?.classList.toggle('hot', hot)
   layer.value?.classList.toggle('text', textMode)
-  if (clickable && el) {
-    const r = el.getBoundingClientRect()
-    snap.x = r.left - 4
-    snap.y = r.top - 4
-    snap.w = r.width + 8
-    snap.h = r.height + 8
-    snap.active = 1
-  } else {
-    snap.active = 0
+}
+
+/* leave: fade the whole layer out (CSS transition), stop the engine.
+   The last painted frame dissolves instead of freezing on screen. */
+function onLeave() {
+  if (!visible) return
+  visible = false
+  layer.value?.classList.add('leaving')
+  pts.length = 0
+  tailLen = 0
+  speed = 0
+  pulsePending = false
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+function onEnter() {
+  if (!visible) {
+    visible = true
+    layer.value?.classList.remove('leaving')
+    lastT = performance.now()
+    raf = requestAnimationFrame(tick)
   }
 }
+
 function onDown() {
   if (textMode) return // text zones keep the native I-beam feel
   layer.value?.classList.add('pressed')
-  const r = rippleEl.value
-  if (r) {
-    r.style.transform = `translate(${x - 24}px, ${y - 24}px)`
-    r.classList.remove('go')
-    void r.offsetWidth // reflow restarts the pooled animation
-    r.classList.add('go')
-  }
+  pulsePending = true // coalesce: the rAF tick fires it, throttled to ~150ms
 }
 function onUp() {
   layer.value?.classList.remove('pressed')
 }
-function onLeave() {
-  visible = false
-  pts.length = 0
-}
 
-function setPoints(el: SVGPolylineElement | null, len: number) {
+function setPoints(el: SVGPolylineElement | null, n: number) {
   if (!el) return
   let s = ''
-  const n = Math.min(pts.length, len)
-  for (let i = 0; i < n; i++) {
-    if (i) s += ' '
+  for (let i = n - 1; i >= 0; i--) {
+    if (s) s += ' '
     s += pts[i].x.toFixed(1) + ',' + pts[i].y.toFixed(1)
   }
   el.setAttribute('points', s)
 }
 
+/* fire the pooled pulse via the Web Animations API — no class churn, no
+   forced reflow (offsetWidth), so rapid clicking stays smooth. */
+function firePulse() {
+  const p = pulseEl.value
+  if (!p) return
+  const i = p.firstElementChild as HTMLElement | null
+  if (!i) return
+  p.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
+  pulseAnim?.cancel()
+  /* easing mirrors the site's --ease-out: cubic-bezier(0.22, 1, 0.36, 1) */
+  pulseAnim = i.animate(
+    [
+      { opacity: 0, transform: 'scale(0.6)' },
+      { opacity: 0.3, transform: 'scale(0.92)', offset: 0.45 },
+      { opacity: 0, transform: 'scale(1.05)' }
+    ],
+    { duration: 320, easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards' }
+  )
+}
+
 function tick() {
   raf = requestAnimationFrame(tick)
   if (!visible) return
-  const lerpO = 0.12
-  const lerpI = 0.3
-  const lerpG = 0.35
-  ox += (x - ox) * lerpO
-  oy += (y - oy) * lerpO
-  ixx += (x - ixx) * lerpI
-  iyy += (y - iyy) * lerpI
-  gox += (x - gox) * lerpG
-  goy += (y - goy) * lerpG
-  /* sample the smoothed trail point — min-distance + time fallback */
-  sx += (x - sx) * 0.55
-  sy += (y - sy) * 0.45
   const now = performance.now()
-  const dx = sx - lastX, dy = sy - lastY
-  const d2 = dx * dx + dy * dy
-  if (d2 >= MIN_DIST * MIN_DIST || (now - lastT > TIME_FALLBACK && d2 >= 0.36)) {
+  const dt = Math.max(1, now - lastT)
+  lastT = now
+
+  /* smooth the raw target — exponential low-pass kills hand jitter */
+  sx += (x - sx) * 0.42
+  sy += (y - sy) * 0.42
+
+  /* instantaneous speed → EMA; then a normalized trail length that rises
+     fast but releases slowly (the single source of truth for the ribbon) */
+  const dist = Math.hypot(sx - lastPush.x, sy - lastPush.y)
+  const inst = Math.min(dist / dt, 8)
+  speed += (inst - speed) * 0.22
+  if (dist >= MIN_DIST) {
     pts.unshift({ x: sx, y: sy })
-    if (pts.length > PTS) pts.pop() // fixed-size history
-    lastX = sx; lastY = sy; lastT = now
+    if (pts.length > PTS) pts.pop()
+    lastPush = { x: sx, y: sy }
   }
-  if (glowEl.value) glowEl.value.style.transform = `translate(${gox.toFixed(1)}px, ${goy.toFixed(1)}px)`
-  if (ringOEl.value) ringOEl.value.style.transform = `translate(${ox.toFixed(1)}px, ${oy.toFixed(1)}px)`
-  if (ringIEl.value) ringIEl.value.style.transform = `translate(${ixx.toFixed(1)}px, ${iyy.toFixed(1)}px)`
-  setPoints(cometTailEl.value, 22)
-  setPoints(cometMidEl.value, 14)
-  setPoints(cometCoreEl.value, 7)
-  setPoints(cometHeadEl.value, 4)
-  /* snap frame — lerp the rect toward the target, fade with its activity */
-  snapCur.x += (snap.x - snapCur.x) * 0.3
-  snapCur.y += (snap.y - snapCur.y) * 0.3
-  snapCur.w += (snap.w - snapCur.w) * 0.3
-  snapCur.h += (snap.h - snapCur.h) * 0.3
-  snapCur.a += (snap.active - snapCur.a) * 0.2
-  if (snapEl.value) {
-    snapEl.value.style.transform = `translate(${snapCur.x.toFixed(1)}px, ${snapCur.y.toFixed(1)}px)`
-    snapEl.value.style.width = snapCur.w.toFixed(1) + 'px'
-    snapEl.value.style.height = snapCur.h.toFixed(1) + 'px'
-    snapEl.value.style.opacity = (snapCur.a * 0.9).toFixed(2)
+
+  const speedNorm = Math.min(1, speed / SPEED_MAX)
+  const tau = speedNorm > tailLen ? TAIL_ATTACK : TAIL_RELEASE
+  tailLen += (speedNorm - tailLen) * (1 - Math.exp(-dt / tau))
+  if (tailLen < 0.015) tailLen = 0 // guaranteed full collapse to the dot
+
+  const nTail = Math.round(tailLen * PTS)
+  const nMid = Math.min(nTail, Math.round(tailLen * PTS * 0.55))
+  const nHead = Math.min(nTail, 3)
+
+  if (glowEl.value) glowEl.value.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
+  if (ringEl.value) ringEl.value.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
+  if (dotEl.value) dotEl.value.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
+  setPoints(cometTailEl.value, nTail)
+  setPoints(cometMidEl.value, nMid)
+  setPoints(cometCoreEl.value, nHead)
+  setPoints(cometHeadEl.value, nHead)
+  /* the ribbon's opacity follows the trail length too — a stopped cursor
+     leaves only the dot (its own opacity is static) */
+  const ribbonOpacity = (tailLen * 0.85).toFixed(2)
+  const svg = cometTailEl.value?.ownerSVGElement
+  if (svg) svg.style.opacity = ribbonOpacity
+
+  /* coalesced, throttled click pulse — fires at most once per ~150ms */
+  if (pulsePending && now >= pulseLockUntil) {
+    pulsePending = false
+    pulseLockUntil = now + 150
+    firePulse()
   }
 }
 
@@ -180,16 +218,19 @@ function activate() {
   window.addEventListener('mousedown', onDown, { passive: true })
   window.addEventListener('mouseup', onUp, { passive: true })
   document.documentElement.addEventListener('mouseleave', onLeave)
+  document.documentElement.addEventListener('mouseenter', onEnter)
   raf = requestAnimationFrame(tick)
 }
 function deactivate() {
   if (!active) return
   active = false
   cancelAnimationFrame(raf)
+  raf = 0
   window.removeEventListener('mousemove', onMove)
   window.removeEventListener('mousedown', onDown)
   window.removeEventListener('mouseup', onUp)
   document.documentElement.removeEventListener('mouseleave', onLeave)
+  document.documentElement.removeEventListener('mouseenter', onEnter)
   document.documentElement.classList.remove('cyber-cursor')
 }
 
@@ -215,9 +256,50 @@ onBeforeUnmount(deactivate)
       <polyline ref="cometCoreEl" class="core"></polyline>
       <polyline ref="cometHeadEl" class="head"></polyline>
     </svg>
-    <div class="cursor-ring-o" ref="ringOEl"></div>
-    <div class="cursor-ring-i" ref="ringIEl"></div>
-    <div class="cursor-snap" ref="snapEl"></div>
-    <div class="cursor-ripple" ref="rippleEl"><i></i></div>
+    <div class="cursor-ring" ref="ringEl"></div>
+    <div class="cursor-dot" ref="dotEl"></div>
+    <div class="cursor-pulse" ref="pulseEl"><i></i></div>
   </div>
 </template>
+
+<style>
+/* CyberCursor effect overrides — calmer, softer replacements for the
+   global cursor-effect rules in src/style.css ("Cyber cursor effects
+   layer" section). `#app` keeps specificity above the global selectors
+   so these win regardless of bundle order (component <style> blocks are
+   emitted before the global stylesheet). */
+#app .cyber-cursor-layer .cursor-comet {
+  /* opacity is now driven per-frame by the relaxed trail length in JS —
+     the CSS transition would only double-smooth (and delay) it */
+  transition: none;
+}
+#app .cyber-cursor-layer .cursor-pulse {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 32px;
+  height: 32px;
+  margin: -16px 0 0 -16px;
+  pointer-events: none;
+}
+#app .cyber-cursor-layer .cursor-pulse i {
+  position: absolute;
+  inset: 0;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(244, 114, 208, 0.3) 0%, rgba(199, 146, 234, 0.1) 55%, transparent 72%);
+  opacity: 0;
+}
+/* the old expanding-shockwave keyframes are dead: WAAPI drives this glow */
+#app .cyber-cursor-layer .cursor-pulse.go i { animation: none; }
+/* restrained press: a gentle squeeze instead of a hard pinch */
+#app .cyber-cursor-layer.pressed .cursor-ring {
+  scale: 0.82;
+  border-color: #F472D0;
+  box-shadow: 0 0 12px rgba(244, 114, 208, 0.28);
+}
+#app .cyber-cursor-layer.pressed .cursor-dot {
+  scale: 1.25;
+  background: #F472D0;
+}
+</style>

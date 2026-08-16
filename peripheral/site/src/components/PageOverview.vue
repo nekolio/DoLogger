@@ -1,6 +1,38 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount, type Component } from 'vue'
+/* PageOverview — page 3: the project-overview card wall.
+ *
+ * PC (fine pointers):
+ *   - no click-to-expand and no gauge animations anymore. Every card
+ *     always shows its full content; overflow loops inside the card
+ *     (vertical loop-scroll for card bodies, a horizontal marquee for
+ *     the architecture pipeline) — nothing truncates behind an
+ *     ellipsis, nothing needs a click.
+ *   - entering the page plays a "home-screen unlock" fly-in: each card
+ *     flies in from off-screen in its own direction, big → small, with
+ *     a springy non-linear settle and staggered, independent timings.
+ *     The animation never fights the Steam-style tilt: WAAPI owns
+ *     transform during the flight and hands it back to CSS on finish.
+ *   - after settling, the 3D tilt + spotlight stay, strengthened at the
+ *     corners and edges (still readable).
+ *   - leaving the page plays no exit animation.
+ *
+ * Touch / narrow (mobile):
+ *   - cards start as a collapsed title-only stack. Entering the page
+ *     pushes them in one by one from the direction OPPOSITE to the
+ *     swipe (Q-bounce, staggered).
+ *   - the only interaction is tap-to-expand: a window of THREE cards
+ *     fills the page (expanded + its two neighbours, edges padded),
+ *     with non-linear FLIP animations as cards auto-open / 补位.
+ *   - the expanded card's content loop-scrolls; hovering decelerates
+ *     and pauses the loop; wheeling scrolls the card natively while it
+ *     has room and falls through to the page nav at the edges (the
+ *     dynamic hot-override lives in usePageNav's scroller walk).
+ *   - if the browser supports it, the expanded card tilts with the
+ *     device gyroscope, mirroring the PC 3D effect.
+ */
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAutoLoopScroll } from '../composables/useAutoLoopScroll'
 import PerformanceCard from './cards/PerformanceCard.vue'
 import SecurityCard from './cards/SecurityCard.vue'
 import SinksCard from './cards/SinksCard.vue'
@@ -8,248 +40,195 @@ import ArchitectureCard from './cards/ArchitectureCard.vue'
 import ReleasesCard from './cards/ReleasesCard.vue'
 import CommunityCard from './cards/CommunityCard.vue'
 
+const props = defineProps<{ activePage: number; lastDir?: 1 | -1 | 0 }>()
+
 const { t } = useI18n()
 const REPO_URL = 'https://github.com/Nekolio/DoLogger'
 
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)')
+/* mobile layout follows the input modality (touch / emulated touch) —
+   a narrow desktop window with a mouse keeps the PC grid + fly-in */
+const isTouch = computed(() => !finePointer.matches)
 
 const cards: { key: string; icon: string; title: string; comp: Component }[] = [
   { key: 'perf', icon: './assets/icons.svg#icon-gauge', title: 'card-perf', comp: PerformanceCard },
   { key: 'sec', icon: './assets/icons.svg#icon-shield', title: 'card-sec', comp: SecurityCard },
   { key: 'sinks', icon: './assets/icons.svg#icon-plug', title: 'card-sinks', comp: SinksCard },
   { key: 'arch', icon: './assets/icons.svg#icon-branch', title: 'card-arch', comp: ArchitectureCard },
-  { key: 'rel', icon: './assets/icons.svg#icon-tag', title: 'card-rel', comp: ReleasesCard },
+  { key: 'rel', icon: './assets/icons.svg#icon-tag', title: 'card-changelog', comp: ReleasesCard },
   { key: 'comm', icon: './assets/icons.svg#icon-users', title: 'card-comm', comp: CommunityCard }
 ]
 
-/* ── game-inspect expand ─────────────────────────────────────────────
- * Click expands: the card leaves its grid slot (position: fixed, with
- * `.grid { perspective }` as containing block) and flies to the viewport
- * center — height ≈ 85svh, a Z-axis push (translateZ 160px), shadow
- * deepening, all WAAPI over individual translate/scale properties so the
- * hover tilt (transform) composes freely. Neighbors 补位推进: leaving
- * flow lets the grid reflow them into the vacated cells, FLIP-animated
- * with a non-linear ease; they dim slightly (brightness) but are never
- * hidden. Depth-of-field: a --dof var ramps 0→1 during the fly-out,
- * driving the backdrop's blur + darken on .grid::after. Click again,
- * outside-mousedown, Esc or × collapse; the wheel is hard-locked on
- * #page3 while expanded. Reduced-motion: instant jump, no flight. */
-
-const expanded = ref<number | null>(null)
-const settled = ref<number | null>(null)
-
-const EASE_POP = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
-const EASE_OUT = 'cubic-bezier(0.22, 1, 0.36, 1)'
-const DUR = 550
-const BASE_SHADOW = '0 4px 15px rgba(0, 0, 0, 0.1)'
-
-function gridEl(): HTMLElement {
-  return document.querySelector<HTMLElement>('#page3 .grid')!
-}
+/* ── PC fly-in: home-screen-unlock entrance, once per entry ──────────
+   Each card flies from its own off-screen direction, overshoots a
+   little and settles with independent timings. fill:'backwards' keeps
+   it hidden until its delay; on finish the animation is cancelled so
+   the CSS tilt transform takes over untouched. */
+const DIRS: [number, number][] = [
+  [-1, -1.1], [0, -1.5], [1, -1.1],
+  [-1, 0.4], [1, 0.4], [-0.6, 1.4]
+]
 function gridCards(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>('#page3 .card'))
 }
-/* the expanded card's end-state shadow — theme-varred (light theme gets
-   a gentler drop), WAAPI needs concrete values so we resolve the vars */
-function focusShadow(): string {
-  const main = getComputedStyle(document.documentElement).getPropertyValue('--focus-shadow-main').trim()
-    || '0 24px 70px rgba(0, 0, 0, 0.45)'
-  const glow = getComputedStyle(document.documentElement).getPropertyValue('--card-glow').trim()
-    || 'rgba(127, 213, 255, 0.1)'
-  return main + ', 0 0 30px ' + glow
-}
-
-function setOverlay(el: HTMLElement, r: { left: number; top: number; width: number; height: number }) {
-  const g = gridEl().getBoundingClientRect()
-  el.style.position = 'fixed'
-  el.style.left = (r.left - g.left) + 'px'
-  el.style.top = (r.top - g.top) + 'px'
-  el.style.width = r.width + 'px'
-  el.style.height = r.height + 'px'
-}
-function clearOverlay(el: HTMLElement) {
-  el.style.position = ''
-  el.style.left = ''
-  el.style.top = ''
-  el.style.width = ''
-  el.style.height = ''
-  el.style.translate = ''
-  el.style.scale = ''
-}
-
-/** Overlay flight from `from` to `to` (viewport rects). `persist` keeps
- *  the fixed geometry + final transform (the inspected card); otherwise
- *  the element returns to flow at the end (fly-back / collapse). */
-function flyTo(el: HTMLElement, from: DOMRect,
-               to: { left: number; top: number; width: number; height: number },
-               ease: string, persist: boolean, zEnd: number, onfinish?: () => void) {
-  setOverlay(el, from)
-  const dx = to.left - from.left
-  const dy = to.top - from.top
-  const sx = to.width > 0 ? to.width / from.width : 1
-  const sy = to.height > 0 ? to.height / from.height : 1
-  const anim = el.animate([
-    { transformOrigin: 'top left', translate: '0px 0px 0px', scale: '1 1', boxShadow: BASE_SHADOW },
-    { transformOrigin: 'top left', translate: dx + 'px ' + dy + 'px ' + zEnd + 'px', scale: sx + ' ' + sy, boxShadow: focusShadow() }
-  ], { duration: DUR, easing: ease, fill: 'forwards' })
-  anim.onfinish = () => {
-    if (persist) {
-      el.style.translate = dx + 'px ' + dy + 'px ' + zEnd + 'px'
-      el.style.scale = sx + ' ' + sy
-    } else {
-      clearOverlay(el)
-    }
-    anim.cancel()
-    onfinish?.()
-  }
-}
-
-/** small translate FLIP for the neighbors reflowing 补位 into the
- *  vacated cells — translate-only (their size doesn't change). */
-function flipRect(el: HTMLElement, from: DOMRect, to: DOMRect) {
-  const dx = from.left - to.left
-  const dy = from.top - to.top
-  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
-  el.animate([
-    { translate: dx + 'px ' + dy + 'px' },
-    { translate: '0px 0px' }
-  ], { duration: DUR, easing: EASE_POP, fill: 'both' })
-}
-
-function targetRect(g: DOMRect) {
-  const width = Math.min(g.width * 0.9, 980)
-  const height = Math.min(window.innerHeight * 0.85, 920)
-  return {
-    left: (window.innerWidth - width) / 2,
-    top: (window.innerHeight - height) / 2,
-    width,
-    height
-  }
-}
-
-/* ── depth-of-field backdrop ramp (--dof on .grid drives .grid::after) */
-let dofRaf = 0
-function setDof(v: number) {
-  gridEl().style.setProperty('--dof', String(v))
-}
-function dofRamp(target: number) {
-  if (dofRaf) { cancelAnimationFrame(dofRaf); dofRaf = 0 }
-  if (REDUCED_MOTION) { setDof(target); return }
-  const grid = gridEl()
-  const from = parseFloat(grid.style.getPropertyValue('--dof') || '0')
-  const t0 = performance.now()
-  const step = (now: number) => {
-    const p = Math.min(1, (now - t0) / DUR)
-    const eased = 1 - Math.pow(1 - p, 3)
-    grid.style.setProperty('--dof', (from + (target - from) * eased).toFixed(3))
-    if (p < 1) dofRaf = requestAnimationFrame(step)
-    else dofRaf = 0
-  }
-  dofRaf = requestAnimationFrame(step)
-}
-
-function expand(i: number) {
+function runFlyIn() {
+  if (REDUCED_MOTION || isTouch.value) return
   const cardsEl = gridCards()
-  const before = cardsEl.map(c => c.getBoundingClientRect())
-  const old = expanded.value
-  settled.value = null
-  expanded.value = i
-
-  if (REDUCED_MOTION) {
-    const el = cardsEl[i]
-    const g = gridEl().getBoundingClientRect()
-    const target = targetRect(g)
-    setOverlay(el, target)
-    if (old !== null && old !== i) clearOverlay(cardsEl[old])
-    settled.value = i
-    setDof(1)
-    return
-  }
-
-  nextTick(() => {
-    /* final grid configuration: the new card out of flow, the old one
-       back in its slot — then measure where everything landed */
-    setOverlay(cardsEl[i], before[i])
-    if (old !== null && old !== i) clearOverlay(cardsEl[old])
-    const after = cardsEl.map(c => c.getBoundingClientRect())
-
-    for (let k = 0; k < cardsEl.length; k++) {
-      if (k === i) continue
-      if (k === old) flyTo(cardsEl[k], before[k], after[k], EASE_OUT, false, 0) // flies back with scale
-      else flipRect(cardsEl[k], before[k], after[k]) // reflowed neighbor
-    }
-    const g = gridEl().getBoundingClientRect()
-    flyTo(cardsEl[i], before[i], targetRect(g), EASE_POP, true, 160, () => { settled.value = i })
-    dofRamp(1)
+  const dist = Math.max(window.innerWidth, window.innerHeight)
+  cardsEl.forEach((card, i) => {
+    const d = DIRS[i % DIRS.length]
+    const dx = d[0] * dist * (0.55 + 0.12 * (i % 3))
+    const dy = d[1] * dist * (0.42 + 0.1 * (i % 2))
+    const delay = 60 + i * 130
+    const dur = 760 + (i % 3) * 120
+    const anim = card.animate([
+      { transform: `translate(${dx}px, ${dy}px) scale(2.1)`, opacity: 0 },
+      { transform: 'translate(0, 0) scale(0.93)', opacity: 1, offset: 0.6 },
+      { transform: 'scale(1.045)', opacity: 1, offset: 0.8 },
+      { transform: 'scale(1)', opacity: 1, offset: 1 }
+    ], { duration: dur, delay, easing: 'cubic-bezier(0.25, 0.82, 0.32, 1)', fill: 'backwards' })
+    anim.onfinish = () => anim.cancel() // hand transform back to the CSS tilt
   })
 }
 
-function collapse(i: number) {
-  const cardsEl = gridCards()
-  const el = cardsEl[i]
-  settled.value = null
-  if (REDUCED_MOTION) {
-    clearOverlay(el)
-    expanded.value = null
-    setDof(0)
-    return
+/* ── mobile: collapsed stack + window-of-3 expand ──────────────────── */
+const expanded = ref<number | null>(null)
+const entryKey = ref(0)
+const enterDy = ref(0)
+
+interface MobileCard { key: string; icon: string; title: string; comp: Component; i: number; state: 'open' | 'closed' }
+const mobileCards = computed<MobileCard[]>(() => {
+  if (expanded.value == null) {
+    return cards.map((c, i) => ({ ...c, i, state: 'closed' as const }))
   }
-  const pulled = cardsEl.map(c => c.getBoundingClientRect())
-  const overlay = pulled[i]
-  /* temporarily return to flow to measure the landing slot, then put
-     the overlay geometry back — all pre-paint, no flicker */
-  clearOverlay(el)
-  const land = el.getBoundingClientRect()
-  setOverlay(el, overlay)
-  flyTo(el, overlay, land, EASE_OUT, false, 0, () => {
-    expanded.value = null
-    nextTick(() => {
-      const restored = cardsEl.map(c => c.getBoundingClientRect())
-      for (let k = 0; k < cardsEl.length; k++) {
-        if (k === i) continue
-        flipRect(cardsEl[k], pulled[k], restored[k]) // 补位 flows back
-      }
-    })
-  })
-  dofRamp(0)
-}
-
-function onCardClick(i: number, e: MouseEvent) {
-  if (e.target instanceof Element && e.target.closest('a, button')) return // links/close keep their own behavior
-  if (expanded.value === i) collapse(i)
-  else expand(i)
-}
-function onClose() {
-  if (expanded.value !== null) collapse(expanded.value)
-}
-
-/* ── collapse on outside mousedown / Esc while expanded ───────────── */
-function onDocDown(e: MouseEvent) {
-  if (expanded.value === null) return
-  const tgt = e.target as Node | null
-  if (tgt instanceof Element && tgt.closest('#page3 .card')) return
-  collapse(expanded.value)
-}
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && expanded.value !== null) collapse(expanded.value)
-}
-
-watch(expanded, (v, oldV) => {
-  document.documentElement.classList.toggle('card-expanded', v !== null)
-  if (v !== null && oldV === null) {
-    document.addEventListener('mousedown', onDocDown)
-    document.addEventListener('keydown', onKey)
-  } else if (v === null && oldV !== null) {
-    document.removeEventListener('mousedown', onDocDown)
-    document.removeEventListener('keydown', onKey)
+  const n = cards.length
+  let a = expanded.value, b = expanded.value
+  while (b - a + 1 < 3) {
+    if (a > 0) a--
+    else if (b < n - 1) b++
+    else break
   }
+  const out: MobileCard[] = []
+  for (let k = a; k <= b; k++) {
+    out.push({ ...cards[k], i: k, state: k === expanded.value ? 'open' : 'closed' })
+  }
+  return out
 })
 
-/* ── spotlight + Steam-style tilt (hover only; expanded freezes tilt) ─
-   --edge is the distance from the center (0 center → 1 rim), boosted
-   non-linearly (edge^2.2) so the corners/edges light up while the
-   center stays a soft bloom. Tilt is clamped to ±6°, inverted Y. */
+/* iOS 13+ requires an explicit permission request from a user gesture —
+   the tap that expands a card is exactly that gesture. */
+function enableGyroIfAvailable() {
+  if (typeof window.DeviceOrientationEvent === 'undefined') return
+  const DOE = window.DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<string> }
+  if (typeof DOE.requestPermission === 'function') {
+    DOE.requestPermission().then(p => { if (p === 'granted') attachGyro() }).catch(() => { /* denied */ })
+  } else {
+    attachGyro()
+  }
+}
+let gyroHandler: ((e: DeviceOrientationEvent) => void) | null = null
+let gyroCard: HTMLElement | null = null
+function attachGyro() {
+  detachGyro()
+  gyroCard = document.querySelector<HTMLElement>('#page3 .mcard.open')
+  if (!gyroCard) return
+  const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v))
+  gyroHandler = (e: DeviceOrientationEvent) => {
+    const b = e.beta ?? 0
+    const g = e.gamma ?? 0
+    /* beta ~45° is "upright"; map pitch and roll into a ±10° tilt */
+    gyroCard?.style.setProperty('--tilt-x', clamp((b - 45) * 0.22, 10).toFixed(2) + 'deg')
+    gyroCard?.style.setProperty('--tilt-y', clamp(g * 0.3, 10).toFixed(2) + 'deg')
+  }
+  window.addEventListener('deviceorientation', gyroHandler)
+}
+function detachGyro() {
+  if (gyroHandler) window.removeEventListener('deviceorientation', gyroHandler)
+  gyroHandler = null
+  gyroCard = null
+}
+
+/* non-linear FLIP for the window changing: existing cards animate
+   height + position from their old rects to the new ones; entering
+   cards are covered by the TransitionGroup enter animation. */
+let flipAnim: Animation | null = null
+async function flipMobile(next: number | null) {
+  /* A template ref on <TransitionGroup> resolves to the component instance,
+     not its root DOM element, so query the element directly. */
+  const listEl = document.querySelector<HTMLElement>('#page3 .mob-stack')
+  if (!listEl || REDUCED_MOTION) { expanded.value = next; return }
+  const items = Array.from(listEl.querySelectorAll<HTMLElement>('.mcard'))
+  const before = new Map(items.map(el => [el.dataset.i, el.getBoundingClientRect()]))
+  expanded.value = next
+  await nextTick()
+  /* the cards that stay in the window are the only ones the FLIP
+     animates — cards leaving the window play their own leave
+     transition instead (no competing animations) */
+  const kept = new Set(mobileCards.value.map(m => String(m.i)))
+  const afterItems = Array.from(listEl.querySelectorAll<HTMLElement>('.mcard'))
+  for (const el of afterItems) {
+    const key = el.dataset.i || ''
+    if (!kept.has(key)) continue
+    const old = before.get(key)
+    if (!old) continue // newly entered — its own enter animation plays
+    const now = el.getBoundingClientRect()
+    const dx = old.left - now.left
+    const dy = old.top - now.top
+    const dh = old.height - now.height
+    const dw = old.width - now.width
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dh) < 0.5 && Math.abs(dw) < 0.5) continue
+    flipAnim?.cancel()
+    const anim = el.animate([
+      { height: old.height + 'px', transform: `translate(${dx}px, ${dy}px)` },
+      { height: now.height + 'px', transform: 'translate(0, 0)' }
+    ], { duration: 540, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)', fill: 'both' })
+    flipAnim = anim
+    anim.onfinish = () => { anim.cancel(); flipAnim = null }
+  }
+  syncLoops()
+}
+
+async function toggleMobile(i: number) {
+  if (expanded.value === i) {
+    detachGyro()
+    await flipMobile(null)
+  } else {
+    /* gyro attaches only after the FLIP renders the open card */
+    await flipMobile(i)
+    enableGyroIfAvailable()
+  }
+}
+
+/* ── loop-scroll: every overflowing card body + the arch marquee ───── */
+const loops = useAutoLoopScroll()
+function syncLoops() {
+  nextTick(() => {
+    loops.attachAll('#page3 .card-body', '#page3 .pipe-marquee')
+  })
+}
+
+/* entering page 3: PC fly-in / mobile push-in */
+watch(() => props.activePage, (v) => {
+  if (v !== 2) { detachGyro(); return }
+  if (isTouch.value) {
+    expanded.value = null
+    detachGyro()
+    enterDy.value = props.lastDir === 1 ? -150 : props.lastDir === -1 ? 150 : 0
+    entryKey.value++
+    syncLoops()
+  } else {
+    runFlyIn()
+  }
+}, { immediate: true })
+
+watch(isTouch, () => { syncLoops() })
+watch(mobileCards, () => { syncLoops() })
+
+/* ── spotlight + Steam-style tilt (PC; expanded mobile card keeps a
+   gyro-driven tilt instead). --edge is the distance from the center
+   (0 center → 1 rim), boosted non-linearly so the corners/edges light
+   up while the center stays a soft bloom. Tilt clamped to ±8°. */
 function onSpot(e: MouseEvent) {
   const card = e.currentTarget as HTMLElement
   const rect = card.getBoundingClientRect()
@@ -258,10 +237,10 @@ function onSpot(e: MouseEvent) {
   card.style.setProperty('--mx', (x * 100).toFixed(1) + '%')
   card.style.setProperty('--my', (y * 100).toFixed(1) + '%')
   const edge = 1 - 2 * Math.min(Math.min(x, 1 - x), Math.min(y, 1 - y))
-  card.style.setProperty('--edge', Math.pow(Math.max(0, edge), 2.2).toFixed(3))
+  card.style.setProperty('--edge', Math.pow(Math.max(0, edge), 2.6).toFixed(3))
   if (!finePointer.matches) return
-  card.style.setProperty('--tilt-x', ((y - 0.5) * 12).toFixed(2) + 'deg')
-  card.style.setProperty('--tilt-y', ((0.5 - x) * 12).toFixed(2) + 'deg')
+  card.style.setProperty('--tilt-x', ((y - 0.5) * 16).toFixed(2) + 'deg')
+  card.style.setProperty('--tilt-y', ((0.5 - x) * 16).toFixed(2) + 'deg')
 }
 function onLeave(e: MouseEvent) {
   const card = e.currentTarget as HTMLElement
@@ -269,34 +248,53 @@ function onLeave(e: MouseEvent) {
   card.style.setProperty('--tilt-y', '0deg')
 }
 
+onMounted(syncLoops)
 onBeforeUnmount(() => {
-  if (dofRaf) cancelAnimationFrame(dofRaf)
-  document.removeEventListener('mousedown', onDocDown)
-  document.removeEventListener('keydown', onKey)
-  document.documentElement.classList.remove('card-expanded')
+  detachGyro()
+  loops.detachAll()
+  flipAnim?.cancel()
 })
 </script>
 
 <template>
-  <section class="page" id="page3" :data-wheel-lock="expanded !== null ? '' : undefined"
-           :data-wheel-lock-hard="expanded !== null ? '' : undefined">
+  <section class="page" id="page3">
     <div class="container">
       <h2>
         <svg class="icon"><use href="./assets/icons.svg#icon-cubes"></use></svg>
         {{ t('project-overview') }}
       </h2>
 
-      <div class="grid" :class="{ 'has-expanded': expanded !== null }">
+      <!-- PC: the card wall. No click interaction — content loops inside. -->
+      <div v-if="!isTouch" class="grid">
         <div v-for="(c, i) in cards" :key="c.key" class="card"
-             :class="{ expanded: expanded === i, settled: settled === i }"
-             @click="onCardClick(i, $event)" @mousemove="onSpot" @mouseleave="onLeave">
+             :style="{ '--i': i }" @mousemove="onSpot" @mouseleave="onLeave">
           <span class="card-spot" aria-hidden="true"></span>
-          <button v-if="expanded === i" type="button" class="card-close" :aria-label="t('card-close')"
-                  @click.stop="onClose">×</button>
           <h3><svg class="icon" :class="{ 'pulse-shield': c.key === 'sec' }"><use :href="c.icon"></use></svg> {{ t(c.title) }}</h3>
-          <div class="card-body"><component :is="c.comp" :expanded="expanded === i" /></div>
+          <div class="card-body"><component :is="c.comp" /></div>
         </div>
       </div>
+
+      <!-- Mobile: collapsed title stack; tap expands a window of three
+           (expanded card + its two neighbours), FLIP-animated. -->
+      <TransitionGroup v-else name="mcard" tag="div" class="mob-stack"
+                       :key="'mob-' + entryKey"
+                       :style="{ '--enter-dy': enterDy + 'px' }">
+        <div v-for="m in mobileCards" :key="m.key" class="mcard" :class="m.state"
+             :data-i="m.i" :style="{ '--delay': m.i * 80 + 'ms' }">
+          <div class="mcard-title"
+               role="button" tabindex="0"
+               :aria-expanded="m.state === 'open' ? 'true' : 'false'"
+               :aria-label="t(m.title)"
+               @click="toggleMobile(m.i)"
+               @keydown.enter.prevent="toggleMobile(m.i)"
+               @keydown.space.prevent="toggleMobile(m.i)">
+            <svg class="icon" :class="{ 'pulse-shield': m.key === 'sec' }"><use :href="m.icon"></use></svg>
+            <span>{{ t(m.title) }}</span>
+            <svg class="icon mcard-chev" :class="{ open: m.state === 'open' }"><use href="./assets/icons.svg#icon-chevron-down"></use></svg>
+          </div>
+          <div class="card-body"><component :is="m.comp" /></div>
+        </div>
+      </TransitionGroup>
 
       <footer class="site-footer">
         <a :href="REPO_URL" target="_blank" rel="noopener">
@@ -310,3 +308,10 @@ onBeforeUnmount(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+/* the header is the interactive element (tap to expand / collapse); the
+   body stays a plain scroll surface */
+.mcard-title { cursor: pointer; }
+.mcard .card-body { cursor: auto; }
+</style>

@@ -18,6 +18,7 @@ const zh = {
   'tag-zero-copy': '零拷贝', 'tag-audit': 'Ed25519 审计', 'tag-plugin': '插件化', 'tag-sinks': '11 种输出',
   'project-overview': '项目概览',
   'card-perf': '性能', 'card-sec': '安全', 'card-sinks': '输出 Sinks', 'card-arch': '架构', 'card-rel': '发布', 'card-comm': '社区',
+  'card-changelog': '更新日志', 'chlog-heading': '变更', 'chlog-caption': '每个版本的发布说明由 git 历史自动生成。',
   'footer-license': 'Apache-2.0 OR MIT',
   'os-windows': 'Windows', 'os-macos': 'macOS', 'os-linux': 'Linux',
   'hint-1': '向下滚动探索',
@@ -29,7 +30,7 @@ const zh = {
   'sec-trust': '插件信任分级 — Blue（官方）/ Yellow / Red',
   'sec-worm': 'WORM 存储 + 不可降级的安全策略',
   'sec-priority': '7 级优先级 + 域继承配置',
-  'sinks-note': '插件化架构 · 配置驱动扇出',
+  'sinks-note': '核心内置输出 · 配置驱动扇出',
   'arch-hot': '无锁热路径 — CAS 环形缓冲 + Treiber 对象池，提交零堆分配',
   'arch-hot-tag': '无锁热路径',
   'arch-hot-cas': 'CAS 环形缓冲',
@@ -48,6 +49,8 @@ const zh = {
   'comm-empty': '暂无贡献者数据。',
   'comm-stars': 'Stars', 'comm-forks': 'Forks', 'comm-license': '许可证',
   'comm-ci': 'CI', 'comm-commit': '次提交',
+  'repo-stars-aria': 'Star 数', 'repo-forks-aria': 'Fork 数',
+  'star-done': '已 Star', 'repo-github': 'GitHub 仓库',
   'demo-speed': '速率', 'demo-ms': 'ms/行',
   'card-close': '关闭'
 }
@@ -67,6 +70,7 @@ const en: Record<string, string> = {
   'tag-zero-copy': 'Zero-copy', 'tag-audit': 'Ed25519 Audit', 'tag-plugin': 'Pluginable', 'tag-sinks': '11 Sinks',
   'project-overview': 'Project Overview',
   'card-perf': 'Performance', 'card-sec': 'Security', 'card-sinks': 'Output Sinks', 'card-arch': 'Architecture', 'card-rel': 'Releases', 'card-comm': 'Community',
+  'card-changelog': 'Changelog', 'chlog-heading': 'Changes', 'chlog-caption': 'Release notes are generated from git history per release.',
   'footer-license': 'Apache-2.0 OR MIT',
   'os-windows': 'Windows', 'os-macos': 'macOS', 'os-linux': 'Linux',
   'hint-1': 'Scroll down to explore',
@@ -78,7 +82,7 @@ const en: Record<string, string> = {
   'sec-trust': 'Plugin trust levels — Blue (official) / Yellow / Red',
   'sec-worm': 'WORM sink + non-downgradable security policy',
   'sec-priority': '7 priority levels + domain inheritance',
-  'sinks-note': 'Plugin architecture · config-driven fan-out',
+  'sinks-note': 'Core built-in outputs · config-driven fan-out',
   'arch-hot': 'Lock-free hot path — CAS ring buffer + Treiber object pool, zero heap allocation on submit',
   'arch-hot-tag': 'Hot path',
   'arch-hot-cas': 'CAS ring buffer',
@@ -97,6 +101,8 @@ const en: Record<string, string> = {
   'comm-empty': 'No contributor data.',
   'comm-stars': 'Stars', 'comm-forks': 'Forks', 'comm-license': 'License',
   'comm-ci': 'CI', 'comm-commit': 'commits',
+  'repo-stars-aria': 'Stars', 'repo-forks-aria': 'Forks',
+  'star-done': 'Starred', 'repo-github': 'GitHub repository',
   'demo-speed': 'rate', 'demo-ms': 'ms/line',
   'card-close': 'Close'
 }

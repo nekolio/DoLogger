@@ -30,6 +30,11 @@ export interface Release {
   prerelease: boolean
   html_url: string
   published_at: string
+  /** Release-note markdown (the GitHub Release body assembled by
+   *  peripheral/github/scripts/generate-release-notes.sh). The live API and the
+   *  baked releases.json both carry it; the offline fallback provides a
+   *  static changelog below. */
+  body: string
   assets: ReleaseAsset[]
 }
 export interface BenchmarkEnv {
@@ -102,6 +107,32 @@ export const FALLBACK_RELEASES: Release[] = [{
   prerelease: true,
   html_url: 'https://github.com/Nekolio/DoLogger/releases/tag/v0.1.0',
   published_at: '2026-08-13T00:00:00Z',
+  /* A static changelog mirroring the two-section release body from
+   * generate-release-notes.sh, so the Changelog card has content offline /
+   * pre-release / rate-limited. Subjects are illustrative but derive from the
+   * current repo docs (README / docs / config / plugins) — e.g. the sink layer
+   * is BUILT-IN, not plugin-based. No fake hashes — the card renders them
+   * without a commit link. */
+  body: [
+    '# DoLogger v0.1.0',
+    '',
+    '## Changelog / 更新日志',
+    '',
+    '**Initial release / 首次发布**',
+    '',
+    '- feat: cross-platform high-security logging engine',
+    '- feat: Ed25519-signed audit chain (LSN + prev_hash, offline verify-log)',
+    '- feat: 11 built-in sinks — Console, File, Callback, Kafka, Syslog, Webhook, SQLite, WORM, Security, Shared Memory, OTel',
+    '- feat: 9 plugin types with Blue/Yellow/Red trust levels + sandbox isolation',
+    '- feat: lock-free hot path — CAS ring buffer + Treiber object pool (zero-alloc submit)',
+    '- feat: WORM sink + 6 non-downgradable security items',
+    '- feat: dologctl CLI — init, run, plugin, verify-log, perf, record/replay',
+    '- feat: official plugins bundle — formatter-json, formatter-text, filter-level, field-container',
+    '- feat: 4 performance profiles + GDPR/HIPAA/PCI-DSS compliance templates',
+    '- feat: language adapters (Rust, Python, Go) over the stable C ABI',
+    '- perf: CRC32C hardware-accelerated checksums (SSE 4.2 + Slicing-by-8)',
+    '- docs: bilingual README, architecture reference and security whitepaper'
+  ].join('\n'),
   assets: ASSET_NAMES.map(function (name) {
     return {
       name: name,

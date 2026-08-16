@@ -10,7 +10,7 @@ import { loadSiteData } from './data'
 import { usePageNav } from './composables/usePageNav'
 import { useCursorEnabled, setCursorEnabled } from './cursor'
 
-const { active: pageIndex, count: pageCount, goTo } = usePageNav()
+const { active: pageIndex, count: pageCount, goTo, lastDir } = usePageNav()
 
 const { locale, t } = useI18n()
 
@@ -115,7 +115,7 @@ onMounted(() => {
 
     <PageHero />
     <PageDemo />
-    <PageOverview />
+    <PageOverview :active-page="pageIndex" :last-dir="lastDir" />
 
     <PageNav :count="pageCount" :active="pageIndex" @go="goTo" />
     <CyberCursor />

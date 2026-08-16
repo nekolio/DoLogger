@@ -3,15 +3,14 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteData } from '../../data'
 
-const props = defineProps<{ expanded?: boolean }>()
 const { t } = useI18n()
 const siteData = useSiteData()
 
 const REPO_URL = 'https://github.com/Nekolio/DoLogger'
 const contributors = computed(() => siteData.value?.contributors ?? [])
 const repo = computed(() => siteData.value?.repo)
-/* collapsed: the top 4; expanded: everyone */
-const visible = computed(() => props.expanded ? contributors.value.slice(0, 12) : contributors.value.slice(0, 4))
+/* the top contributors — surplus rows loop-scroll inside the card */
+const visible = computed(() => contributors.value.slice(0, 6))
 </script>
 
 <template>
@@ -32,8 +31,6 @@ const visible = computed(() => props.expanded ? contributors.value.slice(0, 12) 
       <span class="stat">{{ t('comm-ci') }}: <a :href="REPO_URL + '/actions'">GitHub Actions</a></span>
     </div>
 
-    <div v-if="expanded" class="card-detail">
-      <div class="card-caption">{{ t('comm-detail-title') }}</div>
-    </div>
+    <div class="card-caption">{{ t('comm-detail-title') }}</div>
   </div>
 </template>

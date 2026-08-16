@@ -22,7 +22,7 @@
  */
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { groupAssets, selectRelease, shortName, useSiteData, OS_ORDER, ARCH_ORDER,
+import { groupAssets, selectRelease, useSiteData, OS_ORDER, ARCH_ORDER,
          type Release, type ReleaseAsset, type Platform } from '../data'
 
 const props = defineProps<{
@@ -124,7 +124,7 @@ const osGroups = computed<ResOs[]>(() => {
         let items = archMap.get(g.arch)
         if (!items) { items = []; archMap.set(g.arch, items) }
         const push = (kind: Kind, asset: ReleaseAsset) =>
-          items!.push({ kind, asset, tag: rel.tag_name, short: shortName(asset.name, rel.tag_name) })
+          items!.push({ kind, asset, tag: rel.tag_name, short: asset.name })
         if (row.cli && fKind.value.includes('cli')) push('cli', row.cli)
         if (row.lib && fKind.value.includes('lib')) push('lib', row.lib)
         if (row.plugins && fKind.value.includes('plugin')) row.plugins.forEach(p => push('plugin', p))
@@ -156,23 +156,29 @@ function kindLabel(k: Kind): string {
 const summary = computed(() => `${matchCount.value} ${t('filter-assets')}`)
 defineExpose({ summary })
 
-/* ── positioning: fixed against the anchor, flip up when tight ───── */
+/* ── positioning: centered on the anchor, flip up when tight ────────
+   The panel is enlarged as a WHOLE (1.25× on top of the earlier size),
+   so it reaches ~862 px wide; its horizontal center follows the trigger
+   button's center (not the button's left edge), clamped to the viewport. */
 const popupEl = ref<HTMLElement | null>(null)
 const vselEl = ref<HTMLElement | null>(null)
 const openDir = ref<'down' | 'up'>('down')
-const POPUP_W = 460
+const POPUP_W = 690
+const POPUP_SCALE = 1.25          // whole-panel re-scale: 690 → ~862 px wide
+const FLIP_MIN = 450              // flip up when less space remains below the anchor
 
 function position() {
   const pop = popupEl.value
   const anchor = props.anchorEl
   if (!pop || !anchor) return
   const r = anchor.getBoundingClientRect()
-  const width = Math.min(POPUP_W, window.innerWidth - 24)
-  pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - width - 12)) + 'px'
+  const width = Math.min(POPUP_W * POPUP_SCALE, window.innerWidth - 24)
+  const center = r.left + r.width / 2
+  pop.style.left = Math.max(12, Math.min(center - width / 2, window.innerWidth - width - 12)) + 'px'
   pop.style.width = width + 'px'
   const spaceBelow = window.innerHeight - r.bottom - 12
   const spaceAbove = r.top - 12
-  if (spaceBelow < 300 && spaceAbove > spaceBelow) {
+  if (spaceBelow < FLIP_MIN && spaceAbove > spaceBelow) {
     openDir.value = 'up'
     pop.style.top = 'auto'
     pop.style.bottom = (window.innerHeight - r.top + 8) + 'px'
@@ -208,18 +214,33 @@ function onKey(e: KeyboardEvent) {
     else emit('close')
   }
 }
+/* Scroll-close is SELECTIVE. Opening the panel can itself trigger a
+   focus/layout scroll (and after a refresh the first click lands inside
+   one), so scrolls are ignored for a short grace period; afterwards the
+   popup closes only when the anchor has actually MOVED — a genuine page
+   scroll. Ancillary scrolls (badge reflow, typewriter re-layout) don't
+   move the anchor and must never dismiss the dialog. */
+let openedAt = 0
+let anchorTopAtOpen = 0
+const SCROLL_GRACE = 400  // ms after opening during which scrolls are ignored
+const SCROLL_SLOP = 2     // px the anchor must move to count as a real scroll
+
 function onScroll(e: Event) {
   const t = e.target
   const pop = popupEl.value
-  /* scroll targets are Elements (scrollers) — guard for Node so a
-     synthetic event targeted at window can't crash the handler */
-  if (pop && t instanceof Node && pop.contains(t)) return // popup-internal scroll — keep open
+  /* popup-internal scroll (results list, version dropdown) — keep open */
+  if (pop && t instanceof Node && pop.contains(t)) return
+  if (performance.now() - openedAt < SCROLL_GRACE) return
+  const anchor = props.anchorEl
+  if (anchor && Math.abs(anchor.getBoundingClientRect().top - anchorTopAtOpen) <= SCROLL_SLOP) return
   emit('close')
 }
 function onResize() { emit('close') }
 
 watch(() => props.open, (v) => {
   if (v) {
+    openedAt = performance.now()
+    anchorTopAtOpen = props.anchorEl ? props.anchorEl.getBoundingClientRect().top : 0
     nextTick(() => position())
     document.addEventListener('mousedown', onDocDown)
     document.addEventListener('keydown', onKey)
@@ -243,8 +264,8 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="fpop">
-      <div v-if="open" ref="popupEl" class="fpopup" role="dialog" :aria-label="t('panel-filter-title')"
+    <Transition name="fpop2">
+      <div v-if="open" ref="popupEl" class="fpopup fpop2" role="dialog" :aria-label="t('panel-filter-title')"
            :class="openDir" data-wheel-lock data-wheel-lock-hard>
         <div class="fpop-filters">
           <div class="frow">
@@ -349,3 +370,93 @@ onBeforeUnmount(() => {
     </Transition>
   </Teleport>
 </template>
+
+<style>
+/* ── FilterPopup component styles (teleported to <body>, non-scoped so
+   they apply to the detached root). Scoped under `.fpop2` to beat the
+   global style.css rules by specificity. The panel was re-enlarged as a
+   WHOLE (width is set inline in position()) and the typography was pulled
+   back to comfortable proportions; enter/leave is a mirror pair, chips
+   got a springy select/deselect, and the panel speaks JetBrains Mono. ── */
+
+/* typography — one monospace voice for the whole panel */
+.fpop2,
+.fpop2 .chip,
+.fpop2 .vsel-btn,
+.fpop2 .vsel-btn .vsel-summary,
+.fpop2 .vsel-menu label,
+.fpop2 .vsel-menu .vsel-tag,
+.fpop2 .res-os-head,
+.fpop2 .res-os-count,
+.fpop2 .res-arch-head,
+.fpop2 .res-row,
+.fpop2 .res-row .tag-kind,
+.fpop2 .res-row .res-ver,
+.fpop2 .fpop-foot a,
+.fpop2 .fpop-empty {
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace;
+}
+
+/* font sizes pulled back from the over-enlarged typography */
+.fpop2 .fg-inline { font-size: 0.82rem; }
+.fpop2 .chip { font-size: 0.95rem; }
+.fpop2 .vsel-btn { font-size: 1rem; }
+.fpop2 .vsel-menu label { font-size: 1rem; }
+.fpop2 .vsel-all { font-size: 0.9rem !important; }
+.fpop2 .prerelease-badge { font-size: 0.8rem; }
+.fpop2 .res-os-head { font-size: 1.05rem; }
+.fpop2 .res-os-count { font-size: 0.85rem; }
+.fpop2 .res-arch-head { font-size: 0.92rem; }
+.fpop2 .res-row { font-size: 0.98rem; }
+.fpop2 .res-row .tag-kind { font-size: 0.82rem; }
+.fpop2 .res-row .res-ver { font-size: 0.84rem; }
+.fpop2 .fpop-foot a { font-size: 1rem; }
+.fpop2 .fpop-empty { font-size: 1.05rem; }
+
+/* chips — springy scale pop on select, soft settle/shrink on deselect,
+   plus the color/border/glow transitions carried over from style.css */
+.fpop2 .chip {
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.2s ease, color 0.2s ease,
+              background 0.22s ease, box-shadow 0.22s ease;
+}
+.fpop2 .chip.on {
+  animation: fpop-chip-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.fpop2 .chip:not(.on) {
+  animation: fpop-chip-out 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes fpop-chip-in {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+@keyframes fpop-chip-out {
+  0% { transform: scale(1); }
+  50% { transform: scale(0.955); }
+  100% { transform: scale(1); }
+}
+
+/* enter/leave — MIRROR IMAGES: open scales up, fades in and drifts
+   slightly upward (toward the anchor); close reverses exactly. The
+   flip-up (.up) panel mirrors the drift vertically. */
+.fpop2-enter-active,
+.fpop2-leave-active {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fpop2-enter-from { opacity: 0; transform: translateY(12px) scale(0.96); }
+.fpop2-enter-to { opacity: 1; transform: translateY(0) scale(1); }
+.fpop2-leave-from { opacity: 1; transform: translateY(0) scale(1); }
+.fpop2-leave-to { opacity: 0; transform: translateY(12px) scale(0.96); }
+.fpop2.up.fpop2-enter-from { transform: translateY(-12px) scale(0.96); }
+.fpop2.up.fpop2-leave-to { transform: translateY(-12px) scale(0.96); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fpop2-enter-active,
+  .fpop2-leave-active { transition: none; }
+  .fpop2-enter-from, .fpop2-enter-to,
+  .fpop2-leave-from, .fpop2-leave-to { transform: none; opacity: 1; }
+  .fpop2 .chip, .fpop2 .chip.on, .fpop2 .chip:not(.on) { animation: none; }
+}
+</style>

@@ -15,6 +15,45 @@
 </head>
 <body>
   <div id="app"></div>
+  <script>
+    /* Legacy fallback — a dynamically generated minimal page for
+       browsers that cannot run the Vue 3 app (no Proxy / Promise /
+       CSS grid: old WebViews, IE, …). Modern engines skip the branch
+       entirely; the app boots normally below. Kept ES5 so the
+       fallback itself runs everywhere. */
+    (function () {
+      function modern() {
+        try {
+          return typeof Proxy === 'function' && typeof Promise === 'function' &&
+            typeof Symbol === 'function' && typeof Intl !== 'undefined' &&
+            typeof CSS !== 'undefined' && CSS.supports &&
+            CSS.supports('display', 'grid');
+        } catch (e) { return false; }
+      }
+      if (modern()) return;
+      var app = document.getElementById('app');
+      if (!app) return;
+      var style = document.createElement('style');
+      style.textContent = 'body{background:#0b0e14;color:#c8d6e5;font-family:system-ui,"Segoe UI","Microsoft YaHei",sans-serif;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center} a{color:#7fd5ff} .lg{font-family:monospace;font-weight:700;font-size:48px;margin:0 0 8px;background:linear-gradient(90deg,#7fd5ff,#8a9bff,#c792ea,#f472d0);-webkit-background-clip:text;background-clip:text;color:transparent} .tg{color:#8892a8;margin:0 0 28px} .btn{display:inline-block;border:1px solid #7fd5ff;color:#7fd5ff;text-decoration:none;padding:10px 26px;border-radius:999px;margin:0 8px} .btn:hover{background:#7fd5ff;color:#0b0e14} .ft{color:#546e7a;font-size:12px;margin-top:40px}';
+      document.head.appendChild(style);
+      app.innerHTML =
+        '<div><p class="lg">DoLogger</p>' +
+        '<p class="tg">Next-gen secure logging — Ed25519 audit chains at lock-free speed</p>' +
+        '<p><a class="btn" href="https://github.com/Nekolio/DoLogger">GitHub</a>' +
+        '<a class="btn" href="https://github.com/Nekolio/DoLogger/releases">Releases</a>' +
+        '<a class="btn" href="https://github.com/Nekolio/DoLogger/wiki">Docs</a></p>' +
+        '<p class="ft">Your browser is too old for the animated site.</p></div>';
+    })();
+  </script>
+  <noscript>
+    <div style="background:#0b0e14;color:#c8d6e5;font-family:system-ui,'Segoe UI','Microsoft YaHei',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center">
+      <div>
+        <p style="font-family:monospace;font-weight:700;font-size:48px;margin:0 0 8px;color:#7fd5ff">DoLogger</p>
+        <p style="color:#8892a8;margin:0 0 28px">Next-gen secure logging — Ed25519 audit chains at lock-free speed</p>
+        <p><a style="display:inline-block;border:1px solid #7fd5ff;color:#7fd5ff;text-decoration:none;padding:10px 26px;border-radius:999px;margin:0 8px" href="https://github.com/Nekolio/DoLogger">GitHub</a><a style="display:inline-block;border:1px solid #7fd5ff;color:#7fd5ff;text-decoration:none;padding:10px 26px;border-radius:999px;margin:0 8px" href="https://github.com/Nekolio/DoLogger/releases">Releases</a></p>
+      </div>
+    </div>
+  </noscript>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

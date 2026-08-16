@@ -24,7 +24,6 @@ import type { DemoLog } from '../demo/logs'
 
 const { t } = useI18n()
 const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-const FINE_POINTER = window.matchMedia('(hover: hover) and (pointer: fine)').matches
 
 /* ── timers, tracked for cleanup; deferred (never dropped) while paused ── */
 const timers = new Set<number>()
@@ -41,26 +40,54 @@ function later(fn: () => void, ms: number): number {
 /* ── visibility / off-screen pausing (memory + battery) ───────────── */
 let paused = false
 let sectionVisible = true
+
+/* Bounding-rect fallback. IntersectionObserver can miss the initial frame
+   on some mobile browsers, or never re-fire after a swipe scrollIntoView,
+   so visibility is ALSO re-derived from layout on every scroll/resize —
+   "visible" = any part of the section overlaps the viewport. */
+function sectionOnScreen(): boolean {
+  const el = demoSection.value
+  if (!el) return true
+  const r = el.getBoundingClientRect()
+  const vh = window.innerHeight || document.documentElement.clientHeight
+  return r.top < vh && r.bottom > 0
+}
+function refreshVisibility() {
+  sectionVisible = sectionOnScreen()
+  onVisibility()
+}
+
 function setPaused(v: boolean) {
   if (paused === v) return
   paused = v
   if (v) {
     stopTerminalLoop() // the interval stops while hidden — zero work
-  } else if (terminalOn) {
+  } else if (terminalWanted) {
     startTerminalLoop(wantedSpeed) // resume exactly where it left off
   }
-  // terminalOn also guards the resume: staticRender pages (reduced motion /
-  // touch) never started the loop, so a visibility flip must not start one.
+  // terminalWanted guards the resume: staticRender pages (reduced motion)
+  // never requested the loop, so a visibility flip must not start one.
 }
 function onVisibility() { setPaused(document.hidden || !sectionVisible) }
 function onIntersect(entries: IntersectionObserverEntry[]) {
-  sectionVisible = entries[0]?.isIntersecting ?? true
+  const e = entries[0]
+  // the observer is the primary signal; the rect check backstops it so a
+  // stale or never-fired callback cannot strand the demo off-screen
+  sectionVisible = e ? (e.isIntersecting || sectionOnScreen()) : sectionOnScreen()
   onVisibility()
 }
 let observer: IntersectionObserver | null = null
+let visibilityRaf = 0
+function onScrollOrResize() {
+  if (visibilityRaf) return
+  visibilityRaf = requestAnimationFrame(() => {
+    visibilityRaf = 0
+    refreshVisibility()
+  })
+}
 
 /* ── per-language state ───────────────────────────────────────────── */
-type Phase = 'idle' | 'scrolling' | 'overshoot' | 'focusing' | 'deleting' | 'typing' | 'done'
+type Phase = 'idle' | 'scrolling' | 'overshoot' | 'focusing' | 'deleting' | 'think' | 'typing' | 'done'
 interface LangState {
   phase: Phase
   lineIndex: number
@@ -95,7 +122,7 @@ const speed = ref(SPEED.before)
 let termN = 0
 let termIdx = 0
 let terminalTimer: number | null = null
-let terminalOn = false
+let terminalWanted = false  // loop should tick whenever not paused
 let wantedSpeed = SPEED.before
 
 const termPool: Record<'before' | 'after', DemoLog[]> = { before: BEFORE_LOGS, after: AFTER_LOGS }
@@ -124,7 +151,8 @@ function startTerminalLoop(ms: number) {
   wantedSpeed = ms
   side.value = ms === SPEED.after ? 'after' : 'before'
   speed.value = ms
-  terminalOn = true
+  terminalWanted = true
+  if (paused) return // keep the intent; setPaused(false) restarts the interval
   terminalTimer = window.setInterval(() => {
     const pool = termPool[side.value]
     appendTermRow({ n: termN++, side: side.value, cls: pool[termIdx].cls, text: stamp() + pool[termIdx].text })
@@ -133,7 +161,8 @@ function startTerminalLoop(ms: number) {
 }
 function stopTerminalLoop() {
   if (terminalTimer !== null) { clearInterval(terminalTimer); terminalTimer = null }
-  terminalOn = false
+  // terminalWanted is deliberately left set: pausing stops the interval but
+  // keeps the intent, so the resume path can restart it.
 }
 function clearTerminal() {
   terminalLines.value = []
@@ -206,6 +235,17 @@ function applyStyles(state: LangState) {
 }
 
 /* ── geometry helpers (measured, not guessed) ─────────────────────── */
+/* Deleting stops at the indentation, like a real editor: the leading
+   whitespace of the original line survives; only the code after it is
+   removed. The replacement is then typed WITH its own leading whitespace
+   (indent + code, one pass), and setTargetText replaces the whole line
+   each frame — so the surviving indent and the replacement indent never
+   stack, and every typed character lands at the indented column. */
+function leadingWs(s: string): number {
+  const m = s.match(/^[ \t]*/)
+  return m ? m[0].length : 0
+}
+
 function panelMetrics() {
   const panel = codeDisplayEl.value
   const h = panel ? panel.clientHeight : 400
@@ -321,22 +361,41 @@ function runPhase(lang: string) {
     }
 
     case 'deleting': {
+      /* editor behavior: delete back to the first non-whitespace char —
+         the indentation survives, so the cursor lands at the indent
+         boundary (before the code about to be typed) */
       const textEl = state.lineElements[target]?.querySelector('.line-text')
-      if (textEl && textEl.textContent && textEl.textContent.length > 0) {
+      const lead = leadingWs(s.lines[target])
+      if (textEl && textEl.textContent && textEl.textContent.length > lead) {
         textEl.textContent = textEl.textContent.slice(0, -1)
-        state.timer = later(() => runPhase(lang), 16)
+        state.timer = later(() => runPhase(lang), 14)
       } else {
-        state.phase = 'typing'
-        state.typedChars = 0
-        state.timer = later(() => runPhase(lang), 120)
+        /* the line is reduced to its indent — the cursor blinks there
+           for a beat (1-2 blinks), like a real pause before typing */
+        state.phase = 'think'
+        state.timer = later(() => runPhase(lang), 1200)
       }
       break
     }
 
+    /* short "thinking" beat: cursor parked at the indent, blinking */
+    case 'think': {
+      state.phase = 'typing'
+      state.typedChars = 0
+      state.timer = later(() => runPhase(lang), 60)
+      break
+    }
+
     case 'typing': {
-      const repl = s.replaceLine
+      /* Type the replacement WITH its own indentation, in one pass:
+         indent + partial code. setTargetText replaces the whole line each
+         frame, so the indent comes solely from the replacement (the
+         deletion's surviving indent never stacks) and the visible
+         characters + blink cursor sit at the indented column. */
+      const indent = s.replaceLine.slice(0, leadingWs(s.replaceLine))
+      const repl = s.replaceLine.slice(leadingWs(s.replaceLine))
       if (state.typedChars < repl.length) {
-        const next = repl.slice(0, state.typedChars + 1)
+        const next = indent + repl.slice(0, state.typedChars + 1)
         setTargetText(state, next)
         state.typedChars++
         state.timer = later(() => runPhase(lang), 24 + (Math.random() * 14 | 0))
@@ -361,7 +420,10 @@ function finishEdit(lang: string) {
   const el = state.lineElements[s.targetLine]
   const textEl = el?.querySelector('.line-text')
   if (textEl) textEl.innerHTML = tokenize(s.replaceLine, s.lexer)
-  hideCursor()
+  /* the highlight bar stays and the cursor keeps blinking 1-2 times at
+     the end of the typed text — the migration reads as real keystrokes,
+     not an instant swap. The cursor is hidden a beat later. */
+  state.timer = later(() => hideCursor(), 1200)
   applyStyles(state)
   // the migration is done: like a production hot-switch, the old output
   // SURVIVES and the DoLogger stream appends beneath it — format changes,
@@ -413,19 +475,32 @@ function cleanup() {
   timers.clear()
   observer?.disconnect()
   document.removeEventListener('visibilitychange', onVisibility)
+  window.removeEventListener('scroll', onScrollOrResize)
+  window.removeEventListener('resize', onScrollOrResize)
+  if (visibilityRaf) cancelAnimationFrame(visibilityRaf)
 }
 
 function init() {
   renderCode('rust', langState['rust'])
-  if (REDUCED_MOTION || !FINE_POINTER) {
-    // touch users see the static end state; the wheel nav takes over
+  if (REDUCED_MOTION) {
+    // reduced-motion users see the static end state; the wheel/touch nav
+    // still takes over page switching
     staticRender()
     return
   }
+  // the typing animation plays on touch too — mobile swipes between
+  // pages just like the wheel does on a fine pointer
   startAnimation('rust')
   observer = new IntersectionObserver(onIntersect, { threshold: 0.05 })
   if (demoSection.value) observer.observe(demoSection.value)
   document.addEventListener('visibilitychange', onVisibility)
+  // Mobile safety net: a swipe goTo() scrolls via scrollIntoView and some
+  // browsers drop (or never re-fire) the observer, so re-derive visibility
+  // from layout on every scroll/resize — the demo must start playing the
+  // moment page 2 becomes visible, regardless of navigation mechanism.
+  window.addEventListener('scroll', onScrollOrResize, { passive: true })
+  window.addEventListener('resize', onScrollOrResize)
+  refreshVisibility() // immediate layout check (page 1 is shown first)
 }
 
 onMounted(init)
@@ -452,7 +527,7 @@ onBeforeUnmount(cleanup)
         </div>
       </div>
 
-      <div class="ide-terminal">
+      <div class="ide-terminal" data-wheel-lock data-wheel-lock-hard>
         <div class="term-header">
           <span class="term-dots"><i></i><i></i><i></i></span>
           <span class="term-title">user-service — stdout</span>
