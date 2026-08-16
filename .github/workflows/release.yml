@@ -593,6 +593,9 @@ jobs:
         with:
           path: release-artifacts
           pattern: release-*
+          # v8 nests each artifact in its own directory unless merged;
+          # the pack/sign steps expect the files FLAT in release-artifacts/
+          merge-multiple: true
 
       # mcmilk/7-Zip-zstd — the 7-Zip fork with native ZSTD support
       # (the official 7-zip.org 7zz lacks ZSTD and fails with a bare
