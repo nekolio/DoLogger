@@ -593,6 +593,15 @@ jobs:
         with:
           path: release-artifacts
           pattern: release-*
+
+      # The `7zip` apt package (Ubuntu 24.04) ships a 7z binary WITH ZSTD
+      # support. We use it instead of downloading 7zz from 7-zip.org — the
+      # pinned 7zz 2501 release fails with a bare "System ERROR" (exit 2)
+      # when creating the out-of-box archives, while the distro 7z works.
+      - name: Install 7-Zip (ZSTD-enabled)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y 7zip
           merge-multiple: true
 
       # Benchmark results are notes content, not release assets — keep them
@@ -618,26 +627,17 @@ jobs:
           ls -la release-artifacts/
 
       # Out-of-box archives — one per product category (CLI and LIB), per
-      # platform, compressed to the extreme with 7-Zip + ZSTD (level 19 —
-      # the ZSTD method's standard max; 7zz 2501 fails with `System ERROR`
-      # at -mx=22, so 19 is the safe ceiling). Each archive bundles the
-      # official plugin bundle + its .sig (so the plugins verify BLUE on
-      # unpack) + the example config, so a user extracts one file and has a
-      # ready-to-run setup. The official 7-Zip binary (7zz) is downloaded and
-      # SHA-256-verified because Ubuntu's p7zip predates ZSTD support.
+      # platform, compressed with 7-Zip + ZSTD (level 19 — the method's
+      # standard max). Each archive bundles the official plugin bundle +
+      # its .sig (so the plugins verify BLUE on unpack) + the example
+      # config, so a user extracts one file and has a ready-to-run setup.
+      # The distro 7z is used (installed above) — a pinned 7zz 2501 from
+      # 7-zip.org failed with "System ERROR" (exit 2) on the first archive.
       - name: Build out-of-box archives (7z + ZSTD max)
         shell: bash
         run: |
           set -euo pipefail
-          SEVENZ_URL="https://www.7-zip.org/a/7z2501-linux-x64.tar.xz"
-          SEVENZ_SHA="4ca3b7c6f2f67866b92622818b58233dc70367be2f36b498eb0bdeaaa44b53f4"
-          SEVENZ_DIR="$RUNNER_TEMP/7z"
-          mkdir -p "$SEVENZ_DIR"
-          curl -fsSL -o "$SEVENZ_DIR/7z.tar.xz" "$SEVENZ_URL"
-          echo "$SEVENZ_SHA  $SEVENZ_DIR/7z.tar.xz" | sha256sum -c -
-          tar -xJf "$SEVENZ_DIR/7z.tar.xz" -C "$SEVENZ_DIR" 7zz
-          SEVEN_Z="$SEVENZ_DIR/7zz"
-          chmod +x "$SEVEN_Z"
+          SEVEN_Z="7z"   # from the `7zip` apt package — ZSTD-enabled
 
           TAG="${{ github.ref_name }}"
           STAGE="$RUNNER_TEMP/box"
