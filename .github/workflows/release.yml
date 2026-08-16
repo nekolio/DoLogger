@@ -295,8 +295,11 @@ jobs:
         shell: bash
         run: |
           set -e
-          # arch = last dash-separated token of the CLI asset name (strip .exe)
-          ARCH="$(echo "${{ matrix.asset_name }}" | sed -E 's/\.exe$//' | rev | cut -d- -f1 | rev)"
+          # arch = last dash-separated token of the CLI asset name (strip .exe).
+          # bash parameter expansion — NOT `rev | cut | rev` (rev is a GNU
+          # coreutil missing from Windows Git Bash; it broke the Windows jobs).
+          NAME="$(echo "${{ matrix.asset_name }}" | sed -E 's/\.exe$//')"
+          ARCH="${NAME##*-}"
           LIB="libdologger_official_plugins.${{ matrix.lib_ext }}"
           if [ "${{ matrix.os_short }}" == "windows" ]; then LIB="dologger_official_plugins.dll"; fi
           SRC="target/${{ matrix.target }}/release/${LIB}"
@@ -322,7 +325,8 @@ jobs:
         run: |
           set -e
           trap 'rm -f /tmp/dologger-plugin-signing-key.txt' EXIT
-          ARCH="$(echo "${{ matrix.asset_name }}" | sed -E 's/\.exe$//' | rev | cut -d- -f1 | rev)"
+          NAME="$(echo "${{ matrix.asset_name }}" | sed -E 's/\.exe$//')"
+          ARCH="${NAME##*-}"
           BUNDLE="release-artifacts/dologger-official-plugins-${{ github.ref_name }}-${{ matrix.os_short }}-${ARCH}.${{ matrix.lib_ext }}"
           if [ ! -f "$BUNDLE" ]; then
             echo "::warning::no bundle to sign: $BUNDLE"
