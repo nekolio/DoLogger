@@ -214,25 +214,31 @@ function onKey(e: KeyboardEvent) {
     else emit('close')
   }
 }
-/* Scroll-close is SELECTIVE. Opening the panel can itself trigger a
-   focus/layout scroll (and after a refresh the first click lands inside
-   one), so scrolls are ignored for a short grace period; afterwards the
-   popup closes only when the anchor has actually MOVED — a genuine page
-   scroll. Ancillary scrolls (badge reflow, typewriter re-layout) don't
-   move the anchor and must never dismiss the dialog. */
+/* Scroll-close is SELECTIVE and keys off the DOCUMENT's own scroll
+   position, not the anchor's viewport rect:
+     - the listener is NON-capture on window, so it fires ONLY for the
+       document scroller. Inner scrollers (popup results list, version
+       dropdown, demo terminal, page-3 card bodies) never bubble and can
+       never reach it — no capture-phase leakage;
+     - the close signal is a real change in window.scrollY. Layout shifts
+       (the hero badge appearing once the release fetch resolves, a web
+       font swap, the typewriter re-layout) move the anchor WITHOUT
+       changing scrollY, so they can never dismiss the dialog — on every
+       refresh, deterministically.
+   A short grace window still absorbs any immediate scroll (e.g. scroll
+   restoration right after a refresh) so it cannot close the fresh panel. */
 let openedAt = 0
-let anchorTopAtOpen = 0
+let scrollYAtOpen = 0
 const SCROLL_GRACE = 400  // ms after opening during which scrolls are ignored
-const SCROLL_SLOP = 2     // px the anchor must move to count as a real scroll
+const SCROLL_SLOP = 8     // px the DOCUMENT must scroll to count as a real page scroll
 
 function onScroll(e: Event) {
   const t = e.target
-  const pop = popupEl.value
-  /* popup-internal scroll (results list, version dropdown) — keep open */
-  if (pop && t instanceof Node && pop.contains(t)) return
+  /* Defensive: the non-capture listener already excludes inner scrollers,
+     but ignore any stray element target (never the document) just in case. */
+  if (t instanceof HTMLElement && t !== document.documentElement && t !== document.body) return
   if (performance.now() - openedAt < SCROLL_GRACE) return
-  const anchor = props.anchorEl
-  if (anchor && Math.abs(anchor.getBoundingClientRect().top - anchorTopAtOpen) <= SCROLL_SLOP) return
+  if (Math.abs(window.scrollY - scrollYAtOpen) <= SCROLL_SLOP) return
   emit('close')
 }
 function onResize() { emit('close') }
@@ -240,24 +246,24 @@ function onResize() { emit('close') }
 watch(() => props.open, (v) => {
   if (v) {
     openedAt = performance.now()
-    anchorTopAtOpen = props.anchorEl ? props.anchorEl.getBoundingClientRect().top : 0
+    scrollYAtOpen = window.scrollY
     nextTick(() => position())
     document.addEventListener('mousedown', onDocDown)
     document.addEventListener('keydown', onKey)
-    window.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    window.addEventListener('scroll', onScroll, { passive: true })
     window.addEventListener('resize', onResize)
   } else {
     vOpen.value = false
     document.removeEventListener('mousedown', onDocDown)
     document.removeEventListener('keydown', onKey)
-    window.removeEventListener('scroll', onScroll, { capture: true })
+    window.removeEventListener('scroll', onScroll)
     window.removeEventListener('resize', onResize)
   }
 })
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocDown)
   document.removeEventListener('keydown', onKey)
-  window.removeEventListener('scroll', onScroll, { capture: true })
+  window.removeEventListener('scroll', onScroll)
   window.removeEventListener('resize', onResize)
 })
 </script>
@@ -397,12 +403,16 @@ onBeforeUnmount(() => {
   font-family: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace;
 }
 
-/* font sizes pulled back from the over-enlarged typography */
-.fpop2 .fg-inline { font-size: 0.82rem; }
-.fpop2 .chip { font-size: 0.95rem; }
-.fpop2 .vsel-btn { font-size: 1rem; }
-.fpop2 .vsel-menu label { font-size: 1rem; }
-.fpop2 .vsel-all { font-size: 0.9rem !important; }
+/* font sizes pulled back from the over-enlarged typography. The chip
+   label still crowded its pill, so chips drop a further notch and gain
+   proportionally more padding (see the chip rule below); the version
+   selector and the inline group labels follow so the hierarchy stays
+   consistent and comfortable. */
+.fpop2 .fg-inline { font-size: 0.78rem; }
+.fpop2 .chip { font-size: 0.85rem; }
+.fpop2 .vsel-btn { font-size: 0.92rem; }
+.fpop2 .vsel-menu label { font-size: 0.92rem; }
+.fpop2 .vsel-all { font-size: 0.84rem !important; }
 .fpop2 .prerelease-badge { font-size: 0.8rem; }
 .fpop2 .res-os-head { font-size: 1.05rem; }
 .fpop2 .res-os-count { font-size: 0.85rem; }
@@ -416,6 +426,7 @@ onBeforeUnmount(() => {
 /* chips — springy scale pop on select, soft settle/shrink on deselect,
    plus the color/border/glow transitions carried over from style.css */
 .fpop2 .chip {
+  padding: 0.4rem 1.05rem;
   transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.2s ease, color 0.2s ease,
               background 0.22s ease, box-shadow 0.22s ease;

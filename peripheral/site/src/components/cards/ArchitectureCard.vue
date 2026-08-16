@@ -39,3 +39,18 @@ const subs = [
     <a class="card-link" :href="WIKI_URL + '/en_US-ArchitectureReference'">{{ t('arch-link') }}</a>
   </div>
 </template>
+
+<style scoped>
+/* On narrow/expanded-mobile widths the pipeline chain must WRAP instead
+   of overflowing: the marquee track becomes a plain wrapping row (the
+   duplicated second copy is hidden so the chain reads once). */
+@media (max-width: 560px) {
+  .pipe-marquee { overflow: visible; }
+  .pipe-track {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.6rem;
+  }
+  .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
+}
+</style>

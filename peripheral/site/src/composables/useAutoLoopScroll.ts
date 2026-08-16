@@ -28,6 +28,7 @@ interface LoopState {
   holdUntil: number    // pause after user interaction
   dwellUntil: number   // brief pause at each end of the ping-pong
   inView: boolean      // IntersectionObserver: element within the viewport
+  hoverGrace: number   // performance.now() when the pointer entered the card
   onWheel: () => void
   onTouchStart: () => void
   onTouchEnd: () => void
@@ -36,11 +37,12 @@ interface LoopState {
 
 const instances = new Map<HTMLElement, LoopState>()
 
-const Y_SPEED = 14          // px/s — gentle vertical loop (12–18)
+const Y_SPEED = 20          // px/s — comfortable, clearly-visible vertical loop
 const X_SPEED = 24          // px/s — marquee (20–30)
 const DWELL_MS = 1400       // ms paused at each end of the ping-pong
 const PAUSE_AFTER_INTERACTION = 2500 // ms
 const ACCEL_TAU = 350       // ms — speed smoothing time constant
+const HOVER_GRACE_MS = 700  // ms of scrolling after hover before the pause
 
 /* Live MediaQueryLists so the loop reacts to a mid-session change (a
  * pointer appears, reduced motion toggles) without a reload. */
@@ -67,6 +69,7 @@ export function useAutoLoopScroll() {
       holdUntil: 0,
       dwellUntil: 0,
       inView: true,
+      hoverGrace: 0,   // when the pointer entered the card (performance.now())
       onWheel: () => { st.holdUntil = performance.now() + PAUSE_AFTER_INTERACTION },
       onTouchStart: () => { st.holdUntil = Infinity },
       onTouchEnd: () => { st.holdUntil = performance.now() + 1500 },
@@ -83,8 +86,17 @@ export function useAutoLoopScroll() {
 
       if (now < st.dwellUntil) return // hard hold at a ping-pong end
 
-      /* target speed: 0 while hidden / off-screen / interacted / hovered */
-      const idle = document.hidden || !st.inView || now < st.holdUntil || hovered(el)
+      /* target speed: 0 while hidden / off-screen / interacted / hovered.
+         Hover pauses with a short grace period: the pointer is usually
+         resting on a card when the page first becomes visible, and the
+         loop must still run for a moment so the user SEES it scroll
+         before the hover pause kicks in. `hoverGrace` is refreshed when
+         the element transitions from not-hovered to hovered. */
+      const hovering = hovered(el)
+      if (hovering && st.hoverGrace === 0) st.hoverGrace = now
+      if (!hovering) st.hoverGrace = 0
+      const idle = document.hidden || !st.inView || now < st.holdUntil
+        || (hovering && st.hoverGrace > 0 && now > st.hoverGrace + HOVER_GRACE_MS)
       const target = idle ? 0 : (dir === 'y' ? Y_SPEED : X_SPEED)
       st.vel += (target - st.vel) * Math.min(1, dt / ACCEL_TAU)
 

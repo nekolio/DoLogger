@@ -96,6 +96,9 @@ function runFlyIn() {
 const expanded = ref<number | null>(null)
 const entryKey = ref(0)
 const enterDy = ref(0)
+/* 'page' = staggered push-in on page entry; 'reflow' = the quick settle
+   used when cards re-enter during expand/collapse (no stagger). */
+const enterMode = ref<'page' | 'reflow'>('page')
 
 interface MobileCard { key: string; icon: string; title: string; comp: Component; i: number; state: 'open' | 'closed' }
 const mobileCards = computed<MobileCard[]>(() => {
@@ -137,23 +140,32 @@ function attachGyro() {
   gyroHandler = (e: DeviceOrientationEvent) => {
     const b = e.beta ?? 0
     const g = e.gamma ?? 0
-    /* beta ~45° is "upright"; map pitch and roll into a ±10° tilt */
-    gyroCard?.style.setProperty('--tilt-x', clamp((b - 45) * 0.22, 10).toFixed(2) + 'deg')
-    gyroCard?.style.setProperty('--tilt-y', clamp(g * 0.3, 10).toFixed(2) + 'deg')
+    /* beta ~45° is "upright". The card leans WITH the device, so the
+       pitch/roll signs are inverted relative to the raw sensor deltas. */
+    gyroCard?.style.setProperty('--tilt-x', clamp((45 - b) * 0.22, 10).toFixed(2) + 'deg')
+    gyroCard?.style.setProperty('--tilt-y', clamp(-g * 0.3, 10).toFixed(2) + 'deg')
   }
   window.addEventListener('deviceorientation', gyroHandler)
 }
 function detachGyro() {
   if (gyroHandler) window.removeEventListener('deviceorientation', gyroHandler)
   gyroHandler = null
+  /* collapsing leaves no residual tilt on the card */
+  if (gyroCard) {
+    gyroCard.style.removeProperty('--tilt-x')
+    gyroCard.style.removeProperty('--tilt-y')
+  }
   gyroCard = null
 }
 
 /* non-linear FLIP for the window changing: existing cards animate
    height + position from their old rects to the new ones; entering
    cards are covered by the TransitionGroup enter animation. */
-let flipAnim: Animation | null = null
+const flipAnims = new Set<Animation>()
 async function flipMobile(next: number | null) {
+  /* expand/collapse re-entries use the quick settle, not the staggered
+     page-entry push-in */
+  enterMode.value = 'reflow'
   /* A template ref on <TransitionGroup> resolves to the component instance,
      not its root DOM element, so query the element directly. */
   const listEl = document.querySelector<HTMLElement>('#page3 .mob-stack')
@@ -162,11 +174,15 @@ async function flipMobile(next: number | null) {
   const before = new Map(items.map(el => [el.dataset.i, el.getBoundingClientRect()]))
   expanded.value = next
   await nextTick()
-  /* the cards that stay in the window are the only ones the FLIP
-     animates — cards leaving the window play their own leave
-     transition instead (no competing animations) */
+  /* cancel any FLIP still in flight, then animate EVERY kept card (not
+     just the last one — a single shared reference dropped all but one
+     of the moving cards) */
+  flipAnims.forEach(a => a.cancel())
+  flipAnims.clear()
   const kept = new Set(mobileCards.value.map(m => String(m.i)))
   const afterItems = Array.from(listEl.querySelectorAll<HTMLElement>('.mcard'))
+  /* opening pops with a springy overshoot; collapsing settles softer */
+  const collapsing = next === null
   for (const el of afterItems) {
     const key = el.dataset.i || ''
     if (!kept.has(key)) continue
@@ -178,13 +194,16 @@ async function flipMobile(next: number | null) {
     const dh = old.height - now.height
     const dw = old.width - now.width
     if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(dh) < 0.5 && Math.abs(dw) < 0.5) continue
-    flipAnim?.cancel()
     const anim = el.animate([
       { height: old.height + 'px', transform: `translate(${dx}px, ${dy}px)` },
       { height: now.height + 'px', transform: 'translate(0, 0)' }
-    ], { duration: 540, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)', fill: 'both' })
-    flipAnim = anim
-    anim.onfinish = () => { anim.cancel(); flipAnim = null }
+    ], {
+      duration: collapsing ? 420 : 540,
+      easing: collapsing ? 'cubic-bezier(0.22, 1, 0.36, 1)' : 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+      fill: 'both'
+    })
+    flipAnims.add(anim)
+    anim.onfinish = () => { anim.cancel(); flipAnims.delete(anim) }
   }
   syncLoops()
 }
@@ -214,11 +233,15 @@ watch(() => props.activePage, (v) => {
   if (isTouch.value) {
     expanded.value = null
     detachGyro()
-    enterDy.value = props.lastDir === 1 ? -150 : props.lastDir === -1 ? 150 : 0
+    enterMode.value = 'page'
+    /* push in from the direction OPPOSITE to the swipe: a swipe up
+       (lastDir 1) enters page 3, so the cards rise from below */
+    enterDy.value = props.lastDir === -1 ? -150 : 150
     entryKey.value++
     syncLoops()
   } else {
     runFlyIn()
+    syncLoops() // PC: (re)attach the loops on every entry — idempotent
   }
 }, { immediate: true })
 
@@ -242,7 +265,16 @@ function onSpot(e: MouseEvent) {
   card.style.setProperty('--tilt-x', ((y - 0.5) * 16).toFixed(2) + 'deg')
   card.style.setProperty('--tilt-y', ((0.5 - x) * 16).toFixed(2) + 'deg')
 }
-function onLeave(e: MouseEvent) {
+/* PC hover state — drives the fade-mask removal (.card.hovered). The
+   loop's own hovered() check (whole-card :hover) handles the pause, so
+   this class only toggles the mask; the two stay in sync because both
+   fire on the same card enter/leave. */
+const hoveredKeys = ref(new Set<string>())
+function onCardEnter(c: { key: string }) {
+  hoveredKeys.value.add(c.key)
+}
+function onCardLeave(c: { key: string }, e: MouseEvent) {
+  hoveredKeys.value.delete(c.key)
   const card = e.currentTarget as HTMLElement
   card.style.setProperty('--tilt-x', '0deg')
   card.style.setProperty('--tilt-y', '0deg')
@@ -252,7 +284,7 @@ onMounted(syncLoops)
 onBeforeUnmount(() => {
   detachGyro()
   loops.detachAll()
-  flipAnim?.cancel()
+  flipAnims.forEach(a => a.cancel())
 })
 </script>
 
@@ -267,7 +299,12 @@ onBeforeUnmount(() => {
       <!-- PC: the card wall. No click interaction — content loops inside. -->
       <div v-if="!isTouch" class="grid">
         <div v-for="(c, i) in cards" :key="c.key" class="card"
-             :style="{ '--i': i }" @mousemove="onSpot" @mouseleave="onLeave">
+             :class="{ hovered: hoveredKeys.has(c.key) }"
+             data-wheel-lock-hard
+             :style="{ '--i': i }"
+             @mouseenter="onCardEnter(c)"
+             @mousemove="onSpot"
+             @mouseleave="onCardLeave(c, $event)">
           <span class="card-spot" aria-hidden="true"></span>
           <h3><svg class="icon" :class="{ 'pulse-shield': c.key === 'sec' }"><use :href="c.icon"></use></svg> {{ t(c.title) }}</h3>
           <div class="card-body"><component :is="c.comp" /></div>
@@ -277,10 +314,12 @@ onBeforeUnmount(() => {
       <!-- Mobile: collapsed title stack; tap expands a window of three
            (expanded card + its two neighbours), FLIP-animated. -->
       <TransitionGroup v-else name="mcard" tag="div" class="mob-stack"
+                       :class="{ reflow: enterMode === 'reflow', 'has-open': expanded !== null }"
                        :key="'mob-' + entryKey"
-                       :style="{ '--enter-dy': enterDy + 'px' }">
+                       :style="{ '--enter-dy': (enterMode === 'reflow' ? 18 : enterDy) + 'px' }">
         <div v-for="m in mobileCards" :key="m.key" class="mcard" :class="m.state"
-             :data-i="m.i" :style="{ '--delay': m.i * 80 + 'ms' }">
+             :data-i="m.i" :style="{ '--delay': (enterMode === 'page' ? m.i * 80 : 0) + 'ms' }"
+             :data-wheel-lock-hard="m.state === 'open' ? '' : null">
           <div class="mcard-title"
                role="button" tabindex="0"
                :aria-expanded="m.state === 'open' ? 'true' : 'false'"
@@ -314,4 +353,15 @@ onBeforeUnmount(() => {
    body stays a plain scroll surface */
 .mcard-title { cursor: pointer; }
 .mcard .card-body { cursor: auto; }
+
+/* PC hover: drop the symmetric edge fade so the end content (e.g. the
+   "每次发布的实测数据 →" release link) is fully readable. Not-hovered keeps
+   style.css's mask for the loop-scroll aesthetic; the loop already pauses
+   on whole-card hover (useAutoLoopScroll::hovered). Higher specificity
+   (#id + .class + .class) overrides style.css's `.card-body` mask without
+   editing that file. */
+#page3 .card.hovered .card-body {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
 </style>

@@ -527,7 +527,7 @@ onBeforeUnmount(cleanup)
         </div>
       </div>
 
-      <div class="ide-terminal" data-wheel-lock data-wheel-lock-hard>
+      <div class="ide-terminal">
         <div class="term-header">
           <span class="term-dots"><i></i><i></i><i></i></span>
           <span class="term-title">user-service — stdout</span>

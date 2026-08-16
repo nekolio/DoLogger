@@ -14,7 +14,7 @@ const chain = [
 
 <template>
   <div>
-    <ul>
+    <ul class="feat-list">
       <li v-for="key in items" :key="key">{{ t(key) }}</li>
     </ul>
 

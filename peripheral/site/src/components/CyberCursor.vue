@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/* CyberCursor — native pointer + effects layer (5th revision).
+/* CyberCursor — native pointer + effects layer (6th revision).
  *
  * The SYSTEM pointer stays visible and usable; this layer only adds
  * polish on top of it:
@@ -12,10 +12,18 @@
  *   - a restrained press: the ring squeezes subtly and a soft, brief
  *     glow pulse blooms and fades (no expanding shockwave, no snap frame).
  *
- * The trail is fed by an exponentially low-passed position, so hand
- * jitter is smoothed away before it is ever recorded. Leaving the
- * window fades the whole layer out via a CSS transition (no frozen
- * ghost frame); re-entering fades it back in.
+ * The trail GEOMETRY is sampled from the RAW pointer path, sub-sampled
+ * to a minimum spacing so a curved motion always yields a continuously
+ * curving ribbon. The low-passed position drives only the glow and the
+ * chasing ring — never the ribbon — so smoothing can no longer lag the
+ * path into straight chords or corners. Speed is measured from the true
+ * per-frame pointer movement, so it is exactly zero at rest and the
+ * ribbon always retracts fully to the dot.
+ *
+ * Leaving the window fades the whole layer out via a CSS transition (no
+ * frozen ghost frame); re-entering fades it back in and snaps the
+ * geometry to the pointer's new position instead of reconnecting to the
+ * old one with a straight line.
  *
  * The click path is cheap and idempotent: pointerdowns only set a flag
  * and add a class, and the pooled pulse is driven by the Web Animations
@@ -46,24 +54,28 @@ const dotEl = ref<HTMLDivElement | null>(null)
 const pulseEl = ref<HTMLDivElement | null>(null)
 
 let raf = 0
-let x = -100, y = -100            // raw target
-let sx = -100, sy = -100          // smoothed (low-passed) position
+let x = -100, y = -100            // raw pointer target — trail geometry source
+let sx = -100, sy = -100          // low-passed position — glow / ring only
+let prevX = -100, prevY = -100    // raw target at the previous rAF tick (speed)
 let visible = false
 let textMode = false
 let lastT = 0
+let snapNextMove = false          // snap geometry on the next mousemove (re-entry)
 
-/* Trail: min-distance sampled from the smoothed position. The number of
-   points we draw follows a normalized trail length (0..1) that rises with
-   speed quickly but releases slowly — fast movement stretches a long
-   ribbon, and stopping retracts it over ~0.6-1s back to the head dot. */
+/* Trail geometry: min-distance samples taken from the RAW pointer path.
+   The number of points drawn follows a normalized trail length (0..1) that
+   rises with speed quickly but releases slowly — fast movement stretches a
+   long ribbon, and stopping retracts it over ~0.6-1s back to the head dot.
+   Raw sampling + per-jump sub-sampling keeps a curved path curved:
+   consecutive points are never farther than MIN_DIST apart. */
 const PTS = 36                    // max points drawn (≈ 36 × MIN_DIST px ribbon)
 const MIN_DIST = 2.0              // px between sampled points
 const SPEED_MAX = 1.1             // px/ms → normalized 1 (saturates sooner)
 const TAIL_ATTACK = 45            // ms time constant while growing (snappy)
 const TAIL_RELEASE = 260          // ms time constant while shrinking (relaxed)
 const pts: { x: number; y: number }[] = []
-let lastPush = { x: -100, y: -100 }
-let speed = 0                     // EMA px/ms
+let lastPush = { x: -100, y: -100 } // last geometry point pushed (raw)
+let speed = 0                     // EMA px/ms (true per-frame pointer speed)
 let tailLen = 0                   // 0..1 — fast attack, slow release
 
 /* click pulse: one pooled element + WAAPI — no reflow, coalesced per 150ms */
@@ -74,16 +86,56 @@ let pulsePending = false
 const CLICKABLE = 'a, button, summary, .file-item, .scroll-hint, .page-nav, [role="button"]'
 const TEXT_ZONE = '.ide-code, .term-body, input, select, textarea, [contenteditable]'
 
+/* snap every position-derived piece of state to a known pointer location.
+   Used on activation and window re-entry so the trail can never reconnect
+   to a stale position with a spurious straight line. */
+function resetTrail(px: number, py: number) {
+  pts.length = 0
+  x = px; y = py
+  sx = px; sy = py
+  prevX = px; prevY = py
+  lastPush = { x: px, y: py }
+  speed = 0
+  tailLen = 0
+}
+
+/* push raw geometry toward (tx, ty), splitting any jump longer than
+   MIN_DIST into evenly-spaced samples so the polyline never cuts a curve
+   into a straight chord (e.g. after a fast flick between events). */
+function sampleTo(tx: number, ty: number) {
+  let px = lastPush.x
+  let py = lastPush.y
+  let moved = Math.hypot(tx - px, ty - py)
+  let guard = 0
+  while (moved >= MIN_DIST && guard < 128) {
+    const f = MIN_DIST / moved
+    px += (tx - px) * f
+    py += (ty - py) * f
+    pts.unshift({ x: px, y: py })
+    if (pts.length > PTS) pts.pop()
+    moved = Math.hypot(tx - px, ty - py)
+    guard++
+  }
+  lastPush = { x: px, y: py }
+}
+
 function onMove(e: MouseEvent) {
-  x = e.clientX
-  y = e.clientY
-  if (!visible) {
+  const nx = e.clientX
+  const ny = e.clientY
+  if (!visible || snapNextMove) {
+    /* activation OR re-entry after a window leave: snap to the real
+       pointer position — never interpolate from a stale/offscreen one */
+    snapNextMove = false
     visible = true
-    sx = x; sy = y
-    lastPush = { x, y }
+    resetTrail(nx, ny)
     lastT = performance.now()
     layer.value?.classList.remove('leaving')
+    startEngine()
   }
+  x = nx
+  y = ny
+  sampleTo(nx, ny)
+
   const el = e.target instanceof Element ? e.target : null
   const clickable = !!el && !!el.closest(CLICKABLE)
   const text = !!el && !!el.closest(TEXT_ZONE)
@@ -93,26 +145,25 @@ function onMove(e: MouseEvent) {
   layer.value?.classList.toggle('text', textMode)
 }
 
-/* leave: fade the whole layer out (CSS transition), stop the engine.
-   The last painted frame dissolves instead of freezing on screen. */
+/* leave: fade the whole layer out (CSS transition), stop the engine and
+   drop every trail point so nothing lingers or reconnects on return. */
 function onLeave() {
   if (!visible) return
   visible = false
+  snapNextMove = true
   layer.value?.classList.add('leaving')
+  stopEngine()
   pts.length = 0
   tailLen = 0
   speed = 0
   pulsePending = false
-  cancelAnimationFrame(raf)
-  raf = 0
 }
 function onEnter() {
-  if (!visible) {
-    visible = true
-    layer.value?.classList.remove('leaving')
-    lastT = performance.now()
-    raf = requestAnimationFrame(tick)
-  }
+  if (visible) return
+  visible = true
+  layer.value?.classList.remove('leaving')
+  lastT = performance.now()
+  startEngine()
 }
 
 function onDown() {
@@ -141,7 +192,7 @@ function firePulse() {
   if (!p) return
   const i = p.firstElementChild as HTMLElement | null
   if (!i) return
-  p.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
+  p.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
   pulseAnim?.cancel()
   /* easing mirrors the site's --ease-out: cubic-bezier(0.22, 1, 0.36, 1) */
   pulseAnim = i.animate(
@@ -154,40 +205,58 @@ function firePulse() {
   )
 }
 
-function tick() {
+function startEngine() {
+  if (raf) return
   raf = requestAnimationFrame(tick)
-  if (!visible) return
+}
+function stopEngine() {
+  if (raf) cancelAnimationFrame(raf)
+  raf = 0
+}
+
+function tick() {
+  /* the engine only runs while the pointer is over the window */
+  if (!visible) {
+    raf = 0
+    return
+  }
+  raf = requestAnimationFrame(tick)
   const now = performance.now()
   const dt = Math.max(1, now - lastT)
   lastT = now
 
-  /* smooth the raw target — exponential low-pass kills hand jitter */
+  /* low-pass the raw target for the glow + chasing ring ONLY — the ribbon
+     geometry below uses raw samples, so smoothing can't lag the path */
   sx += (x - sx) * 0.42
   sy += (y - sy) * 0.42
 
-  /* instantaneous speed → EMA; then a normalized trail length that rises
-     fast but releases slowly (the single source of truth for the ribbon) */
-  const dist = Math.hypot(sx - lastPush.x, sy - lastPush.y)
-  const inst = Math.min(dist / dt, 8)
+  /* true per-frame pointer speed → EMA. Measured from actual movement, not
+     the distance to the last sample, so it is exactly 0 at rest and the
+     ribbon always retracts fully (no residual "phantom speed"). */
+  const dx = x - prevX
+  const dy = y - prevY
+  prevX = x
+  prevY = y
+  const inst = Math.min(Math.hypot(dx, dy) / dt, 8)
   speed += (inst - speed) * 0.22
-  if (dist >= MIN_DIST) {
-    pts.unshift({ x: sx, y: sy })
-    if (pts.length > PTS) pts.pop()
-    lastPush = { x: sx, y: sy }
-  }
 
+  /* normalized trail length: fast attack, slow release — the single source
+     of truth for how much of the ribbon is drawn */
   const speedNorm = Math.min(1, speed / SPEED_MAX)
   const tau = speedNorm > tailLen ? TAIL_ATTACK : TAIL_RELEASE
   tailLen += (speedNorm - tailLen) * (1 - Math.exp(-dt / tau))
   if (tailLen < 0.015) tailLen = 0 // guaranteed full collapse to the dot
 
-  const nTail = Math.round(tailLen * PTS)
+  /* never draw more points than have been sampled (robustness: the ribbon
+     can only shrink toward the head while geometry fills in) */
+  const available = pts.length
+  const nTail = Math.min(Math.round(tailLen * PTS), available)
   const nMid = Math.min(nTail, Math.round(tailLen * PTS * 0.55))
   const nHead = Math.min(nTail, 3)
 
   if (glowEl.value) glowEl.value.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
   if (ringEl.value) ringEl.value.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
-  if (dotEl.value) dotEl.value.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px)`
+  if (dotEl.value) dotEl.value.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`
   setPoints(cometTailEl.value, nTail)
   setPoints(cometMidEl.value, nMid)
   setPoints(cometCoreEl.value, nHead)
@@ -206,26 +275,29 @@ function tick() {
   }
 }
 
-/* The engine only runs while the user keeps the cyber cursor ON — the
- * top-bar toggle activates/deactivates it live (native pointer stays). */
+/* The engine only runs while the cursor is ON and the pointer is over the
+ * window — the top-bar toggle activates/deactivates it live (native pointer
+ * stays). */
 let active = false
 
 function activate() {
   if (active || REDUCED_MOTION || !FINE_POINTER) return
   active = true
+  resetTrail(-100, -100) // clear any stale trail and park offscreen
+  visible = false        // wait for the pointer to report its position
+  snapNextMove = false
   document.documentElement.classList.add('cyber-cursor')
   window.addEventListener('mousemove', onMove, { passive: true })
   window.addEventListener('mousedown', onDown, { passive: true })
   window.addEventListener('mouseup', onUp, { passive: true })
   document.documentElement.addEventListener('mouseleave', onLeave)
   document.documentElement.addEventListener('mouseenter', onEnter)
-  raf = requestAnimationFrame(tick)
+  startEngine()
 }
 function deactivate() {
   if (!active) return
   active = false
-  cancelAnimationFrame(raf)
-  raf = 0
+  stopEngine()
   window.removeEventListener('mousemove', onMove)
   window.removeEventListener('mousedown', onDown)
   window.removeEventListener('mouseup', onUp)
