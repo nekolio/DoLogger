@@ -8,6 +8,13 @@
  *   - the speed is the SAME for every card regardless of content length
  *     (a longer card simply takes longer to traverse).
  *
+ * Fractional-scroll pitfall (fixed): browsers quantize programmatic
+ * `scrollTop` writes to whole pixels, so a naive per-frame
+ * `el.scrollTop += vel*dt` silently LOSES the fractional part — the
+ * content then crawls at a fraction of the intended speed and freezes on
+ * the first integer it reaches. The loop tracks the TRUE position as a
+ * float (`pos`) and applies only whole-pixel deltas.
+ *
  * Pauses ONLY while the tab is hidden, during a short post-interaction
  * cooldown, or while a fine pointer hovers the card body (the user is
  * reading it — wheel takes over natively). No IntersectionObserver gate,
@@ -24,6 +31,7 @@ interface LoopState {
   raf: number
   dir: 1 | -1          // ping-pong direction
   vel: number
+  pos: number          // true fractional scroll position (px)
   lastT: number
   holdUntil: number    // pause after user interaction
   dwellUntil: number   // brief pause at each end of the ping-pong
@@ -38,6 +46,7 @@ const Y_SPEED = 22          // px/s — steady, clearly-visible vertical ping-po
 const DWELL_MS = 1400       // ms paused at each end
 const PAUSE_AFTER_INTERACTION = 2500 // ms
 const ACCEL_TAU = 350       // ms — speed smoothing time constant
+const RESYNC_SLOP = 1.5     // px — adopt the native scrollTop if it drifts this far
 
 const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)')
 
@@ -48,6 +57,7 @@ export function useAutoLoopScroll() {
       raf: 0,
       dir: 1,
       vel: 0,
+      pos: el.scrollTop,
       lastT: performance.now(),
       holdUntil: 0,
       dwellUntil: 0,
@@ -74,18 +84,27 @@ export function useAutoLoopScroll() {
       st.vel += (target - st.vel) * Math.min(1, dt / ACCEL_TAU)
       if (st.vel <= 0.05) return
 
-      el.scrollTop += st.dir * st.vel * (dt / 1000)
-      if (st.dir === 1 && el.scrollTop >= maxScroll - 0.5) {
-        el.scrollTop = maxScroll
+      /* resync if the user moved the scroll natively (hover-wheel etc.) */
+      if (Math.abs(el.scrollTop - st.pos) > RESYNC_SLOP) st.pos = el.scrollTop
+
+      /* advance the TRUE position and bounce at the ends */
+      st.pos += st.dir * st.vel * (dt / 1000)
+      if (st.dir === 1 && st.pos >= maxScroll - 0.5) {
+        st.pos = maxScroll
         st.dir = -1
         st.vel = 0
         st.dwellUntil = now + DWELL_MS
-      } else if (st.dir === -1 && el.scrollTop <= 0.5) {
-        el.scrollTop = 0
+      } else if (st.dir === -1 && st.pos <= 0.5) {
+        st.pos = 0
         st.dir = 1
         st.vel = 0
         st.dwellUntil = now + DWELL_MS
       }
+
+      /* apply whole-pixel deltas only — fractional scrollTop writes are
+         quantized by the browser and would otherwise be lost */
+      const want = Math.round(st.pos)
+      if (Math.abs(el.scrollTop - want) > 0.01) el.scrollTop = want
     }
 
     st.raf = requestAnimationFrame(step)
