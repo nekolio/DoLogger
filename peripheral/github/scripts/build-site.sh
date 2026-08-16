@@ -36,6 +36,7 @@ mkdir -p "$OUT/data"
 #    overwrite whatever Vite copied so a regenerated SVG always ships.
 cp "$ROOT"/docs/assets/hero.svg "$OUT/assets/hero.svg"
 cp "$ROOT"/docs/assets/architecture.svg "$OUT/assets/architecture.svg"
+cp "$ROOT"/docs/assets/architecture-zh.svg "$OUT/assets/architecture-zh.svg"
 
 # 3. Bake live data.
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then

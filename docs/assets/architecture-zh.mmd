@@ -1,0 +1,89 @@
+%% DoLogger architecture (ZH labels) — host submission → lock-free ring →
+%% 7-stage pipeline → 11 built-in sinks, with the audit chain and plugin
+%% trust model on the side.
+%% Color key: blue = ingest · gray = pipeline · amber = audit-signing stage
+%% (Assembly) · green = sinks · purple = security & extensibility.
+flowchart LR
+    %% ================= INGEST =================
+    subgraph INGEST[采集层 INGEST — 无锁提交]
+        direction TB
+        HOST[宿主应用 Host Application]
+        ADAPTERS[适配器 Adapters — Rust · C · Python · Go]
+        LOG[dologger_log() — CAS 入队 · 102 ns P50]
+        POOL[Treiber 对象池 Object Pool — 零分配]
+        RING[无锁 MPSC 环形缓冲 Ring — 90% 普通 / 10% 审计 · 永不丢弃]
+        BP[背压 Backpressure — 90% 协作 · 95% 溢写]
+    end
+    %% ================= PIPELINE =================
+    subgraph PIPE[7 级流水线 7-STAGE PIPELINE]
+        direction TB
+        S0[0 · 预过滤 PreFilter — 限速 · 级别门控]
+        S1[1 · 过滤 Filter — 丢弃 / 放行规则]
+        S2[2 · 字段提供 FieldProvider — 注入字段 · Ring 1]
+        S3([3 · 组装 Assembly — LSN · prev_hash · Ed25519])
+        S4[4 · 处理 Processing — CRC32C · 密钥扫描]
+        S5[5 · 格式化 Formatting — JSON / 文本 / SIF]
+        S6[6 · 接收器扇出 Sink fan-out — 核心内置 · 配置驱动]
+    end
+    %% ================= SINK LAYER =================
+    subgraph SINK[接收器层 SINK LAYER — 11 个内置接收器]
+        C[标准输出 Console — stdout]
+        F[文件 File — 轮转]
+        K[Kafka — TLS + SASL]
+        SYS[Syslog — UDP / TCP / TLS]
+        WEB[Webhook — HTTPS]
+        SQL[SQLite — 本地]
+        OT[OTel — OTLP / HTTP]
+        SHM[SHM — 共享内存]
+        CB[Callback — 宿主扩展]
+        WORM[WORM — 不可变审计]
+        SEC[Security — 0600 · 绕过插件]
+    end
+    %% ================= SECURITY & EXTENSIBILITY =================
+    subgraph SECURITY[安全与扩展 SECURITY & EXTENSIBILITY]
+        direction TB
+        P1[插件 Plugins — 9 种 VTable · C ABI]
+        P2[信任锚 Trust anchors — active.pub · Blue / Yellow / Red]
+        R1[字段权限 Field permissions — Ring 0–3]
+        A1[审计链 Audit chain — Ed25519 · LSN · prev_hash]
+        A2[dologctl verify-log — 离线校验]
+    end
+
+    %% Ingest flow
+    HOST --> ADAPTERS
+    ADAPTERS --> LOG
+    LOG -->|push| RING
+    POOL -.->|alloc| LOG
+    RING -.->|over 90%| BP
+
+    %% Pipeline flow
+    RING -->|drain| S0
+    S0 --> S1 --> S2 --> S3 --> S4 --> S5 --> S6
+
+    %% Sink fan-out (parallel dispatch over io_pool)
+    S6 -->|io_pool| C
+    S6 --> F
+    S6 --> K
+    S6 --> SYS
+    S6 --> WEB
+    S6 --> SQL
+    S6 --> OT
+    S6 --> SHM
+    S6 --> CB
+    S6 --> WORM
+    S6 --> SEC
+
+    %% Security column (list) + audit chain annotations
+    P1 --- P2 --- R1 --- A1 --- A2
+    S3 -.->|sign| A1
+    WORM -.->|verify| A2
+
+    %% Zone tints + tasteful Assembly emphasis (amber, not loud orange)
+    classDef ingest fill:#ddf4ff,stroke:#0969da
+    classDef sink fill:#dafbe1,stroke:#1a7f37
+    classDef audit fill:#fff8c5,stroke:#9a6700,stroke-width:1.5
+    classDef sec fill:#fbefff,stroke:#8250df
+    class HOST,ADAPTERS,LOG,POOL,RING,BP ingest
+    class S3 audit
+    class C,F,K,SYS,WEB,SQL,OT,SHM,CB,WORM,SEC sink
+    class A1,A2,P1,P2,R1 sec

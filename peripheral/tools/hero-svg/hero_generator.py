@@ -8,11 +8,12 @@ Deleting it (or the whole peripheral/tools/ directory) has ZERO effect on the
 project. See ../README.md.
 
 Effects (SMIL only, no scripts - runs in GitHub READMEs):
-  - per-character typing with a block cursor riding the text edge
+  - per-character typing where each glyph rides its own <g>: a block cursor is
+    grouped WITH the currently-last-shown character, so the cursor-to-text
+    distance is exact by construction (no frame-by-frame cursor distances)
   - cyberpunk CRT: frame energy sweep, cyan/magenta accents, HUD hairline,
     bezel microtext, phosphor-profile scanlines (soft falloff, half-phase
-    aligned inside the screen), moire second layer, aperture grille,
-    vignette
+    aligned inside the screen), moire second layer, aperture grille, vignette
   - glitches THROUGHOUT the cycle (typing included, not just the hold):
     fast jitter, RGB channel split, ghosting, screen tearing, glitch lines
   - mirrored power-on/off with real CRT deflection physics: the raster
@@ -23,72 +24,199 @@ Effects (SMIL only, no scripts - runs in GitHub READMEs):
 Usage:
     python3 peripheral/tools/hero-svg/hero_generator.py
 
-Output is deterministic (all randomness is seeded by fixed timeline values),
-so regenerating produces a byte-identical file unless the LINES/data above
-are edited. Writes docs/assets/hero.svg and keeps peripheral/site/public/assets/hero.svg
-in sync (both are the same brand image; the site build also re-copies the
-docs copy, see peripheral/github/scripts/build-site.sh).
+The whole timeline (line start/end times, wordmark/version ignition windows,
+glitch bursts, and the CYCLE length) is COMPUTED from the LINES table and the
+Cargo.toml version - there are no hardcoded per-line delays or cursor
+distances. Output is deterministic (all randomness is seeded by fixed
+timeline values), so regenerating produces a byte-identical file unless the
+LINES data or the Cargo.toml version change. Writes docs/assets/hero.svg only
+(the single source of truth; the site references it at build time).
 """
 
 import math
 import os
 import random
-import shutil
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 OUT = os.path.join(ROOT, "docs", "assets", "hero.svg")
-SITE_OUT = os.path.join(ROOT, "peripheral", "site", "public", "assets", "hero.svg")
 
-CYCLE = 10.0
+# ---------------- layout ----------------
 X0 = 44                      # text left edge
 CX, CY = 460.0, 172.0        # screen center - collapse anchor AND star anchor
 
-# (clip id, colored prefix (or None), text, baseline y, font size,
-#  typing start s, seconds per char, kind)
+# ---------------- timing constants (physical, not per-line delays) ----------------
+POWER_ON = 0.35              # power-on deflection settles before typing starts
+RATE = 0.020                 # typing speed: seconds per character (50 chars/s)
+LINE_PAUSE = 0.6             # short pause after each typed line (1-2 cursor blinks)
+WORDMARK_FLOW = 1.5          # neon-ignition duration for the wordmark
+VERSION_FLOW = 1.2           # neon-ignition duration for the version tag
+HOLD_MIN = 1.2               # minimum full-boot hold before power-off
+CYCLE_MIN = 8.0              # floor for the derived cycle
+POWER_OFF_FRAC = 0.93        # normalized power-off start (matches the deflection keyTimes)
+GLITCH_DT = 0.033            # ~30 Hz glitch steps
+BLINK_DUR = 0.4              # cursor blink period (square wave, 50% duty)
+
+# glitch burst layout (spread programmatically below, seeded -> deterministic)
+MICRO_N = 8                  # micro bursts across the typing window
+MICRO_LEN = 0.08
+MACRO_N = 3                  # macro bursts inside the hold window
+MACRO_LEN = 0.18
+DIP_N = 11                   # subtle brightness dips across typing + hold
+
+MSG_COLOR = "#B8C2CE"
+VERSION_SIZE = 20            # smaller than the logo (56), larger than logs (15)
+
+# Boot canon. c1..c5 are typed, c6 is the wordmark (whole neon ignition),
+# c7 is the tagline (typed after the version flow). `pre` marks a colored
+# level prefix (left-padded below so every message starts at the same x).
 LINES = [
-    dict(cid="c1", pre=None,        text="$ dologctl run --config dologger.toml", y=64,  size=15, s=0.34, rate=0.020, kind="log"),
-    dict(cid="c2", pre="[INFO] ",   text="Hello DoLogger",                       y=92,  size=15, s=1.22, rate=0.020, kind="log"),
-    dict(cid="c3", pre="[PLUGIN] ", text="4 sandboxed · trust BLUE",             y=120, size=15, s=1.82, rate=0.020, kind="log"),
-    dict(cid="c4", pre="[AUDIT] ",  text="ed25519 chain armed",                  y=148, size=15, s=2.64, rate=0.020, kind="log"),
-    dict(cid="c5", pre="[ OK ]  ",  text="7-stage pipeline online",              y=176, size=15, s=3.36, rate=0.020, kind="log"),
-    dict(cid="c6", pre=None,        text="DoLogger",                             y=232, size=56, s=4.20, rate=0.070, kind="wordmark"),
-    dict(cid="c7", pre=None,        text="next-gen secure logging · ed25519 @ lock-free speed", y=266, size=14, s=4.96, rate=0.020, kind="log"),
+    dict(cid="c1", color="#D9A066", y=64,  size=15,
+         text="$ dologctl run --trace --config dologger.toml"),
+    dict(cid="c2", pre="[INFO]",   color="#86C97F", y=92,  size=15,
+         text="Hello DoLogger"),
+    dict(cid="c3", pre="[PLUGIN]", color="#8A9BFF", y=120, size=15,
+         text="4 official plugins · trust BLUE"),
+    dict(cid="c4", pre="[AUDIT]",  color="#7FC7D9", y=148, size=15,
+         text="ed25519 chain armed"),
+    dict(cid="c5", pre="[PROCESS]", color="#86C97F", y=176, size=15,
+         text="7-stage pipeline online"),
+    dict(cid="c6", kind="wordmark", text="DoLogger", y=232, size=56),
+    dict(cid="c7", color="#9FB0C9", y=266, size=14,
+         text="next-gen secure logging · ed25519 @ lock-free speed"),
 ]
-PREFIX_COLOR = {"c2": "#86C97F", "c3": "#8A9BFF", "c4": "#7FC7D9", "c5": "#86C97F"}
-
-# micro bursts land DURING typing; macro bursts in the hold phase
-MICRO = [(0.70, 0.78), (1.45, 1.52), (2.20, 2.28), (3.00, 3.08),
-         (3.66, 3.73), (4.46, 4.53), (5.42, 5.49), (6.06, 6.13)]
-MACRO = [(7.30, 7.50), (8.30, 8.50), (8.95, 9.10)]
-GLITCH_DT = 0.033  # ~30 Hz steps
 
 
+def read_version():
+    """Parse the FIRST `version = "..."` line of the top-level Cargo.toml."""
+    with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith("version") and "=" in stripped:
+                return stripped.split("=", 1)[1].strip().strip("\"'")
+    raise SystemExit("version not found in Cargo.toml")
 
-def full_text(line):
-    return (line["pre"] or "") + line["text"]
+
+VERSION = read_version()
 
 
+def full_text(L):
+    return (L.get("pre_full") or "") + L["text"]
+
+
+def advance(size):
+    # JetBrains Mono measured advance ratio (em): glyph advance = 0.60 * px.
+    # The old 0.55 was Consolas' ratio; JetBrains Mono is a touch wider.
+    return round(0.60 * size, 1)
+
+
+# ---------------- alignment: pad prefixes so every message starts at the same x ----------------
+MAX_PREFIX = max(len(L["pre"]) for L in LINES if "pre" in L)
+COL = MAX_PREFIX + 1         # level column width incl. one separator space
+for L in LINES:
+    if "pre" in L:
+        L["pre_full"] = L["pre"] + " " * (COL - len(L["pre"]))
+
+# ---------------- derive the whole timeline from string lengths (no hardcoded delays) ----------------
+WM = next(i for i, L in enumerate(LINES) if L.get("kind") == "wordmark")
+TYPED = LINES[:WM]           # c1..c5, typed character-by-character
+WORDMARK = LINES[WM]         # c6, whole neon ignition
+TAGLINE = LINES[WM + 1]      # c7, typed after the version flow
+
+t = POWER_ON
+for L in TYPED:
+    L["n"] = len(full_text(L))
+    L["start"] = round(t, 4)
+    L["end"] = round(t + L["n"] * RATE, 4)
+    t = round(L["end"] + LINE_PAUSE, 4)
+
+wm_start = t                              # after c5's end-of-line pause
+wm_end = round(wm_start + WORDMARK_FLOW, 4)
+ver_start = wm_end                        # version ignites right after the wordmark flow
+ver_end = round(ver_start + VERSION_FLOW, 4)
+
+TAGLINE["n"] = len(full_text(TAGLINE))
+TAGLINE["start"] = ver_end                # tagline types only after the version flow
+TAGLINE["end"] = round(ver_end + TAGLINE["n"] * RATE, 4)
+
+hold_start = round(TAGLINE["end"] + LINE_PAUSE, 4)
+
+# CYCLE: round up so the hold phase ends exactly at the normalized power-off
+# start (0.93 of CYCLE), then enforce the 8 s floor. Every master-timeline
+# animation normalizes its keyTimes by CYCLE, so power on/off, scanlines,
+# frame sweep and HUD all scale proportionally with it.
+raw = (hold_start + HOLD_MIN) / POWER_OFF_FRAC
+CYCLE = max(CYCLE_MIN, math.ceil(raw))
+power_off_start = POWER_OFF_FRAC * CYCLE
+
+# ---------------- glitch bursts + dips, spread programmatically (deterministic) ----------------
+def spread_bursts(t0, t1, n, length, seed):
+    """Place n `length`-second bursts evenly-ish across [t0, t1]."""
+    rng = random.Random(seed)
+    slot = (t1 - t0) / n
+    out = []
+    for i in range(n):
+        center = t0 + (i + 0.5) * slot
+        jitter = rng.uniform(-0.25, 0.25) * slot
+        start = center + jitter - length / 2
+        start = max(t0, min(start, t1 - length))
+        out.append((round(start, 3), round(start + length, 3)))
+    return out
+
+
+def spread_points(t0, t1, n, seed):
+    rng = random.Random(seed)
+    slot = (t1 - t0) / n
+    out = []
+    for i in range(n):
+        center = t0 + (i + 0.5) * slot
+        jitter = rng.uniform(-0.4, 0.4) * slot
+        out.append(round(center + jitter, 3))
+    return sorted(out)
+
+
+MICRO = spread_bursts(POWER_ON, TAGLINE["end"], MICRO_N, MICRO_LEN, 101)
+MACRO = spread_bursts(hold_start, power_off_start, MACRO_N, MACRO_LEN, 202)
+dips = spread_points(POWER_ON, hold_start, DIP_N, 303)
+
+# deterministic assignment of the generated bursts to each glitch effect
+TEAR_WINDOWS = [MICRO[0], MACRO[0]]
+STRAY_LINES = [
+    ("#E8F4FF", [MICRO[1], MACRO[0]]),
+    ("#F472D0", [MICRO[2], MACRO[1]]),
+    ("#C792EA", [MICRO[3], MACRO[2]]),
+]
+RGB_RED = [MICRO[4], MACRO[0]]
+RGB_CYAN = [MICRO[5], MACRO[1]]
+GHOST = [MICRO[6], MACRO[2]]
+
+# sheen sweep travels the wordmark+version lockup as the neon ramp completes
+RAMP_FRAC = 0.30             # ramp-to-full begins 30% into the flow (see NEON_FLICKER)
+sweep_start = round(wm_start + RAMP_FRAC * WORDMARK_FLOW, 4)
+sweep_end = ver_end
+
+# ---------------- helpers ----------------
 def kt(t):
     return f"{t / CYCLE:.4f}"
 
 
 def fmt(v):
     if isinstance(v, float):
-        return f"{v:.1f}"
+        return f"{v:.2f}"
     return str(v)
 
 
 def anim(attr, pairs, mode="discrete"):
-    """pairs: list of (time_seconds, value) -> <animate> on the 10 s master timeline."""
+    """pairs: list of (time_seconds, value) -> <animate> on the master timeline."""
     ks = ";".join(kt(t) for t, _ in pairs)
     vs = ";".join(fmt(v) for _, v in pairs)
     ts = [t for t, _ in pairs]
+    assert len(ks.split(";")) == len(vs.split(";")), attr
     assert ts[0] == 0.0 and abs(ts[-1] - CYCLE) < 1e-6, (attr, ts[0], ts[-1])
     assert all(b > a for a, b in zip(ts, ts[1:])), attr
     return (f'<animate attributeName="{attr}" calcMode="{mode}" '
-            f'values="{vs}" keyTimes="{ks}" dur="10s" repeatCount="indefinite"/>')
+            f'values="{vs}" keyTimes="{ks}" dur="{CYCLE}s" repeatCount="indefinite"/>')
 
 
 def flicker_windows(windows, levels, off=0.0):
@@ -137,27 +265,105 @@ def band_y_pairs(windows, default_y):
     return pairs
 
 
+def esc(s):
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# Neon-tube ignition envelope (fraction of flow, opacity): the tube strikes
+# too dim (insufficient current), flickers irregularly, cuts out hard,
+# re-ignites, then ramps slowly to full brightness as the sheen sweep crosses.
+NEON_FLICKER = [
+    (0.00, 0.00),
+    (0.02, 0.35),
+    (0.04, 0.15),
+    (0.06, 0.35),
+    (0.08, 0.10),
+    (0.10, 0.35),
+    (0.12, 0.00),   # hard cut-out
+    (0.15, 0.25),   # re-ignite
+    (0.19, 0.15),
+    (0.23, 0.25),
+    (0.30, 0.40),   # slow ramp to full as the sheen crosses
+    (1.00, 1.00),
+]
+
+
+def neon_ignition(start, dur):
+    """Absolute (time, opacity) pairs for a neon ignition starting at `start`."""
+    pairs = [(round(start + frac * dur, 4), op) for frac, op in NEON_FLICKER]
+    if pairs[0][0] > 0.0:
+        pairs.insert(0, (0.0, 0.0))
+    pairs.append((CYCLE, 1.0))
+    return pairs
+
+
+def emit_typed(L, hold_cursor=False):
+    """Emit per-character groups (char + its own block cursor) for one typed line.
+
+    With hold_cursor=True (the tagline) the FINAL character's cursor stays
+    lit and keeps blinking through the idle hold phase until power-off, so
+    "idle" reads as a blinking cursor, not a dead screen.
+    """
+    y, size, s, n = L["y"], L["size"], L["start"], L["n"]
+    a = advance(size)
+    pre_full = L.get("pre_full")
+    if pre_full is not None:
+        chars = [(esc(ch), L["color"]) for ch in pre_full] + [(esc(ch), MSG_COLOR) for ch in L["text"]]
+    else:
+        chars = [(esc(ch), L["color"]) for ch in L["text"]]
+    cw = round(0.5 * a, 1)      # cursor width
+    chh = round(1.25 * size, 1) # cursor height
+    cxo = round(1.1 * a, 1)     # cursor x inside the group (left edge 0.1 em right of the char)
+    cyo = y - size              # cursor top: one font-size above the baseline
+    for k, (ch, fill) in enumerate(chars):
+        t_k = round(s + k * RATE, 4)
+        if k < n - 1:
+            t_off = round(s + (k + 1) * RATE, 4)     # hand over to the next char
+        elif hold_cursor:
+            t_off = round(power_off_start, 4)        # idle blink through the hold phase
+        else:
+            t_off = round(s + n * RATE + LINE_PAUSE, 4)  # final char blinks through the pause
+        gx = round(X0 + k * a, 1)
+        ap(f'''            <g transform="translate({gx}, 0)">
+              {anim("opacity", [(0.0, 0), (t_k, 1), (CYCLE, 1)], "discrete")}
+              <text x="0" y="{y}" font-size="{size}" fill="{fill}">{ch}</text>
+              <g>
+                {anim("opacity", [(0.0, 0), (t_k, 1), (t_off, 0), (CYCLE, 0)], "discrete")}
+                <g>
+                  <animate attributeName="opacity" values="1;1;0;0" keyTimes="0;0.5;0.5;1" dur="{BLINK_DUR}s" repeatCount="indefinite"/>
+                  <rect x="{cxo}" y="{cyo}" width="{cw}" height="{chh}" fill="#A8E6D8" opacity="0.92"/>
+                </g>
+              </g>
+            </g>''')
+
+
 parts = []
 ap = parts.append
 
 # ================= defs =================
-ap('''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 344" font-family="Consolas, Menlo, 'DejaVu Sans Mono', 'Courier New', monospace">
+ap('''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 344" font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace">
   <!--
     DoLogger boot hero - animated CRT terminal, pure SMIL (no scripts).
-    Per-character typing with a block cursor riding the text edge. Cyberpunk
-    CRT: frame energy sweep, cyan/magenta accents, soft-profile scanlines
-    half-phase aligned INSIDE the screen, moire second layer, aperture
-    grille. Glitches fire throughout the whole cycle - typing included -
-    via fast jitter, RGB channel split, ghosting and screen tearing.
-    Power-on and power-off mirror each other around the screen center with
-    real CRT deflection physics: vertical collapse first (raster squashes
-    into a bright horizontal line), then horizontal collapse (line shrinks
-    into a white-hot dot with a phosphor afterglow); power-on plays the
-    same sequence backwards.
-    Palette: phosphor cyan/amber/green with a single cyan -> violet ->
-    magenta sweep for the wordmark - a coherent neon ramp, not a rainbow.
+    Per-character typing: each glyph lives in its own <g> (translate(X0 +
+    k*advance)) whose opacity is gated to turn on exactly at its typing time,
+    and a block cursor is grouped INSIDE that same <g> at x = 1.1*advance - so
+    the cursor's position relative to the last-shown character is exact by
+    construction, with no frame-by-frame cursor distance table. The cursor's
+    own inner <g> carries an independent infinite blink (square wave ~0.4 s)
+    and an outer discrete opacity gate limits it to the window where its
+    character is the last one revealed. Cyberpunk CRT: frame energy sweep,
+    cyan/magenta accents, soft-profile scanlines half-phase aligned INSIDE the
+    screen, moire second layer, aperture grille. Glitches fire throughout the
+    whole cycle - typing included - via fast jitter, RGB channel split,
+    ghosting and screen tearing. Power-on and power-off mirror each other
+    around the screen center with real CRT deflection physics: vertical
+    collapse first (raster squashes into a bright horizontal line), then
+    horizontal collapse (line shrinks into a white-hot dot with a phosphor
+    afterglow); power-on plays the same sequence backwards. Palette: phosphor
+    cyan/amber/green with a single cyan -> violet -> magenta sweep for the
+    wordmark - a coherent neon ramp, not a rainbow.
   -->''')
-ap('''  <defs>
+ap(f'''  <defs>
     <!-- cyberpunk wordmark ramp: one continuous cyan -> violet -> magenta sweep -->
     <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0"    stop-color="#7FD5FF"/>
@@ -166,11 +372,12 @@ ap('''  <defs>
       <stop offset="1"    stop-color="#F472D0"/>
     </linearGradient>
     <!-- flowing light on the wordmark: a comet band sweeps left -> right
-         (4.3s-5.8s each cycle, crossing the glyphs ~4.86s-5.48s) right after
-         the neon-starter flicker settles - the ignition wave travels the tube
-         and the letters light up progressively. The band parks off-glyph the
-         rest of the time; the seam jump back to -280 at t=0 is invisible
-         because the tube sits at scale 0.02 there. -->
+         across the wordmark+version lockup right after the neon-starter
+         flicker settles, so the ignition wave travels the tube and the
+         letters light up progressively. The band parks off-glyph the rest of
+         the cycle; the seam jump back to -280 at t=0 is invisible because
+         the tube sits at scale 0.02 there. The sweep window is computed from
+         the wordmark+version flow ({sweep_start:.2f}s -> {sweep_end:.2f}s). -->
     <linearGradient id="sheen" gradientUnits="userSpaceOnUse" x1="-120" y1="0" x2="120" y2="0">
       <stop offset="0"    stop-color="#DFF7FF" stop-opacity="0"/>
       <stop offset="0.38" stop-color="#DFF7FF" stop-opacity="0"/>
@@ -179,8 +386,8 @@ ap('''  <defs>
       <stop offset="0.68" stop-color="#DFF7FF" stop-opacity="0"/>
       <stop offset="1"    stop-color="#DFF7FF" stop-opacity="0"/>
       <animateTransform attributeName="gradientTransform" type="translate" calcMode="linear"
-        values="-280 0;-280 0;480 0;480 0" keyTimes="0;0.43;0.58;1"
-        dur="10s" repeatCount="indefinite"/>
+        values="-280 0;-280 0;480 0;480 0" keyTimes="0;{kt(sweep_start)};{kt(sweep_end)};1"
+        dur="{CYCLE}s" repeatCount="indefinite"/>
     </linearGradient>
     <radialGradient id="vignette" cx="0.5" cy="0.45" r="0.8">
       <stop offset="0"    stop-color="#000000" stop-opacity="0"/>
@@ -263,6 +470,11 @@ ap('''  <defs>
     <filter id="bloom" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur in="SourceGraphic" stdDeviation="1.6"/>
     </filter>
+    <!-- softer bloom for the version tag: keeps the neon halo but leaves the
+         small 20 px glyphs crisp and legible -->
+    <filter id="bloomSoft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.5"/>
+    </filter>
     <!-- channel-separated copies for the RGB split glitch -->
     <filter id="fRed" x="-10%" y="-10%" width="120%" height="120%">
       <feColorMatrix in="SourceGraphic" type="matrix"
@@ -273,54 +485,12 @@ ap('''  <defs>
       <feColorMatrix in="SourceGraphic" type="matrix"
         values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0"/>
       <feOffset dx="-3" dy="0"/>
-    </filter>''')
-
-# ---- per-line typing clip paths (one keyframe per character) ----
-# The reveal advance MUST equal the cursor advance (0.55 * size, the real
-# Consolas ratio): with the old 0.6 estimate the clip edge ran ~9% ahead per
-# character, so on long lines the last characters appeared while the cursor
-# was still several characters behind. Both now step at the measured ratio.
-for L in LINES:
-    cid, y, size, s, rate, kind = L["cid"], L["y"], L["size"], L["s"], L["rate"], L["kind"]
-    if kind == "wordmark":
-        # the wordmark ignites as a WHOLE (neon starter), no per-char reveal
-        continue
-    n = len(full_text(L))
-    a = round(size * 0.55, 1)
-    e = s + n * rate
-    # the wordmark clip must generously contain glyphs + skew lean + glow
-    # halo on ALL sides: the 12 px blur halo extends past the glyph bbox,
-    # and a tight clip cuts the glow with hard edges (seen on the D's
-    # bottom-left corner, then on the r's right glow)
-    w_full = round(a * n + (28 if kind == "wordmark" else 4), 1)
-    pairs = [(0.0, 0), (s, 0)]
-    t = s
-    for k in range(1, n):
-        t += rate
-        pairs.append((t, round(a * k, 1)))
-    pairs.append((e, w_full))
-    pairs.append((CYCLE, w_full))
-    if kind == "wordmark":
-        # clip box oversized on all four sides so the glow halo never touches
-        # a boundary: glyphs span y 192-241, halo +-12 -> y 180-253
-        cy, ch = y - 60, 84
-        clip_x = X0 - 10
-    elif size >= 15:
-        cy, ch = y - 14, 20
-        clip_x = X0
-    else:
-        cy, ch = y - 14, 18
-        clip_x = X0
-    ap(f'''    <clipPath id="{cid}"><rect x="{clip_x}" y="{cy}" width="0" height="{ch}">
-      {anim("width", pairs)}
-    </rect></clipPath>''')
-
-# ---- screen-tearing band: a 40 px slice of the content, shifted sideways ----
-TEAR_WINDOWS = [(4.46, 4.53), (7.30, 7.50)]
-ap('''    <clipPath id="tear"><rect x="20" y="0" width="880" height="40">
-      {ANIM}
+    </filter>
+    <!-- screen-tearing band: a 40 px slice of the content, shifted sideways -->
+    <clipPath id="tear"><rect x="20" y="0" width="880" height="40">
+      {anim("y", band_y_pairs(TEAR_WINDOWS, 150))}
     </rect></clipPath>
-  </defs>'''.replace("{ANIM}", anim("y", band_y_pairs(TEAR_WINDOWS, 150))))
+  </defs>''')
 
 # ================= bezel =================
 ap('''  <rect x="8" y="8" width="904" height="328" rx="16" fill="#151A24" stroke="#34304A" stroke-width="1"/>
@@ -340,20 +510,19 @@ ap(f'''  <g transform="translate({CX},{CY})">
     <g>
       <animateTransform attributeName="transform" type="scale" calcMode="linear"
         values="0.02 0.02;0.02 0.02;1 0.02;1 1;1 1;1 1;1 0.02;1 0.02;0.02 0.02;0.02 0.02" keyTimes="0;0.004;0.011;0.026;0.93;0.945;0.955;0.968;0.982;1"
-        dur="10s" repeatCount="indefinite"/>
+        dur="{CYCLE}s" repeatCount="indefinite"/>
       <animate attributeName="opacity" calcMode="linear"
         values="1;1;0;0" keyTimes="0;0.968;0.982;1"
-        dur="10s" repeatCount="indefinite"/>
+        dur="{CYCLE}s" repeatCount="indefinite"/>
       <g transform="translate(-{CX},-{CY})">
         <rect x="20" y="20" width="880" height="304" rx="8" fill="#0A0E15"/>
         <g>
           <animateTransform attributeName="transform" type="translate" calcMode="discrete"
             values="0 0;0 0;6 0;-5 0;4 0;-6 0;3 0;-4 0;2 0;-2 0;0 0;0 0" keyTimes="0;0.945;0.949;0.953;0.957;0.961;0.965;0.969;0.973;0.977;0.982;1"
-            dur="10s" repeatCount="indefinite"/>''')
+            dur="{CYCLE}s" repeatCount="indefinite"/>''')
 
 # ================= content (typed lines + cursors) =================
 # brightness dips fire all cycle long, typing included
-dips = [0.55, 1.35, 2.15, 3.10, 3.80, 4.55, 5.30, 6.25, 7.05, 8.05, 8.85]
 flick = [(0.0, 1)]
 for d in dips:
     depth = 0.86 if any(t0 - 0.02 <= d <= t1 + 0.02 for t0, t1 in MACRO) else 0.90
@@ -362,88 +531,52 @@ flick.append((CYCLE, 1))
 
 jitter_bursts = [(t0, t1, 2) for t0, t1 in MICRO] + [(t0, t1, 3) for t0, t1 in MACRO]
 
-ap('''        <g id="content">
-          {FLICK}
+ap(f'''        <g id="content">
+          {anim("opacity", flick, "linear")}
           <g>
-            {JITTER}'''.replace("{FLICK}", anim("opacity", flick, "linear"))
-                       .replace("{JITTER}", anim("transform", jitter_pairs(jitter_bursts), "discrete")))
+            {anim("transform", jitter_pairs(jitter_bursts), "discrete")}''')
 
-# typed lines
-for L in LINES:
-    cid, y, pre, text = L["cid"], L["y"], L["pre"], L["text"]
-    if cid == "c1":
-        ap(f'''            <g clip-path="url(#c1)">
-              <text x="{X0}" y="{y}" font-size="15" fill="#D9A066">$ dologctl run --config dologger.toml</text>
+# typed lines (per-character groups with their own grouped block cursors)
+for L in TYPED:
+    emit_typed(L)
+
+# ---- wordmark + version: neon-tube ignition (no per-char, no cursor) ----
+# The WHOLE sign ignites like a neon tube - it comes on too dim (insufficient
+# current), flickers irregularly, cuts out hard, re-ignites, then ramps up
+# slowly to full brightness as the sheen sweep travels the tube. Brightness
+# only (opacity): glyphs never change size. The version tag re-uses the same
+# flow and the title gradient (with a soft bloom and the sheen sweep) once
+# the wordmark settles, so it stays legible at 20 px.
+wm_adv = advance(WORDMARK["size"])
+# version tag sits HALF a logo character width (half of one glyph's advance)
+# right of the wordmark - tight, reads as a lockup rather than a caption
+VERSION_GAP = round(0.5 * wm_adv, 1)
+ver_x = round(X0 + len(WORDMARK["text"]) * wm_adv + VERSION_GAP, 1)
+ap(f'''            <g>
+              <g>
+                {anim("opacity", neon_ignition(wm_start, WORDMARK_FLOW), "linear")}
+                <text x="{X0}" y="{WORDMARK['y']}" font-size="{WORDMARK['size']}" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#title)" filter="url(#glow)">DoLogger</text>
+                <text x="{X0}" y="{WORDMARK['y']}" font-size="{WORDMARK['size']}" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#sheen)" opacity="0.6">DoLogger</text>
+              </g>
+              <g>
+                {anim("opacity", neon_ignition(ver_start, VERSION_FLOW), "linear")}
+                <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#title)" filter="url(#bloomSoft)">v{VERSION}</text>
+                <text x="{ver_x}" y="{WORDMARK['y']}" font-size="{VERSION_SIZE}" font-weight="700"
+                      font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
+                      fill="url(#sheen)" opacity="0.6">v{VERSION}</text>
+              </g>
             </g>''')
-    elif cid == "c6":
-        # upright wordmark, no cursor, no per-char reveal: the WHOLE sign
-        # ignites like a neon tube - it comes on too dim (insufficient
-        # current), flickers irregularly, cuts out hard, re-ignites, then
-        # ramps up slowly to full brightness as the sheen sweep travels the
-        # tube. Brightness-only (opacity): glyphs never change size.
-        # JetBrains Mono first, monospace fallbacks.
-        ap(f'''            <g>
-              <animate attributeName="opacity" calcMode="linear"
-                values="0;0;0.35;0.15;0.35;0.1;0.35;0;0.25;0.15;0.25;1;1;1"
-                keyTimes="0;0.42;0.43;0.435;0.44;0.445;0.45;0.455;0.465;0.475;0.48;0.56;0.93;1"
-                dur="10s" repeatCount="indefinite"/>
-              <text x="{X0}" y="{y}" font-size="56" font-weight="700"
-                    font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                    fill="url(#title)" filter="url(#glow)">DoLogger</text>
-              <text x="{X0}" y="{y}" font-size="56" font-weight="700"
-                    font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                    fill="url(#sheen)" opacity="0.6">DoLogger</text>
-            </g>''')
-    elif cid == "c7":
-        ap(f'''            <g clip-path="url(#c7)">
-              <text x="{X0}" y="{y}" font-size="14" fill="#9FB0C9">next-gen secure logging · ed25519 @ lock-free speed</text>
-            </g>''')
-    else:
-        ap(f'''            <g clip-path="url(#{cid})">
-              <text x="{X0}" y="{y}" font-size="15"><tspan fill="{PREFIX_COLOR[cid]}">{pre}</tspan><tspan fill="#B8C2CE">{text}</tspan></text>
-            </g>''')
 
-# ---- cursor A: log lines + tagline, steps per char, blinks at the end ----
-# advance 0.55 * size is the real Consolas ratio (measured: line 7 ends at
-# x=436, not 472 as the old 0.6 estimate produced - the cursor used to rest
-# ~36 px past the last character). Cursor B below is sized to the wordmark.
-cx = [(0.0, X0)]
-for L in LINES:
-    if L["kind"] != "log":
-        continue
-    s = L["s"]
-    cx.append((s, X0))
-    n = len(full_text(L))
-    a = round(L["size"] * 0.55, 1)
-    t = s
-    for k in range(1, n + 1):
-        t += L["rate"]
-        cx.append((t, round(X0 + a * k, 1)))
-a7 = round(LINES[6]["size"] * 0.55, 1)
-cx.append((CYCLE, round(X0 + a7 * len(full_text(LINES[6])) + 2, 1)))
+# tagline types only after the version flow completes; its cursor keeps
+# blinking through the idle hold (idle = blinking, like the old design)
+emit_typed(TAGLINE, hold_cursor=True)
 
-cy = [(0.0, 50), (0.34, 50), (1.22, 78), (1.82, 106), (2.64, 134), (3.36, 162),
-      (4.96, 252), (CYCLE, 252)]
-
-cop = [(0.0, 0), (0.34, 1), (1.08, 0), (1.22, 1), (1.64, 0), (1.82, 1),
-       (2.48, 0), (2.64, 1), (3.18, 0), (3.36, 1), (3.98, 0), (4.96, 1)]
-t = 6.02
-while t < 9.30 - 1e-9:
-    cop.append((t, 1))
-    t += 0.25
-    cop.append((min(t, 9.30), 0))
-    t += 0.25
-cop += [(9.30, 0), (CYCLE, 0)]
-
-ap(f'''            <rect x="{X0}" y="50" width="9" height="20" fill="#A8E6D8" opacity="0.92">
-              {anim("x", cx)}
-              {anim("y", cy)}
-              {anim("opacity", cop)}
-            </rect>''')
-
-# ---- wordmark line has NO cursor: it ignites like a neon tube (starter
-# flicker + sheen sweep) instead. A block on the glowing 56 px glyphs reads
-# as a slab no matter the draw order, so the ignition carries the typing. ----
 ap('''          </g>
         </g>''')
 
@@ -451,36 +584,33 @@ ap('''          </g>
 ap('''        <use href="#content" filter="url(#bloom)" opacity="0.30"/>''')
 
 # ================= screen tearing band (shifted content slice) =================
-ap('''        <g>
-          {OP}
+ap(f'''        <g>
+          {anim("opacity", flicker_windows(TEAR_WINDOWS, [0.7, 0.5]))}
           <g clip-path="url(#tear)">
             <use href="#content" transform="translate(14,0)" opacity="0.7"/>
           </g>
-        </g>'''.replace("{OP}", anim("opacity", flicker_windows(TEAR_WINDOWS, [0.7, 0.5]))))
+        </g>''')
 
 # ================= stray glitch lines (one per color, micro + macro) =================
-for i, (color, windows) in enumerate([
-        ("#E8F4FF", [(0.70, 0.78), (7.30, 7.50)]),
-        ("#F472D0", [(3.00, 3.08), (8.30, 8.50)]),
-        ("#C792EA", [(5.42, 5.49), (8.95, 9.10)])]):
+for i, (color, windows) in enumerate(STRAY_LINES):
     ap(f'''        <rect x="20" y="{120 + 40 * i}" width="880" height="2" fill="{color}">
           {anim("opacity", flicker_windows(windows, [0.45, 0.25], 0.0))}
           {anim("y", band_y_pairs(windows, 120 + 40 * i))}
         </rect>''')
 
 # ================= RGB channel split + ghosting (glitch only) =================
-ap('''        <g>
-          {OP}
+ap(f'''        <g>
+          {anim("opacity", flicker_windows(RGB_RED, [0.40, 0.25]))}
           <use href="#content" filter="url(#fRed)"/>
-        </g>'''.replace("{OP}", anim("opacity", flicker_windows([(2.20, 2.28), (7.30, 7.50)], [0.40, 0.25]))))
-ap('''        <g>
-          {OP}
+        </g>''')
+ap(f'''        <g>
+          {anim("opacity", flicker_windows(RGB_CYAN, [0.35, 0.22]))}
           <use href="#content" filter="url(#fCyan)"/>
-        </g>'''.replace("{OP}", anim("opacity", flicker_windows([(3.66, 3.73), (8.30, 8.50)], [0.35, 0.22]))))
-ap('''        <g>
-          {OP}
+        </g>''')
+ap(f'''        <g>
+          {anim("opacity", flicker_windows(GHOST, [0.28, 0.18]))}
           <use href="#content" filter="url(#bloom)" transform="translate(10,0)" opacity="0.28"/>
-        </g>'''.replace("{OP}", anim("opacity", flicker_windows([(1.45, 1.52), (8.95, 9.10)], [0.28, 0.18]))))
+        </g>''')
 
 # ================= CRT surface: scanlines, grille, vignettes, refresh bands =================
 ap('''        <rect x="20" y="20" width="880" height="304" fill="url(#scan)" opacity="0.55"/>
@@ -500,15 +630,15 @@ ap('''        <rect x="20" y="20" width="880" height="304" fill="url(#scan)" opa
         </g>''')
 
 # ================= screen-level overlays: power surge (mirrored on/off) =================
-ap('''        <rect x="20" y="20" width="880" height="304" fill="url(#surge)">
+ap(f'''        <rect x="20" y="20" width="880" height="304" fill="url(#surge)">
           <animate attributeName="opacity" calcMode="linear"
             values="0;0.45;0;0;0.55;0.55;0;0" keyTimes="0;0.02;0.05;0.93;0.945;0.968;0.982;1"
-            dur="10s" repeatCount="indefinite"/>
+            dur="{CYCLE}s" repeatCount="indefinite"/>
         </rect>
         <rect x="20" y="20" width="880" height="304" fill="#000000">
           <animate attributeName="opacity" calcMode="linear"
             values="0;0;0.12;0;0;0;0.08;0;0" keyTimes="0;0.24;0.26;0.28;0.58;0.61;0.63;0.65;1"
-            dur="10s" repeatCount="indefinite"/>
+            dur="{CYCLE}s" repeatCount="indefinite"/>
         </rect>
         </g>
       </g>
@@ -534,7 +664,7 @@ ap(f'''  <g transform="translate({CX},{CY})">
     <g>
       <animateTransform attributeName="transform" type="scale" calcMode="linear"
         values="0.001 0.001;0.02 1;1 1;1 1;1 1;1 0.001;1 0.001;1 1;1 1;0.02 1;0.001 0.001;0.001 0.001" keyTimes="0;0.004;0.011;0.012;0.026;0.04;0.93;0.945;0.968;0.982;0.993;1"
-        dur="10s" repeatCount="indefinite"/>
+        dur="{CYCLE}s" repeatCount="indefinite"/>
       <g transform="translate(-{CX},-{CY})">
         <ellipse cx="{CX}" cy="172" rx="440" ry="3" fill="url(#hotline)" opacity="0.55"/>
       </g>
@@ -559,7 +689,7 @@ ap(f'''  <g transform="translate({CX},{CY})">
     <g>
       <animateTransform attributeName="transform" type="scale" calcMode="linear"
         values="0.02 0.02;0.6 0.6;0.6 0.6;0.02 0.02;0.02 0.02;0.02 0.02;1.6 1.6;0.02 0.02" keyTimes="0;0.002;0.01;0.02;0.95;0.968;0.986;1"
-        dur="10s" repeatCount="indefinite"/>
+        dur="{CYCLE}s" repeatCount="indefinite"/>
       <circle r="30" fill="url(#core)"/>
     </g>
   </g>''')
@@ -603,20 +733,37 @@ svg = "\n".join(parts)
 with open(OUT, "w", encoding="utf-8") as f:
     f.write(svg)
 
-# Keep the site copy in sync (same brand image, two consumers: README/docs
-# and the landing page). peripheral/github/scripts/build-site.sh re-copies the Docs
-# copy into dist anyway; syncing public/ here keeps local `bun run dev/build`
-# honest too.
-with open(SITE_OUT, "w", encoding="utf-8") as f:
-    f.write(svg)
-
 # ================= validation =================
-ET.parse(OUT)
-ET.parse(SITE_OUT)
+root = ET.parse(OUT).getroot()
+ns = "{http://www.w3.org/2000/svg}"
+
+# structural self-check: every keyTimed <animate>/<animateTransform> has
+# balanced values/keyTimes and a [0,1]-spanning, monotonic keyTimes list.
+# (Strict monotonicity for master-timeline animates is already asserted in
+# anim(); the only intentional equal-neighbour case is the cursor blink's
+# square wave keyTimes="0;0.5;0.5;1".)
+for tag in ("animate", "animateTransform"):
+    for el in root.iter(ns + tag):
+        kt_attr = el.get("keyTimes")
+        if kt_attr is None:
+            continue
+        ks = [float(x) for x in kt_attr.split(";")]
+        assert ks[0] == 0.0 and ks[-1] == 1.0, (tag, kt_attr)
+        assert all(b >= a for a, b in zip(ks, ks[1:])), (tag, kt_attr)
+        vals = el.get("values")
+        if vals is not None:
+            assert len(vals.split(";")) == len(ks), (tag, kt_attr, vals)
+
 n_anim = svg.count("<animate")
 n_clip = svg.count("<clipPath")
 n_use = svg.count("<use ")
 print(f"wrote {OUT}")
-print(f"wrote {SITE_OUT}")
+print(f"cycle: {CYCLE:.2f}s (power-off at {power_off_start:.2f}s)")
+for L in TYPED + [TAGLINE]:
+    print(f"  {L['cid']}: {L['start']:.2f}-{L['end']:.2f}s ({L['n']} chars)")
+print(f"  wordmark flow: {wm_start:.2f}-{wm_end:.2f}s")
+print(f"  version flow:  {ver_start:.2f}-{ver_end:.2f}s  (version v{VERSION} at x={ver_x})")
+print(f"  hold:          {hold_start:.2f}-{power_off_start:.2f}s")
+print(f"  sweep:         {sweep_start:.2f}-{sweep_end:.2f}s")
 print(f"animates: {n_anim}, clipPaths: {n_clip}, uses: {n_use}, lines: {len(LINES)}")
 print(f"noise removed: {'noise' not in svg}")

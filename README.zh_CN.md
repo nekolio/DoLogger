@@ -142,7 +142,7 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 > [!IMPORTANT]
 > DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化——生产环境请锁定到确切版本。详见[版本管理与弃用策略](docs/zh_CN/guides/VersioningAndDeprecation.md)。
 
-![架构](./docs/assets/architecture.svg)
+![架构](./docs/assets/architecture-zh.svg)
 
 应用将记录直接推入无锁 MPSC 环形缓冲区——热路径上没有任何锁。后台
 管道运行七个阶段(PreFilter → Filter → FieldProvider → Assembly →
@@ -302,7 +302,7 @@ DoLogger/
 ├── config/                     # 示例配置（dologger.example.toml）
 ├── docker/                     # 容器镜像（Dockerfile.dev；运行时镜像在 v1.0.0）
 ├── docs/                       # 技术文档（中英双语，自动同步至 wiki）
-│   └── assets/                 # hero.svg、architecture.svg
+│   └── assets/                 # hero.svg、architecture.svg/-zh（mmd 源 + 渲染 SVG）
 ├── tests/                      # 测试套件（common/、perf/、smoke/）
 ├── scripts/                    # 构建与开发环境脚本（本地 + CI）
 ├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）

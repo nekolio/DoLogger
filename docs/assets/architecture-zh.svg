@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2169.71 797" width="2169.71" height="797" style="--bg:#ffffff;--fg:#1f2328;--line:#d1d9e0;--accent:#0969da;--muted:#59636e;background:var(--bg)">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap');
+  text { font-family: 'Inter', system-ui, sans-serif; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 30%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="4.8" refX="8" refY="2.4" orient="auto">
+    <polygon points="0 0, 8 2.4, 0 4.8" fill="var(--_arrow)" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="4.8" refX="0" refY="2.4" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.4, 8 4.8" fill="var(--_arrow)" />
+  </marker>
+</defs>
+<rect x="40" y="143.5" width="591.9000000000001" height="451" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+<rect x="40" y="143.5" width="591.9000000000001" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+<text x="52" y="157.5" dy="0.35em" font-size="12" font-weight="600" fill="var(--_text-sec)">采集层 INGEST — 无锁提交</text>
+<rect x="788.5000000000001" y="93" width="371.45000000000005" height="552" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+<rect x="788.5000000000001" y="93" width="371.45000000000005" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+<text x="800.5000000000001" y="107" dy="0.35em" font-size="12" font-weight="600" fill="var(--_text-sec)">7 级流水线 7-STAGE PIPELINE</text>
+<rect x="1307.9900000000002" y="41" width="243.5999999999999" height="716" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+<rect x="1307.9900000000002" y="41" width="243.5999999999999" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+<text x="1319.9900000000002" y="55" dy="0.35em" font-size="12" font-weight="600" fill="var(--_text-sec)">接收器层 SINK LAYER — 11 个内置接收器</text>
+<rect x="1693.91" y="134.75" width="435.8" height="400" rx="0" ry="0" fill="var(--_group-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+<rect x="1693.91" y="134.75" width="435.8" height="28" rx="0" ry="0" fill="var(--_group-hdr)" stroke="var(--_node-stroke)" stroke-width="1" />
+<text x="1705.91" y="148.75" dy="0.35em" font-size="12" font-weight="600" fill="var(--_text-sec)">安全与扩展 SECURITY &amp; EXTENSIBILITY</text>
+<polyline points="631.9000000000001,387 788.5000000000001,387" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,117 1338.7150000000001,117" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,177 1370.89,177" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,237 1349.4400000000003,237" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,297 1327.9900000000002,297" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,357 1360.1650000000002,357" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,417 1374.4650000000001,417" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,477 1349.4400000000003,477" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,537 1378.0400000000002,537" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,597 1360.1650000000002,597" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,657 1370.89,657" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,615 1179.9500000000003,615 1179.9500000000003,717 1335.14,717" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="1159.9500000000003,387 1179.9500000000003,387 1179.9500000000003,48.5 1911.8100000000002,48.5 1911.8100000000002,170.75" fill="none" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline points="1488.6900000000003,657 1911.8100000000002,657 1911.8100000000002,504.75" fill="none" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline points="204.275,227.5 204.275,267.5" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="204.275,303.5 204.275,378.5 205.54999999999998,378.5" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="350.25,396.5 350.25,453.5" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="496.225,303.5 496.225,378.5 494.95000000000005,378.5" fill="none" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline points="350.25,489.5 350.25,546.5" fill="none" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="4 4" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,177 974.2250000000001,217" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,253 974.2250000000001,293" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,329 974.2250000000001,369" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,405 974.2250000000001,445" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,481 974.2250000000001,521" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="974.2250000000001,557 974.2250000000001,597" fill="none" stroke="var(--_line)" stroke-width="0.75" marker-end="url(#arrowhead)" />
+<polyline points="1911.8100000000002,218.75 1911.8100000000002,258.75" fill="none" stroke="var(--_line)" stroke-width="0.75" />
+<polyline points="1911.8100000000002,294.75 1911.8100000000002,334.75" fill="none" stroke="var(--_line)" stroke-width="0.75" />
+<polyline points="1911.8100000000002,370.75 1911.8100000000002,410.75" fill="none" stroke="var(--_line)" stroke-width="0.75" />
+<polyline points="1911.8100000000002,446.75 1911.8100000000002,486.75" fill="none" stroke="var(--_line)" stroke-width="0.75" />
+<rect x="687.9000000000001" y="373.5" width="44.6" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="710.2" y="387" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">drain</text>
+<rect x="1215.9500000000003" y="103.5" width="56.04" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="1243.9700000000003" y="117" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">io_pool</text>
+<rect x="1410.3500000000001" y="35" width="38.88" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="1429.7900000000002" y="48.5" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">sign</text>
+<rect x="1587.5900000000001" y="643.5" width="50.32" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="1612.7500000000002" y="657" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">verify</text>
+<rect x="330.81" y="411.5" width="38.88" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="350.25" y="425" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">push</text>
+<rect x="473.925" y="318.5" width="44.6" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="496.225" y="332" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">alloc</text>
+<rect x="319.37" y="504.5" width="61.760000000000005" height="27" rx="4" ry="4" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="0.5" />
+<text x="350.25" y="518" text-anchor="middle" dy="0.35em" font-size="11" font-weight="400" fill="var(--_text-muted)">over 90%</text>
+<rect x="1338.7150000000001" y="99" width="182.15" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1370.89" y="159" width="117.80000000000001" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1349.4400000000003" y="219" width="160.70000000000002" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1327.9900000000002" y="279" width="203.60000000000002" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1360.1650000000002" y="339" width="139.25" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1374.4650000000001" y="399" width="110.65" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1349.4400000000003" y="459" width="160.70000000000002" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1378.0400000000002" y="519" width="103.5" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1360.1650000000002" y="579" width="139.25" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1370.89" y="639" width="117.80000000000001" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="1335.14" y="699" width="189.3" height="36" rx="0" ry="0" fill="#dafbe1" stroke="#1a7f37" stroke-width="0.75" />
+<rect x="113.2" y="191.5" width="182.15" height="36" rx="0" ry="0" fill="#ddf4ff" stroke="#0969da" stroke-width="0.75" />
+<rect x="56" y="267.5" width="296.55" height="36" rx="0" ry="0" fill="#ddf4ff" stroke="#0969da" stroke-width="0.75" />
+<rect x="205.54999999999998" y="360.5" width="289.40000000000003" height="36" rx="0" ry="0" fill="#ddf4ff" stroke="#0969da" stroke-width="0.75" />
+<rect x="376.55" y="267.5" width="239.35000000000002" height="36" rx="0" ry="0" fill="#ddf4ff" stroke="#0969da" stroke-width="0.75" />
+<rect x="184.1" y="453.5" width="332.3" height="36" rx="0" ry="0" fill="#ddf4ff" stroke="#0969da" stroke-width="0.75" />
+<rect x="216.27499999999998" y="546.5" width="267.95000000000005" height="36" rx="0" ry="0" fill="#ddf4ff" stroke="#0969da" stroke-width="0.75" />
+<rect x="854.5500000000002" y="141" width="239.35000000000002" height="36" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+<rect x="868.8500000000001" y="217" width="210.75000000000003" height="36" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+<rect x="822.3750000000001" y="293" width="303.70000000000005" height="36" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+<rect x="804.5000000000001" y="369" width="339.45000000000005" height="36" rx="18" ry="18" fill="#fff8c5" stroke="#9a6700" stroke-width="1.5" />
+<rect x="840.2500000000001" y="445" width="267.95000000000005" height="36" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+<rect x="829.5250000000001" y="521" width="289.40000000000003" height="36" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+<rect x="829.5250000000001" y="597" width="289.40000000000003" height="36" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+<rect x="1784.9850000000001" y="182.75" width="253.65" height="36" rx="0" ry="0" fill="#fbefff" stroke="#8250df" stroke-width="0.75" />
+<rect x="1709.91" y="258.75" width="403.8" height="36" rx="0" ry="0" fill="#fbefff" stroke="#8250df" stroke-width="0.75" />
+<rect x="1777.835" y="334.75" width="267.95000000000005" height="36" rx="0" ry="0" fill="#fbefff" stroke="#8250df" stroke-width="0.75" />
+<rect x="1742.085" y="410.75" width="339.45000000000005" height="36" rx="0" ry="0" fill="#fbefff" stroke="#8250df" stroke-width="0.75" />
+<rect x="1802.8600000000001" y="486.75" width="217.9" height="36" rx="0" ry="0" fill="#fbefff" stroke="#8250df" stroke-width="0.75" />
+<text x="1429.7900000000002" y="117" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">标准输出 Console — stdout</text>
+<text x="1429.7900000000002" y="177" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">文件 File — 轮转</text>
+<text x="1429.7900000000002" y="237" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">Kafka — TLS + SASL</text>
+<text x="1429.7900000000002" y="297" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">Syslog — UDP / TCP / TLS</text>
+<text x="1429.7900000000002" y="357" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">Webhook — HTTPS</text>
+<text x="1429.7900000000002" y="417" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">SQLite — 本地</text>
+<text x="1429.7900000000002" y="477" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">OTel — OTLP / HTTP</text>
+<text x="1429.7900000000002" y="537" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">SHM — 共享内存</text>
+<text x="1429.7900000000002" y="597" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">Callback — 宿主扩展</text>
+<text x="1429.7900000000002" y="657" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">WORM — 不可变审计</text>
+<text x="1429.7900000000002" y="717" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">Security — 0600 · 绕过插件</text>
+<text x="204.275" y="209.5" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">宿主应用 Host Application</text>
+<text x="204.275" y="285.5" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">适配器 Adapters — Rust · C · Python · Go</text>
+<text x="350.25" y="378.5" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">dologger_log() — CAS 入队 · 102 ns P50</text>
+<text x="496.225" y="285.5" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">Treiber 对象池 Object Pool — 零分配</text>
+<text x="350.25" y="471.5" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">无锁 MPSC 环形缓冲 Ring — 90% 普通 / 10% 审计 · 永不丢弃</text>
+<text x="350.25" y="564.5" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">背压 Backpressure — 90% 协作 · 95% 溢写</text>
+<text x="974.2250000000001" y="159" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">0 · 预过滤 PreFilter — 限速 · 级别门控</text>
+<text x="974.2250000000001" y="235" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">1 · 过滤 Filter — 丢弃 / 放行规则</text>
+<text x="974.2250000000001" y="311" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">2 · 字段提供 FieldProvider — 注入字段 · Ring 1</text>
+<text x="974.2250000000001" y="387" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">3 · 组装 Assembly — LSN · prev_hash · Ed25519</text>
+<text x="974.2250000000001" y="463" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">4 · 处理 Processing — CRC32C · 密钥扫描</text>
+<text x="974.2250000000001" y="539" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">5 · 格式化 Formatting — JSON / 文本 / SIF</text>
+<text x="974.2250000000001" y="615" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">6 · 接收器扇出 Sink fan-out — 核心内置 · 配置驱动</text>
+<text x="1911.8100000000002" y="200.75" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">插件 Plugins — 9 种 VTable · C ABI</text>
+<text x="1911.8100000000002" y="276.75" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">信任锚 Trust anchors — active.pub · Blue / Yellow / Red</text>
+<text x="1911.81" y="352.75" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">字段权限 Field permissions — Ring 0–3</text>
+<text x="1911.81" y="428.75" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">审计链 Audit chain — Ed25519 · LSN · prev_hash</text>
+<text x="1911.8100000000002" y="504.75" text-anchor="middle" dy="0.35em" font-size="13" font-weight="500" fill="var(--_text)">dologctl verify-log — 离线校验</text>
+</svg>

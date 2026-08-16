@@ -34,11 +34,45 @@ landing page. Pure decoration: the image has no effect on how DoLogger runs.
 python3 tools/hero-svg/hero_generator.py
 ```
 
-- Writes `docs/assets/hero.svg` (source of truth).
-- Also syncs `site/public/assets/hero.svg` so local site builds never ship a
-  stale copy (`peripheral/github/scripts/build-site.sh` re-copies the Docs copy at CI time).
+- Writes `docs/assets/hero.svg` only — the single source of truth. The site
+  references it at build time (via the Vite plugin in `vite.config.js`)
+  instead of keeping its own copy.
 - Output is deterministic: with unchanged inputs, regeneration is a no-op.
 - Requires only the Python 3 standard library.
+- Timing and animation are computed dynamically from the `LINES` table and
+  the `Cargo.toml` version — no hardcoded per-line delays or cursor distances.
 
 Regenerate when the hero's text/visuals change (e.g. the typed lines in the
-`LINES` table at the top of `hero_generator.py`).
+`LINES` table at the top of `hero_generator.py`) or when the project version
+in `Cargo.toml` changes.
+
+### `arch-mermaid/` — `docs/assets/architecture.svg` / `-zh.svg` from `.mmd`
+
+The architecture diagrams are generated from Mermaid sources (the `.mmd`
+files are the source of truth, the `.svg` files are build output):
+
+- `docs/assets/architecture.mmd` — English diagram
+- `docs/assets/architecture-zh.mmd` — Chinese diagram
+
+Render them with the `pretty-mermaid` skill (installed via cc-switch):
+
+```
+node ~/.agents/skills/pretty-mermaid/scripts/render.mjs \
+  --input docs/assets/architecture.mmd \
+  --output docs/assets/architecture.svg \
+  --format svg --theme github-light
+
+node ~/.agents/skills/pretty-mermaid/scripts/render.mjs \
+  --input docs/assets/architecture-zh.mmd \
+  --output docs/assets/architecture-zh.svg \
+  --format svg --theme github-light
+```
+
+- Never hand-edit the SVG — edit the `.mmd` and re-render.
+- `architecture-zh.svg` is what `README.zh_CN.md` embeds; the English
+  README embeds `architecture.svg`.
+- The `pretty-mermaid` skill's flowchart renderer is single-line label
+  only (`<br/>` is not supported); keep each node label on one line.
+- The renderer needs a Windows fix to load `beautiful-mermaid` (dynamic
+  `import()` must use a `file://` URL); both `~/.agents` and
+  `~/.cc-switch` copies of `render.mjs` already carry the fix.

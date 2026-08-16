@@ -311,7 +311,7 @@ DoLogger/
 ├── config/                     # Example configuration (dologger.example.toml)
 ├── docker/                     # Container images (Dockerfile.dev; runtime in v1.0.0)
 ├── docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
-│   └── assets/                 # hero.svg, architecture.svg
+│   └── assets/                 # hero.svg, architecture.svg/-zh (mmd source + rendered SVG)
 ├── tests/                      # Test suites (common/, perf/, smoke/)
 ├── scripts/                    # Build and setup scripts (local + CI)
 ├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
