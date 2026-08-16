@@ -129,12 +129,18 @@
    Reset & base
    ================================================================ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-/* The site is a presentation, not a document: dragging across a page
-   must never select text (hero art, buttons, card captions). The page-2
-   terminal keeps native selection so visitors can copy log lines. */
+/* The site is a presentation, not a document: nothing is selectable —
+   hero art, buttons, card captions AND the page-2 terminal all read as
+   display, not copyable text. */
 html { -webkit-user-select: none; user-select: none; }
-input, textarea, [contenteditable], .term-body { -webkit-user-select: text; user-select: text; }
+input, textarea, [contenteditable] { -webkit-user-select: text; user-select: text; }
 img { -webkit-user-drag: none; user-drag: none; }
+/* No blue tap flash on touch: interactive elements keep their own
+   focus/active styling; the default mobile highlight is pure noise. */
+html {
+  -webkit-tap-highlight-color: transparent;
+  tap-highlight-color: transparent;
+}
 html, body {
   height: 100%;
   overflow-y: scroll;
@@ -308,16 +314,24 @@ html, body {
   color: var(--bg);
 }
 /* the filter trigger's "working/selected" state — while the popup is
-   open the button reads as active (distinct from hover): accent-tinted
-   fill + persistent glow + no lift, so it reads "pinned open" rather
-   than hover's solid fill + float */
+   open the button reads as active (distinct from hover): a SOLID accent
+   fill with contrasting text + persistent glow + no lift. Solid fill
+   reads clearly in BOTH themes (dark: bright cyan on dark; light: deep
+   blue on white), unlike a translucent tint that washes out on light. */
 .btn.active {
   border-color: var(--accent);
-  background: var(--accent-glow);
-  box-shadow: 0 0 18px var(--accent-glow);
+  background: var(--accent);
+  color: var(--bg);
+  box-shadow: 0 0 22px var(--accent-glow), 0 0 8px var(--accent-glow);
   transform: none;
-  color: var(--accent);
 }
+.btn.active:hover {
+  background: var(--accent);
+  color: var(--bg);
+  transform: none;
+}
+.btn.active .vs-current { color: inherit; }
+.btn.active .chev { color: inherit; }
 .btn.active .vs-current { color: var(--accent); }
 .btn.active::after { display: none; }
 .btn .chev { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
@@ -2010,10 +2024,12 @@ body::after {
   .term-title { display: none; }
   /* phone-width logs wrap instead of overflowing the terminal */
   .term-body .log-line { white-space: pre-wrap; word-break: break-word; }
-  /* tight screens: drop the group labels (icons keep their tooltips) so
-     the bar never overflows its rounded background */
+  /* tight screens: the cursor-style toggle is meaningless on touch
+     (no pointer to style) — hide it and KEEP the theme/language group
+     labels so the toggles stay self-explanatory on a phone */
   .top-controls { gap: 0.3rem; padding: 0.25rem 0.5rem; }
-  .top-controls .group-label { display: none; }
+  .top-controls .cursor-toggle { display: none; }
+  .top-controls .group-label { font-size: 0.6rem; display: inline-flex; }
   .top-controls .divider { height: 16px; }
 }
 /* short landscape screens: keep everything reachable */

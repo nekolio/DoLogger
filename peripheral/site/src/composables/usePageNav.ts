@@ -46,43 +46,25 @@ export function usePageNav() {
     if (i < 0 || i >= count) return
     const el = document.getElementById(PAGES[i])
     if (!el) return
+    el.scrollIntoView({ behavior: REDUCED_MOTION ? 'auto' : 'smooth' })
     active.value = i
     lastDir.value = i > prev ? 1 : i < prev ? -1 : 0
-
-    /* Desktop (fine pointer, wide, motion allowed) keeps the smooth slide.
-       Touch / narrow / reduced-motion takes an INSTANT jump to the exact
-       page top: a smooth programmatic scroll can be cancelled mid-flight by
-       the user's finger or residual touch momentum, which is exactly how a
-       swipe came to rest BETWEEN two slides. An instant jump has no
-       intermediate state to rest in. */
-    const smooth = enabled() && !REDUCED_MOTION
-    const jump = () => {
-      window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top, behavior: 'auto' })
-    }
-    if (smooth) el.scrollIntoView({ behavior: 'smooth' })
-    else jump()
-
-    /* Authoritative snap-verify. It must NOT be gated on `active`: the
-       scroll listener re-points `active` at whichever page is nearest while
-       a smooth scroll crosses a boundary, so the old `active === i` guard
-       cancelled the snap exactly when it was most needed. A monotonic id
-       lets a newer transition supersede an older pending snap; touch gets a
-       second, later re-check so residual momentum cannot park the page
-       mid-way. */
-    const id = ++transitionId
-    const verify = () => {
-      if (id !== transitionId) return
-      if (Math.abs(el.getBoundingClientRect().top) > 2) jump()
-    }
-    window.setTimeout(verify, smooth ? 320 : 80)
-    if (!smooth) window.setTimeout(verify, 260)
-    transitionUntil = performance.now() + (smooth ? 360 : 300)
+    /* Mobile Chromium can drop the final paint after a smooth
+       programmatic scroll (blank / half-visible page until a manual
+       interaction). Verify a beat later and snap the page back into
+       place if the scroll did not land — unless the user has already
+       moved on to another page. */
+    window.setTimeout(() => {
+      if (active.value !== i) return
+      const top = el.getBoundingClientRect().top
+      if (Math.abs(top) > 2) {
+        window.scrollTo({ top: window.scrollY + top, behavior: 'auto' })
+      }
+    }, 900)
   }
 
   let cooldownUntil = 0
   let scrollRaf = 0
-  let transitionId = 0
-  let transitionUntil = 0
 
   /* Generalized scroller-walk: from the wheel target up to <html>,
      find (a) the first ancestor that can scroll in `dir` (computed
@@ -190,15 +172,11 @@ export function usePageNav() {
     goTo(next)
   }
 
-  /* keep `active` truthful when the user scrolls by other means — but not
-     while a programmatic flip is still settling (the transition's own
-     snap-verify owns the position then, and the intermediate scroll
-     positions of a smooth slide must not re-point `active`). */
+  /* keep `active` truthful when the user scrolls by other means */
   function onScroll() {
     if (scrollRaf) return
     scrollRaf = requestAnimationFrame(() => {
       scrollRaf = 0
-      if (performance.now() < transitionUntil) return
       let best = 0
       let bestDist = Infinity
       for (let i = 0; i < count; i++) {

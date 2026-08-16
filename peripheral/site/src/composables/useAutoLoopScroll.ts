@@ -44,10 +44,10 @@ const PAUSE_AFTER_INTERACTION = 2500 // ms
 const ACCEL_TAU = 350       // ms — speed smoothing time constant
 const HOVER_GRACE_MS = 700  // ms of scrolling after hover before the pause
 
-/* Live MediaQueryLists so the loop reacts to a mid-session change (a
- * pointer appears, reduced motion toggles) without a reload. */
+/* Live MediaQueryList so the loop reacts to a mid-session pointer
+ * change (a fine pointer appears) without a reload. Reduced-motion does
+ * NOT gate the loop — the loop is a functional content display. */
 const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)')
-const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
 export function useAutoLoopScroll() {
   function hovered(el: HTMLElement): boolean {
@@ -60,7 +60,12 @@ export function useAutoLoopScroll() {
   }
 
   function attach(el: HTMLElement, dir: 'y' | 'x'): void {
-    if (instances.has(el) || reducedMotion.matches) return
+    /* NOTE: reduced-motion does NOT disable the loop — the loop is a
+       functional content display (overflowing card content must remain
+       reachable), not a decorative animation. Decorative entrances
+       (fly-in, marquee sparkle) are gated separately by the components.
+       Only hover/interaction/hidden-tab pause applies here. */
+    if (instances.has(el)) return
     const st: LoopState = {
       raf: 0,
       dir: 1,

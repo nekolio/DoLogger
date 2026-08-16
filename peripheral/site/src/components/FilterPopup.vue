@@ -340,23 +340,31 @@ onBeforeUnmount(() => {
 
         <div class="fpop-results" data-wheel-lock>
           <template v-if="osGroups.length">
-            <div v-for="g in osGroups" :key="g.os" class="res-os">
-              <h4 class="res-os-head">
-                <span class="res-os-name">{{ t(OS_KEYS[g.os]) }}</span>
-                <span class="res-os-count">{{ g.archs.reduce((n, a) => n + a.items.length, 0) }} {{ t('filter-assets') }}</span>
-              </h4>
-              <div v-for="a in g.archs" :key="a.arch" class="res-arch">
-                <h5 class="res-arch-head">{{ a.arch }}</h5>
-                <TransitionGroup name="resrow" tag="div" class="res-arch-rows">
-                  <a v-for="it in a.items" :key="it.asset.name" class="res-row"
-                     :href="it.asset.browser_download_url" :title="it.asset.name">
-                    <span class="tag-kind" :class="it.kind">{{ kindLabel(it.kind) }}</span>
-                    <span class="res-name">{{ it.short }}</span>
-                    <span v-if="multiVer" class="res-ver">{{ it.tag }}</span>
-                  </a>
+            <!-- OS groups and arch groups get their own transition groups
+                 so switching ANY filter (os/arch/kind/type) animates the
+                 appearing/disappearing groups AND the rows reflow — not
+                 just the row-level kind filter. -->
+            <TransitionGroup name="resgrp" tag="div" class="res-groups">
+              <div v-for="g in osGroups" :key="g.os" class="res-os">
+                <h4 class="res-os-head">
+                  <span class="res-os-name">{{ t(OS_KEYS[g.os]) }}</span>
+                  <span class="res-os-count">{{ g.archs.reduce((n, a) => n + a.items.length, 0) }} {{ t('filter-assets') }}</span>
+                </h4>
+                <TransitionGroup name="resarch" tag="div" class="res-archs">
+                  <div v-for="a in g.archs" :key="a.arch" class="res-arch">
+                    <h5 class="res-arch-head">{{ a.arch }}</h5>
+                    <TransitionGroup name="resrow" tag="div" class="res-arch-rows">
+                      <a v-for="it in a.items" :key="it.asset.name" class="res-row"
+                         :href="it.asset.browser_download_url" :title="it.asset.name">
+                        <span class="tag-kind" :class="it.kind">{{ kindLabel(it.kind) }}</span>
+                        <span class="res-name">{{ it.short }}</span>
+                        <span v-if="multiVer" class="res-ver">{{ it.tag }}</span>
+                      </a>
+                    </TransitionGroup>
+                  </div>
                 </TransitionGroup>
               </div>
-            </div>
+            </TransitionGroup>
           </template>
           <div v-else class="fpop-empty">
             <p>{{ t('filter-empty') }}</p>
@@ -465,6 +473,25 @@ onBeforeUnmount(() => {
 .fpop2 .resrow-leave-active { position: absolute; left: 0; right: 0; }
 .fpop2 .resrow-move { transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1); }
 
+/* OS-group and arch-group transitions — same motion language, one level
+   up: switching the OS or arch filter animates whole groups in/out and
+   the remaining groups glide to fill (FLIP via .resgrp-move/.resarch-move). */
+.fpop2 .res-groups { position: relative; }
+.fpop2 .resgrp-enter-active,
+.fpop2 .resgrp-leave-active,
+.fpop2 .resarch-enter-active,
+.fpop2 .resarch-leave-active {
+  transition: opacity 0.22s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fpop2 .resgrp-enter-from,
+.fpop2 .resarch-enter-from { opacity: 0; transform: translateY(-10px); }
+.fpop2 .resgrp-leave-to,
+.fpop2 .resarch-leave-to { opacity: 0; transform: translateY(6px); }
+.fpop2 .resgrp-leave-active,
+.fpop2 .resarch-leave-active { position: absolute; left: 0; right: 0; }
+.fpop2 .resgrp-move,
+.fpop2 .resarch-move { transition: transform 0.34s cubic-bezier(0.22, 1, 0.36, 1); }
+
 /* enter/leave — MIRROR IMAGES: open scales up, fades in and drifts
    slightly upward (toward the anchor); close reverses exactly. The
    flip-up (.up) panel mirrors the drift vertically. */
@@ -492,5 +519,17 @@ onBeforeUnmount(() => {
   .fpop2 .resrow-enter-from,
   .fpop2 .resrow-leave-to { transform: none; opacity: 1; }
   .fpop2 .resrow-leave-active { position: static; }
+  .fpop2 .resgrp-enter-active,
+  .fpop2 .resgrp-leave-active,
+  .fpop2 .resgrp-move,
+  .fpop2 .resarch-enter-active,
+  .fpop2 .resarch-leave-active,
+  .fpop2 .resarch-move { transition: none; }
+  .fpop2 .resgrp-enter-from,
+  .fpop2 .resgrp-leave-to,
+  .fpop2 .resarch-enter-from,
+  .fpop2 .resarch-leave-to { transform: none; opacity: 1; }
+  .fpop2 .resgrp-leave-active,
+  .fpop2 .resarch-leave-active { position: static; }
 }
 </style>

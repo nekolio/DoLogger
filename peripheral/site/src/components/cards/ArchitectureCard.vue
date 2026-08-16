@@ -41,16 +41,15 @@ const subs = [
 </template>
 
 <style scoped>
-/* On narrow/expanded-mobile widths the pipeline chain must WRAP instead
-   of overflowing: the marquee track becomes a plain wrapping row (the
-   duplicated second copy is hidden so the chain reads once). */
-@media (max-width: 560px) {
-  .pipe-marquee { overflow: visible; }
-  .pipe-track {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem 0.6rem;
-  }
-  .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
+/* The pipeline chain wraps to fit its card — flex-wrap with a tracked
+   width means every stage stays fully readable at ANY viewport width
+   (the chain is content, not a decorative marquee; the duplicated
+   marquee copy is dropped so the chain reads once). */
+.pipe-marquee { overflow: visible; }
+.pipe-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.6rem;
 }
+.pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
 </style>

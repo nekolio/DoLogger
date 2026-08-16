@@ -106,10 +106,18 @@ const mobileCards = computed<MobileCard[]>(() => {
     return cards.map((c, i) => ({ ...c, i, state: 'closed' as const }))
   }
   const n = cards.length
+  /* symmetric window: expand UP and DOWN alternately so the opened card
+     stays CENTERED (one neighbour above, one below) — e.g. expanding
+     Sinks (index 2) shows [1,2,3] = Security | Sinks | Architecture.
+     Edge cards can't center; then the window grows toward the available
+     side only. */
   let a = expanded.value, b = expanded.value
+  let up = true // expand upward first, then alternate
   while (b - a + 1 < 3) {
-    if (a > 0) a--
-    else if (b < n - 1) b++
+    if (up && a > 0) { a--; up = false }
+    else if (!up && b < n - 1) { b++; up = true }
+    else if (a > 0) { a-- }          // up blocked → grow down first
+    else if (b < n - 1) { b++ }      // down blocked → grow up
     else break
   }
   const out: MobileCard[] = []
@@ -132,29 +140,35 @@ function enableGyroIfAvailable() {
 }
 let gyroHandler: ((e: DeviceOrientationEvent) => void) | null = null
 let gyroCard: HTMLElement | null = null
+let gyroBase: { b: number; g: number } | null = null // pose when the card opened
 function attachGyro() {
   detachGyro()
   gyroCard = document.querySelector<HTMLElement>('#page3 .mcard.open')
   if (!gyroCard) return
   const clamp = (v: number, m: number) => Math.max(-m, Math.min(m, v))
+  /* The tilt is relative to the pose AT OPEN TIME, not an absolute
+     "upright" reference: whatever the device orientation is the moment
+     the card expands becomes the flat baseline, and the card only tilts
+     as the phone moves away from that. A phone lying flat (beta≈90°)
+     when tapped therefore shows a level card, not an up-small/down-big
+     wedge. The first deviceorientation event right after the gesture
+     is the baseline. */
+  gyroBase = null
   gyroHandler = (e: DeviceOrientationEvent) => {
     const b = e.beta ?? 0
     const g = e.gamma ?? 0
-    /* --tilt-x drives rotateX (pitch, up/down): beta ~45° is "upright",
-       so `(45 - b)` leans the card with the device — user-confirmed
-       correct, left as-is.
-       --tilt-y drives rotateY (roll, left/right). Tilting the phone RIGHT
-       (right edge down) gives POSITIVE gamma; the matching visual is the
-       card's right edge receding, which is POSITIVE rotateY. So gamma maps
-       with the SAME sign (+g). The old `-g` inverted left/right. */
-    gyroCard?.style.setProperty('--tilt-x', clamp((45 - b) * 0.22, 10).toFixed(2) + 'deg')
-    gyroCard?.style.setProperty('--tilt-y', clamp(g * 0.3, 10).toFixed(2) + 'deg')
+    if (!gyroBase) { gyroBase = { b, g }; return } // capture the open-pose baseline
+    const db = b - gyroBase.b   // pitch delta from the baseline
+    const dg = g - gyroBase.g   // roll delta from the baseline
+    gyroCard?.style.setProperty('--tilt-x', clamp(db * 0.22, 10).toFixed(2) + 'deg')
+    gyroCard?.style.setProperty('--tilt-y', clamp(dg * 0.3, 10).toFixed(2) + 'deg')
   }
   window.addEventListener('deviceorientation', gyroHandler)
 }
 function detachGyro() {
   if (gyroHandler) window.removeEventListener('deviceorientation', gyroHandler)
   gyroHandler = null
+  gyroBase = null
   /* collapsing leaves no residual tilt on the card */
   if (gyroCard) {
     gyroCard.style.removeProperty('--tilt-x')
