@@ -594,14 +594,20 @@ jobs:
           path: release-artifacts
           pattern: release-*
 
-      # The `7zip` apt package (Ubuntu 24.04) ships a 7z binary WITH ZSTD
-      # support. We use it instead of downloading 7zz from 7-zip.org — the
-      # pinned 7zz 2501 release fails with a bare "System ERROR" (exit 2)
-      # when creating the out-of-box archives, while the distro 7z works.
-      - name: Install 7-Zip (ZSTD-enabled)
+      # mcmilk/7-Zip-zstd — the 7-Zip fork with native ZSTD support
+      # (the official 7-zip.org 7zz lacks ZSTD and fails with a bare
+      # "System ERROR" / exit 2 when asked for -m0=zstd; Ubuntu's p7zip
+      # predates ZSTD too). This is the same build family used locally.
+      - name: Install 7-Zip-zstd (ZSTD-enabled)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y 7zip
+          SEVENZ_URL="https://github.com/mcmilk/7-Zip-zstd/releases/download/v26.02-v1.5.7-R2/linux-gcc-x64.zip"
+          SEVENZ_DIR="$RUNNER_TEMP/7z"
+          mkdir -p "$SEVENZ_DIR"
+          curl -fsSL -o "$SEVENZ_DIR/7z.zip" "$SEVENZ_URL"
+          cd "$SEVENZ_DIR"
+          python3 -m zipfile -e 7z.zip .   # unzip without needing unzip
+          chmod +x 7zz 7z
+          ls -la
 
       # Benchmark results are notes content, not release assets — keep them
       # out of release-artifacts/ (that directory is attached to the release).
@@ -626,17 +632,16 @@ jobs:
           ls -la release-artifacts/
 
       # Out-of-box archives — one per product category (CLI and LIB), per
-      # platform, compressed with 7-Zip + ZSTD (level 19 — the method's
-      # standard max). Each archive bundles the official plugin bundle +
-      # its .sig (so the plugins verify BLUE on unpack) + the example
-      # config, so a user extracts one file and has a ready-to-run setup.
-      # The distro 7z is used (installed above) — a pinned 7zz 2501 from
-      # 7-zip.org failed with "System ERROR" (exit 2) on the first archive.
+      # platform, compressed with 7-Zip-zstd + ZSTD (level 19 — the
+      # method's standard max). Each archive bundles the official plugin
+      # bundle + its .sig (so the plugins verify BLUE on unpack) + the
+      # example config, so a user extracts one file and has a ready-to-run
+      # setup. The ZSTD-enabled 7zz is downloaded in the step above.
       - name: Build out-of-box archives (7z + ZSTD max)
         shell: bash
         run: |
           set -euo pipefail
-          SEVEN_Z="7z"   # from the `7zip` apt package — ZSTD-enabled
+          SEVEN_Z="$RUNNER_TEMP/7z/7zz"
 
           TAG="${{ github.ref_name }}"
           STAGE="$RUNNER_TEMP/box"
