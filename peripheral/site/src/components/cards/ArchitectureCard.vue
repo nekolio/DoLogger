@@ -57,25 +57,10 @@ const subs = [
 }
 .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
 
-/* Flow arrows — the standard "A → B → C" reading:
-     [PreFilter] → [Filter] → [FieldProvider] → … → [Sink fan-out]
-   - the FIRST stage (PreFilter) has NO leading arrow (chain start);
-   - the LAST stage (Sink fan-out) has NO trailing arrow (chain end);
-   - every stage IN BETWEEN shows a leading → (flow into it).
-   style.css draws a trailing arrow on every `:not(:last-child)` stage —
-   with the marquee copy hidden, the visible 7th stage is NOT the DOM
-   :last-child, so that rule left an orphan arrow after Sink fan-out and
-   one dangling at each wrapped line end. The higher-specificity rules
-   below kill it and replace it with leading arrows that ride with their
-   stage into the next line (never orphaned at a line end). */
-.pipe-track .pipe-stage::after { display: none; }   /* (0,3,1) beats style.css's (0,2,1) */
-.pipe-track .pipe-stage::before {
-  content: '→';
-  margin-right: 0.15rem;
-  color: var(--accent);
-  font-size: 0.7rem;
-  align-self: center;
-  flex: none;
-}
-.pipe-track .pipe-stage:first-child::before { display: none; } /* no arrow before PreFilter */
+/* style.css draws a trailing → on every `.pipe-stage:not(:last-child)`
+   — that gives the connecting arrows between stages. But with the
+   marquee copy hidden, the VISIBLE last stage (Sink fan-out, the 7th)
+   is not the DOM :last-child, so it would get a trailing arrow too.
+   Remove it: the chain ends at Sink fan-out, no arrow after it. */
+.pipe-track .pipe-stage:nth-child(7)::after { display: none; }
 </style>
