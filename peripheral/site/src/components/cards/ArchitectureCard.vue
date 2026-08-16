@@ -56,13 +56,20 @@ const subs = [
   width: 100%;
 }
 .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
-/* Flow arrows: each stage carries a LEADING → (flow INTO it) instead of
-   style.css's trailing arrow on every non-last DOM child. In a wrapped
-   row a trailing arrow dangles at the line end; a leading arrow rides
-   with its stage into the next line, so every stage still reads as
-   connected without any line-end orphan. The first stage has no arrow. */
-.pipe-stage::after { display: none; } /* kill style.css's trailing arrows */
-.pipe-stage::before {
+
+/* Flow arrows — the standard "A → B → C" reading:
+     [PreFilter] → [Filter] → [FieldProvider] → … → [Sink fan-out]
+   - the FIRST stage (PreFilter) has NO leading arrow (chain start);
+   - the LAST stage (Sink fan-out) has NO trailing arrow (chain end);
+   - every stage IN BETWEEN shows a leading → (flow into it).
+   style.css draws a trailing arrow on every `:not(:last-child)` stage —
+   with the marquee copy hidden, the visible 7th stage is NOT the DOM
+   :last-child, so that rule left an orphan arrow after Sink fan-out and
+   one dangling at each wrapped line end. The higher-specificity rules
+   below kill it and replace it with leading arrows that ride with their
+   stage into the next line (never orphaned at a line end). */
+.pipe-track .pipe-stage::after { display: none; }   /* (0,3,1) beats style.css's (0,2,1) */
+.pipe-track .pipe-stage::before {
   content: '→';
   margin-right: 0.15rem;
   color: var(--accent);
@@ -70,5 +77,5 @@ const subs = [
   align-self: center;
   flex: none;
 }
-.pipe-stage:first-child::before { display: none; }
+.pipe-track .pipe-stage:first-child::before { display: none; } /* no arrow before PreFilter */
 </style>
