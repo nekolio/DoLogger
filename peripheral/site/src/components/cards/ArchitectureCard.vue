@@ -56,4 +56,9 @@ const subs = [
   width: 100%;
 }
 .pipe-stage:nth-child(n + 8) { display: none; } /* drop the duplicated copy */
+/* In the wrapped layout the inter-stage arrows would dangle at line
+   ends (they're drawn on every non-last DOM child, and after wrapping
+   the first row's last stage is NOT the DOM :last-child). The chain
+   reads as a flow — drop the arrows entirely. */
+.pipe-stage::after { display: none; }
 </style>

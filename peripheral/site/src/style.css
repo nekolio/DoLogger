@@ -1921,7 +1921,10 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: 0 1.1rem 1rem;
+  /* top padding so the first content row clears the title bar / rounded
+     corner; bottom padding so the last row isn't clipped by the card's
+     overflow:hidden at the scroll end */
+  padding: 0.6rem 1.1rem 0.8rem;
   /* mobile cards show their content directly — no edge-fade mask (that
      mask exists for the PC loop-scroll aesthetic; mobile has no loop) */
 }
