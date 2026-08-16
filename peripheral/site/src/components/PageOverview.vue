@@ -61,14 +61,14 @@ const cards: { key: string; icon: string; title: string; comp: Component }[] = [
 ]
 
 /* ── PC fly-in: home-screen-unlock entrance, once per entry ──────────
-   Each card flies from its own off-screen direction, overshoots a
-   little and settles with independent timings. fill:'backwards' keeps
-   it hidden until its delay; on finish the animation is cancelled so
-   the CSS tilt transform takes over untouched. */
-const DIRS: [number, number][] = [
-  [-1, -1.1], [0, -1.5], [1, -1.1],
-  [-1, 0.4], [1, 0.4], [-0.6, 1.4]
-]
+   Each card flies in from the SCREEN EDGE AT ITS OWN GRID POSITION:
+   a card in the left column enters from the left edge, a top-row card
+   from the top, a right-bottom card from the lower-right, etc. With a
+   3-column grid (2 rows now, 3 with the reserved slots), the middle
+   column cards drop from the top-center (分左中右 keeps them spread),
+   and the middle row (a 9-card wall) falls from the top like a drop.
+   fill:'backwards' keeps it hidden until its delay; on finish the
+   animation is cancelled so the CSS tilt transform takes over. */
 function gridCards(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>('#page3 .card'))
 }
@@ -76,10 +76,19 @@ function runFlyIn() {
   if (REDUCED_MOTION || isTouch.value) return
   const cardsEl = gridCards()
   const dist = Math.max(window.innerWidth, window.innerHeight)
+  const COLS = 3
   cardsEl.forEach((card, i) => {
-    const d = DIRS[i % DIRS.length]
-    const dx = d[0] * dist * (0.55 + 0.12 * (i % 3))
-    const dy = d[1] * dist * (0.42 + 0.1 * (i % 2))
+    const col = i % COLS                       // 0 left · 1 middle · 2 right
+    const row = Math.floor(i / COLS)           // 0 top · 1 middle · 2 bottom
+    const rows = Math.max(1, Math.ceil(cardsEl.length / COLS))
+    /* direction from the card's own edge: left col ← left, right col ←
+       right, middle col ← top (falls like a drop). Vertical origin
+       follows the row: top row from above, bottom row from below, the
+       middle row (a 9-card wall) drops from the top-center. */
+    const dxSign = col === 0 ? -1 : col === 2 ? 1 : 0
+    const dySign = row === 0 ? -1 : row === rows - 1 ? 1 : -1
+    const dx = dxSign * dist * (0.6 + 0.1 * (col === 1 ? row : col))
+    const dy = dySign * dist * (0.45 + 0.08 * row)
     const delay = 60 + i * 130
     const dur = 760 + (i % 3) * 120
     const anim = card.animate([
@@ -160,7 +169,11 @@ function attachGyro() {
     if (!gyroBase) { gyroBase = { b, g }; return } // capture the open-pose baseline
     const db = b - gyroBase.b   // pitch delta from the baseline
     const dg = g - gyroBase.g   // roll delta from the baseline
-    gyroCard?.style.setProperty('--tilt-x', clamp(db * 0.22, 10).toFixed(2) + 'deg')
+    /* gamma (+dg, rotateY) is user-confirmed correct (tilt right with the
+       phone). beta drives rotateX — its sign is INVERTED so the card leans
+       the same way the phone pitches (real-device check: pitch down ->
+       card top recedes). */
+    gyroCard?.style.setProperty('--tilt-x', clamp(-db * 0.22, 10).toFixed(2) + 'deg')
     gyroCard?.style.setProperty('--tilt-y', clamp(dg * 0.3, 10).toFixed(2) + 'deg')
   }
   window.addEventListener('deviceorientation', gyroHandler)
@@ -224,18 +237,16 @@ async function flipMobile(next: number | null) {
     const now = el.getBoundingClientRect()
     const old = before.get(key)
     if (old) {
-      /* kept card — transform-only FLIP (translate + scale around the
-         top-left), so the card starts EXACTLY at its old rect and springs
-         to the new one. Flex layout is untouched, so nothing can snap. */
+      /* kept card — TRANSLATE-ONLY FLIP. Scaling the whole card would
+         stretch its title (the user asked for no title deformation), so
+         the card glides from its old position to the new one while the
+         height change is handled by the layout reflow underneath. */
       const dx = old.left - now.left
       const dy = old.top - now.top
-      const sx = now.width > 0 ? old.width / now.width : 1
-      const sy = now.height > 0 ? old.height / now.height : 1
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(1 - sx) < 0.005 && Math.abs(1 - sy) < 0.005) continue
-      el.style.transformOrigin = '0 0'
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
       const anim = el.animate([
-        { transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` },
-        { transform: 'translate(0px, 0px) scale(1, 1)' }
+        { transform: `translate(${dx}px, ${dy}px)` },
+        { transform: 'translate(0px, 0px)' }
       ], {
         duration: collapsing ? 420 : 540,
         easing: collapsing ? soft : pop,
@@ -271,11 +282,13 @@ async function toggleMobile(i: number) {
   }
 }
 
-/* ── loop-scroll: every overflowing card body + the arch marquee ───── */
+/* ── loop-scroll: every overflowing card body (vertical ping-pong).
+      The architecture pipeline is NOT looped: its chain flex-wraps to
+      the card width, so there is no horizontal marquee to drive. ───── */
 const loops = useAutoLoopScroll()
 function syncLoops() {
   nextTick(() => {
-    loops.attachAll('#page3 .card-body', '#page3 .pipe-marquee')
+    loops.attachAll('#page3 .card-body', '')
   })
 }
 

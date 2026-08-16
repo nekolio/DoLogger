@@ -1242,7 +1242,13 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
      many rows exist (2 now, 3 when the wall grows), so every card stays
      the same size. The clamp() floors a row at a 3-row-equivalent height
      so cards never collapse below readable on short viewports. */
-  grid-auto-rows: minmax(clamp(9.5rem, calc((100% - 3rem) / 3), 13rem), 1fr);
+  /* equal implicit rows. Rows are deliberately COMPACT (not 1fr): a row
+     sized to fill the whole grid height would fit every card's content
+     and the loop-scroll would never trigger. The clamp() keeps cards
+     equal-sized with an upper bound (~30vh — long content overflows and
+     loops) and a lower bound (~3-row equivalent — never below readable),
+     so the card wall reads as a dense 3×2 grid with looping bodies. */
+  grid-auto-rows: clamp(11rem, 30vh, 18rem);
   gap: 1.5rem;
 }
 
@@ -1916,8 +1922,8 @@ html:not(.cyber-cursor) .cyber-cursor-layer { display: none; }
   overflow-y: auto;
   scrollbar-width: none;
   padding: 0 1.1rem 1rem;
-  mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, black 7%, black 93%, transparent 100%);
+  /* mobile cards show their content directly — no edge-fade mask (that
+     mask exists for the PC loop-scroll aesthetic; mobile has no loop) */
 }
 .mcard .card-body::-webkit-scrollbar { display: none; }
 /* TransitionGroup — page entry: staggered Q-bounce push-in from
@@ -2025,10 +2031,12 @@ body::after {
   /* phone-width logs wrap instead of overflowing the terminal */
   .term-body .log-line { white-space: pre-wrap; word-break: break-word; }
   /* tight screens: the cursor-style toggle is meaningless on touch
-     (no pointer to style) — hide it and KEEP the theme/language group
-     labels so the toggles stay self-explanatory on a phone */
+     (no pointer to style) — hide it AND its leading divider, and KEEP
+     the theme/language group labels so the toggles stay self-
+     explanatory on a phone */
   .top-controls { gap: 0.3rem; padding: 0.25rem 0.5rem; }
   .top-controls .cursor-toggle { display: none; }
+  .top-controls:has(.cursor-toggle) .divider:last-of-type { display: none; }
   .top-controls .group-label { font-size: 0.6rem; display: inline-flex; }
   .top-controls .divider { height: 16px; }
 }

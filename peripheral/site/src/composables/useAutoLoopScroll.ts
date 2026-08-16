@@ -1,21 +1,20 @@
 /* composables/useAutoLoopScroll.ts — seamless auto-scroll for page-3 card
- * content (card bodies scroll vertically, the architecture pipeline
- * scrolls horizontally).
+ * content (card bodies scroll vertically).
  *
- * Two motion models, chosen per axis:
+ * Motion model:
  *   - 'y' (card bodies): a slow ping-pong — scroll down, dwell briefly at
  *     the bottom, scroll back up, dwell at the top, repeat ("来回循环").
  *     Speed is a fixed px/s, so a longer card simply takes longer to
  *     traverse; it never scrolls faster because it has more content.
- *   - 'x' (pipe marquee): a continuous wrap over a doubled content track —
- *     scrolling wraps at half the track width, which is pixel-identical to
- *     the head, so the loop is seamless and the pipeline always flows one
- *     way (assembly never runs backwards).
  *
  * Behavior:
- *   - pauses on hover (fine pointers), on wheel/touch interaction, while
- *     the tab is hidden, and while the element is scrolled out of view;
- *   - respects prefers-reduced-motion (no loop at all — static content);
+ *   - pauses while the tab is hidden, during a short post-interaction
+ *     cooldown, and while a fine pointer hovers the card (the user is
+ *     reading it — wheel takes over natively);
+ *   - does NOT depend on IntersectionObserver: the card bodies live inside
+ *     the fixed page-3 viewport, and a missed observer callback used to
+ *     freeze the loop forever ("no scroll animation" bug). The loop runs
+ *     whenever the page is visible; off-screen it just scrolls harmlessly.
  *   - one rAF loop per container, every loop cancelled on detachAll().
  *     Redundant attach() calls are no-ops.
  */
@@ -27,44 +26,28 @@ interface LoopState {
   lastT: number
   holdUntil: number    // pause after user interaction
   dwellUntil: number   // brief pause at each end of the ping-pong
-  inView: boolean      // IntersectionObserver: element within the viewport
-  hoverGrace: number   // performance.now() when the pointer entered the card
   onWheel: () => void
   onTouchStart: () => void
   onTouchEnd: () => void
-  io: IntersectionObserver | null
 }
 
 const instances = new Map<HTMLElement, LoopState>()
 
 const Y_SPEED = 20          // px/s — comfortable, clearly-visible vertical loop
-const X_SPEED = 24          // px/s — marquee (20–30)
 const DWELL_MS = 1400       // ms paused at each end of the ping-pong
 const PAUSE_AFTER_INTERACTION = 2500 // ms
 const ACCEL_TAU = 350       // ms — speed smoothing time constant
-const HOVER_GRACE_MS = 700  // ms of scrolling after hover before the pause
 
 /* Live MediaQueryList so the loop reacts to a mid-session pointer
- * change (a fine pointer appears) without a reload. Reduced-motion does
- * NOT gate the loop — the loop is a functional content display. */
+ * change (a fine pointer appears) without a reload. */
 const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)')
 
 export function useAutoLoopScroll() {
-  function hovered(el: HTMLElement): boolean {
-    /* Sticky :hover on touch would freeze the loop forever — only pause
-       on genuine hover-capable pointers. Pausing when the whole card is
-       hovered (not just the body) matches "hover pauses the card". */
-    if (!finePointer.matches) return false
-    const card = el.closest('.card, .mcard')
-    return card ? card.matches(':hover') : el.matches(':hover')
-  }
-
   function attach(el: HTMLElement, dir: 'y' | 'x'): void {
     /* NOTE: reduced-motion does NOT disable the loop — the loop is a
        functional content display (overflowing card content must remain
        reachable), not a decorative animation. Decorative entrances
-       (fly-in, marquee sparkle) are gated separately by the components.
-       Only hover/interaction/hidden-tab pause applies here. */
+       (fly-in) are gated separately by the components. */
     if (instances.has(el)) return
     const st: LoopState = {
       raf: 0,
@@ -73,12 +56,9 @@ export function useAutoLoopScroll() {
       lastT: performance.now(),
       holdUntil: 0,
       dwellUntil: 0,
-      inView: true,
-      hoverGrace: 0,   // when the pointer entered the card (performance.now())
       onWheel: () => { st.holdUntil = performance.now() + PAUSE_AFTER_INTERACTION },
       onTouchStart: () => { st.holdUntil = Infinity },
       onTouchEnd: () => { st.holdUntil = performance.now() + 1500 },
-      io: null
     }
     instances.set(el, st)
 
@@ -91,18 +71,14 @@ export function useAutoLoopScroll() {
 
       if (now < st.dwellUntil) return // hard hold at a ping-pong end
 
-      /* target speed: 0 while hidden / off-screen / interacted / hovered.
-         Hover pauses with a short grace period: the pointer is usually
-         resting on a card when the page first becomes visible, and the
-         loop must still run for a moment so the user SEES it scroll
-         before the hover pause kicks in. `hoverGrace` is refreshed when
-         the element transitions from not-hovered to hovered. */
-      const hovering = hovered(el)
-      if (hovering && st.hoverGrace === 0) st.hoverGrace = now
-      if (!hovering) st.hoverGrace = 0
-      const idle = document.hidden || !st.inView || now < st.holdUntil
-        || (hovering && st.hoverGrace > 0 && now > st.hoverGrace + HOVER_GRACE_MS)
-      const target = idle ? 0 : (dir === 'y' ? Y_SPEED : X_SPEED)
+      /* target speed: 0 only while the tab is hidden, during the
+         post-interaction cooldown, or while a fine pointer hovers the
+         card. No IntersectionObserver gate — a missed callback must
+         never freeze the loop. */
+      const hovered = finePointer.matches
+        && el.closest('.card, .mcard')?.matches(':hover') === true
+      const idle = document.hidden || now < st.holdUntil || hovered
+      const target = idle ? 0 : Y_SPEED
       st.vel += (target - st.vel) * Math.min(1, dt / ACCEL_TAU)
 
       if (st.vel <= 0.05) return
@@ -121,9 +97,8 @@ export function useAutoLoopScroll() {
           st.dwellUntil = now + DWELL_MS
         }
       } else {
-        /* the marquee track is the content DOUBLED — wrapping at half the
-           scroll width shows the second copy's head, which is pixel-identical
-           to the first copy's head: a seamless one-way loop. */
+        /* horizontal axis is unused now (the arch chain flex-wraps), but
+           kept for symmetry — a seamless one-way wrap over a doubled track. */
         const wrapAt = el.scrollWidth / 2
         if (wrapAt > el.clientWidth + 2) {
           el.scrollLeft += st.vel * (dt / 1000)
@@ -131,12 +106,6 @@ export function useAutoLoopScroll() {
         }
       }
     }
-
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) st.inView = e.isIntersecting
-    }, { root: null, threshold: 0 })
-    io.observe(el)
-    st.io = io
 
     st.raf = requestAnimationFrame(step)
     el.addEventListener('wheel', st.onWheel, { passive: true })
@@ -148,7 +117,6 @@ export function useAutoLoopScroll() {
     const st = instances.get(el)
     if (!st) return
     cancelAnimationFrame(st.raf)
-    st.io?.disconnect()
     el.removeEventListener('wheel', st.onWheel)
     el.removeEventListener('touchstart', st.onTouchStart)
     el.removeEventListener('touchend', st.onTouchEnd)
@@ -158,7 +126,6 @@ export function useAutoLoopScroll() {
   function detachAll(): void {
     for (const [el, st] of instances) {
       cancelAnimationFrame(st.raf)
-      st.io?.disconnect()
       el.removeEventListener('wheel', st.onWheel)
       el.removeEventListener('touchstart', st.onTouchStart)
       el.removeEventListener('touchend', st.onTouchEnd)
@@ -168,8 +135,8 @@ export function useAutoLoopScroll() {
 
   /** attach to every matching container currently in the DOM. */
   function attachAll(selY: string, selX: string): void {
-    document.querySelectorAll<HTMLElement>(selY).forEach(el => attach(el, 'y'))
-    document.querySelectorAll<HTMLElement>(selX).forEach(el => attach(el, 'x'))
+    if (selY) document.querySelectorAll<HTMLElement>(selY).forEach(el => attach(el, 'y'))
+    if (selX) document.querySelectorAll<HTMLElement>(selX).forEach(el => attach(el, 'x'))
   }
 
   return { attach, detach, detachAll, attachAll }
