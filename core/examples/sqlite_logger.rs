@@ -20,6 +20,7 @@ fn main() {
         use dologger_core::buffer::RingBuffer;
         use dologger_core::config::DologgerConfig;
         use dologger_core::pipeline::Pipeline;
+        use dologger_core::plugin::vtable::PluginDispatch;
         use dologger_core::policy::{DropLevelPolicy, RateLimiter};
         use dologger_core::record::{thread_id_u64, LogLevel};
         use dologger_core::security::SignatureEngine;
@@ -57,6 +58,7 @@ fn main() {
             Arc::new(SignatureEngine::new()),
             Arc::new(RateLimiter::default()),
             Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
+            PluginDispatch::default(), // no plugins loaded in this example
             None,
         )
         .expect("Failed to create pipeline");

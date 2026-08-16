@@ -1126,9 +1126,14 @@ mod bpf_filter_validation {
         let _kill_idx = filter.len() + 1;
 
         // Patch JEQ instructions: jt = relative offset to ALLOW
-        for i in jeq_start_idx..allow_idx {
+        for (i, inst) in filter
+            .iter_mut()
+            .enumerate()
+            .take(allow_idx)
+            .skip(jeq_start_idx)
+        {
             let rel_jt = (allow_idx - i - 1) as u8;
-            filter[i].jt = rel_jt;
+            inst.jt = rel_jt;
         }
 
         // ALLOW return
@@ -1226,8 +1231,7 @@ mod bpf_filter_validation {
         // JEQ instructions are at indices 1..filter.len()-2
         let allow_idx = filter.len() - 2;
 
-        for i in 1..allow_idx {
-            let inst = &filter[i];
+        for (i, inst) in filter.iter().enumerate().take(allow_idx).skip(1) {
             // Verify it's a JEQ instruction
             let expected_code = BPF_JMP | BPF_JEQ | BPF_K;
             assert_eq!(
@@ -1261,8 +1265,7 @@ mod bpf_filter_validation {
 
         // jt values should decrease linearly: (allow_idx-i-1) for i=1..allow_idx-1
         let mut prev_jt = u8::MAX;
-        for i in 1..allow_idx {
-            let inst = &filter[i];
+        for (i, inst) in filter.iter().enumerate().take(allow_idx).skip(1) {
             assert!(
                 inst.jt < prev_jt,
                 "jt values must decrease monotonically (got jt={} at i={i})",
@@ -1285,9 +1288,9 @@ mod bpf_filter_validation {
         let filter = build_test_bpf_filter(&allowed);
         let allow_idx = filter.len() - 2;
 
-        for i in 1..allow_idx {
+        for inst in filter.iter().take(allow_idx).skip(1) {
             assert_eq!(
-                filter[i].jf, 0,
+                inst.jf, 0,
                 "All JEQ instructions must have jf=0 (fall through)"
             );
         }
@@ -1339,8 +1342,8 @@ mod bpf_filter_validation {
         let allow_idx = filter.len() - 2;
 
         let mut seen = HashSet::new();
-        for i in 1..allow_idx {
-            let nr = filter[i].k;
+        for (i, inst) in filter.iter().enumerate().take(allow_idx).skip(1) {
+            let nr = inst.k;
             assert!(
                 seen.insert(nr),
                 "Duplicate syscall number {nr} in BPF filter at instruction {i}"

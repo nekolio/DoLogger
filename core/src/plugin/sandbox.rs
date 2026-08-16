@@ -569,9 +569,8 @@ fn build_bpf_filter(allowed: &[i32]) -> Vec<libc::sock_filter> {
         });
     }
 
-    // ALLOW return and KILL return positions
+    // ALLOW return position (the KILL return follows immediately after it)
     let allow_idx = filter.len();
-    let kill_idx = filter.len() + 1;
 
     // Patch JEQ instructions: jt = relative offset from THIS instruction to ALLOW
     // For instruction at index i: jt = allow_idx - i - 1 (instructions to skip)

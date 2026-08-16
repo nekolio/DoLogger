@@ -347,13 +347,15 @@ mod tests {
 
     #[test]
     fn test_crc32c_detection() {
-        let imp = detect_crc_impl();
         // At minimum, software fallback should always work
         let crc = crc32c(b"test");
         assert!(crc != 0 || true, "CRC32C should compute successfully");
-        // On x86_64 with SSE 4.2, hardware should be preferred
+        // On x86_64 with SSE 4.2, hardware should be preferred. `imp` is only
+        // meaningful on x86_64, so it is computed inside the same cfg block to
+        // avoid an unused-variable warning on non-x86_64 targets.
         #[cfg(target_arch = "x86_64")]
         {
+            let imp = detect_crc_impl();
             if is_x86_feature_detected!("sse4.2") {
                 assert_eq!(imp, CrcImpl::Sse42);
             }
