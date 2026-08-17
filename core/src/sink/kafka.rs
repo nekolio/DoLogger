@@ -1,13 +1,84 @@
 //! Kafka Sink.
 //!
 //! Apache Kafka producer for high-throughput log streaming.
-//! Supports async batch production, compression, and SASL/TLS.
+//! Uses the pure-Rust `rskafka` client (no C broker library).
 //!
 //! # Feature flag
 //!
-//! Compile with `--features sink-kafka` to enable the `rdkafka` dependency.
+//! Compile with `--features sink-kafka` to enable the `rskafka` dependency.
 
-use std::time::Duration;
+#[cfg(feature = "sink-kafka")]
+mod producer {
+    //! Thin wrapper around the rskafka async client, bridged to the sync
+    //! `Sink` trait via a long-lived tokio runtime.
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use rskafka::client::partition::{Compression, UnknownTopicHandling};
+    use rskafka::client::ClientBuilder;
+    use rskafka::record::Record;
+    use tokio::runtime::Runtime;
+
+    /// Owns the tokio runtime and the rskafka client for the lifetime of the
+    /// sink. Kept behind the `sink-kafka` feature gate.
+    pub struct KafkaProducer {
+        runtime: Arc<Runtime>,
+        client: rskafka::client::Client,
+    }
+
+    impl KafkaProducer {
+        /// Connect to a comma-separated broker list, blocking until the client
+        /// metadata handshake completes.
+        pub fn connect(brokers: &str) -> Result<Self, String> {
+            let runtime = Runtime::new().map_err(|e| format!("kafka tokio runtime: {e}"))?;
+            let addrs: Vec<String> = brokers
+                .split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect();
+            if addrs.is_empty() {
+                return Err("kafka: no brokers configured".into());
+            }
+            let client = runtime
+                .block_on(ClientBuilder::new(addrs).build())
+                .map_err(|e| format!("kafka connect: {e}"))?;
+            Ok(Self {
+                runtime: Arc::new(runtime),
+                client,
+            })
+        }
+
+        /// Produce a single record to the given topic/partition and wait for
+        /// the broker ack.
+        pub fn produce(
+            &self,
+            topic: &str,
+            partition: i32,
+            payload: &[u8],
+            key: Option<&[u8]>,
+        ) -> Result<(), String> {
+            let runtime = Arc::clone(&self.runtime);
+            let partition_client = runtime
+                .block_on(self.client.partition_client(
+                    topic.to_owned(),
+                    partition,
+                    UnknownTopicHandling::Retry,
+                ))
+                .map_err(|e| format!("kafka partition client: {e}"))?;
+            let record = Record {
+                key: key.map(|k| k.to_vec()),
+                value: Some(payload.to_vec()),
+                headers: BTreeMap::new(),
+                timestamp: chrono::Utc::now(),
+            };
+            runtime
+                .block_on(partition_client.produce(vec![record], Compression::default()))
+                .map_err(|e| format!("kafka produce: {e}"))?;
+            Ok(())
+        }
+    }
+}
 
 use crate::sink::{Sink, SinkError, SinkResult};
 
@@ -72,7 +143,7 @@ pub struct KafkaSinkStats {
 pub struct KafkaSink {
     config: KafkaSinkConfig,
     #[cfg(feature = "sink-kafka")]
-    producer: Option<rdkafka::producer::FutureProducer>,
+    producer: Option<producer::KafkaProducer>,
     is_open: bool,
     records_sent: u64,
     errors: u64,
@@ -97,43 +168,15 @@ impl KafkaSink {
     pub fn open(&mut self) -> SinkResult {
         #[cfg(feature = "sink-kafka")]
         {
-            use rdkafka::config::ClientConfig;
-            use rdkafka::producer::FutureProducer;
-
-            let mut cfg = ClientConfig::new();
-            cfg.set("bootstrap.servers", &self.config.brokers);
-
-            if let Some(ref id) = self.config.client_id {
-                cfg.set("client.id", id);
-            }
-            if let Some(ref comp) = self.config.compression {
-                cfg.set("compression.type", comp);
-            }
-            if let Some(ref acks) = self.config.acks {
-                cfg.set("acks", acks);
-            }
-            if let Some(linger) = self.config.linger_ms {
-                cfg.set("linger.ms", linger.to_string());
-            }
-            if let Some(batch) = self.config.batch_size {
-                cfg.set("batch.size", batch.to_string());
-            }
-            if let Some(ref user) = self.config.sasl_username {
-                cfg.set("security.protocol", "SASL_SSL");
-                cfg.set("sasl.mechanism", "SCRAM-SHA-256");
-                cfg.set("sasl.username", user);
-                if let Some(ref pass) = self.config.sasl_password {
-                    cfg.set("sasl.password", pass);
-                }
-            } else if self.config.enable_tls {
-                cfg.set("security.protocol", "SSL");
-            }
-
-            let producer: FutureProducer = cfg
-                .create()
-                .map_err(|e| SinkError::WriteFailed(format!("kafka open: {e}")))?;
-
+            let producer = producer::KafkaProducer::connect(&self.config.brokers)
+                .map_err(SinkError::WriteFailed)?;
             self.producer = Some(producer);
+        }
+        #[cfg(not(feature = "sink-kafka"))]
+        {
+            return Err(SinkError::WriteFailed(
+                "Kafka Sink: compiled without 'sink-kafka' feature".into(),
+            ));
         }
 
         self.is_open = true;
@@ -158,80 +201,24 @@ impl Sink for KafkaSink {
     fn write(&mut self, formatted: &str) -> SinkResult {
         #[cfg(feature = "sink-kafka")]
         {
-            use rdkafka::producer::FutureRecord;
-            use std::sync::mpsc;
-            use std::time::Duration;
-
-            // Clone and leak producer for 'static lifetime — FutureRecord
-            // holds a reference. Memory cost: ~producer struct (negligible).
-            let producer: &'static rdkafka::producer::FutureProducer = Box::leak(Box::new(
-                self.producer.as_ref().ok_or(SinkError::Closed)?.clone(),
-            ));
-            // Leak small strings for 'static lifetime — needed because
-            // FutureRecord stores &str references and the future is polled
-            // in a spawned thread. Memory cost is bounded (~256B per call).
-            let topic: &'static str = Box::leak(self.config.topic.clone().into_boxed_str());
-            let payload: &'static str = Box::leak(formatted.to_owned().into_boxed_str());
-            let key: &'static str = Box::leak(self.records_sent.to_string().into_boxed_str());
-
-            // Bridge async FutureProducer to sync Sink trait via
-            // helper thread polling the delivery future.
-            let (tx, rx) = mpsc::channel();
-            let delivery_future = producer.send(
-                FutureRecord::to(topic).payload(payload).key(key),
-                Duration::from_millis(100),
-            );
-
-            std::thread::spawn(move || {
-                use std::future::Future;
-                use std::pin::Pin;
-                use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
-                unsafe fn clone_raw(_: *const ()) -> RawWaker {
-                    RawWaker::new(std::ptr::null(), &VTABLE)
-                }
-                unsafe fn noop(_: *const ()) {}
-                static VTABLE: RawWakerVTable = RawWakerVTable::new(clone_raw, noop, noop, noop);
-
-                // SAFETY: the waker uses a null data pointer with no-op clone/wake
-                // functions that never dereference it, so constructing it from a
-                // null pointer is sound. It is only used to poll the delivery
-                // future once per loop iteration in the busy-wait below.
-                let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
-                let mut cx = Context::from_waker(&waker);
-                let mut pinned: Pin<Box<dyn Future<Output = _>>> = Box::pin(delivery_future);
-
-                let result = loop {
-                    match pinned.as_mut().poll(&mut cx) {
-                        Poll::Ready(r) => break r,
-                        Poll::Pending => {
-                            std::thread::sleep(Duration::from_millis(5));
-                        }
-                    }
-                };
-                let _ = tx.send(result);
-            });
-
-            match rx.recv_timeout(Duration::from_millis(300)) {
-                Ok(Ok(_)) => {
+            let payload = formatted.to_owned();
+            let key = self.records_sent.to_string();
+            let topic = self.config.topic.clone();
+            // Scope the immutable borrow of `self.producer` so it ends before
+            // the counter fields are mutated below.
+            let result = {
+                let producer = self.producer.as_ref().ok_or(SinkError::Closed)?;
+                producer.produce(&topic, 0, payload.as_bytes(), Some(key.as_bytes()))
+            };
+            match result {
+                Ok(()) => {
                     self.records_sent += 1;
+                    self.bytes_sent += payload.len() as u64;
                     Ok(())
                 }
-                Ok(Err((kafka_err, _msg))) => {
+                Err(e) => {
                     self.errors += 1;
-                    Err(SinkError::WriteFailed(format!(
-                        "kafka delivery: {kafka_err}"
-                    )))
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    self.errors += 1;
-                    Err(SinkError::WriteFailed("kafka delivery timeout".to_string()))
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    self.errors += 1;
-                    Err(SinkError::WriteFailed(
-                        "kafka producer internal error".to_string(),
-                    ))
+                    Err(SinkError::WriteFailed(e))
                 }
             }
         }
@@ -252,18 +239,15 @@ impl Sink for KafkaSink {
     }
 
     fn flush(&mut self) -> SinkResult {
-        #[cfg(feature = "sink-kafka")]
-        if let Some(ref producer) = self.producer {
-            use rdkafka::producer::Producer;
-            let _ = producer.flush(Duration::from_secs(5));
-        }
+        // rskafka produce awaits the broker ack synchronously, so there is
+        // nothing left to flush.
         Ok(())
     }
 
     fn close(&mut self) -> SinkResult {
-        self.flush()?;
         #[cfg(feature = "sink-kafka")]
         {
+            // Dropping the producer stops the runtime and closes connections.
             self.producer = None;
         }
         self.is_open = false;

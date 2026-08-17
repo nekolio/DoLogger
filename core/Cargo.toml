@@ -24,14 +24,16 @@ libloading = "0.8"
 aes-gcm = "0.10"
 rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 ureq = { version = "2", optional = true }
-rdkafka = { version = "0.36", features = ["cmake-build"], optional = true }
+rskafka = { version = "0.6", default-features = false, optional = true }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "net"], optional = true }
+chrono = { version = "0.4", optional = true }
 
 [features]
 default = []
 sink-sqlite = ["rusqlite"]
 sink-webhook = ["ureq"]
 sink-otel = ["ureq"]
-sink-kafka = ["rdkafka"]
+sink-kafka = ["rskafka", "tokio", "chrono"]
 
 [target.'cfg(not(windows))'.dependencies]
 libc = "0.2"
