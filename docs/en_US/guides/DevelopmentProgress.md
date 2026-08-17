@@ -2,10 +2,9 @@
 
 > **Live completion-degree record** — updated at the end of each
 > development round per the [[per-round-checklist]] convention.
-> Last updated: 2026-08-17 (WS-3 hot reload wiring COMPLETE: `[watcher]`
-> config section, `ConfigWatcher` with native Windows RDCW + Linux inotify
-> backends, swappable `SinkRef` + `Engine::reload_config`, `dologctl run`
-> wiring, end-to-end reload tests).
+> Last updated: 2026-08-17 (WS-9 remote-sink unit tests landed: 14 new tests
+> across `sink/{webhook,syslog,kafka}.rs` for config / lifecycle / RFC-5424
+> framing; real-delivery depth deferred to WS-4).
 
 ## Legend
 
@@ -43,7 +42,7 @@
 | plugin/ | ✅ | ✅ manager/sandbox/vtable | 🟡 | 25 | ✅ | sandbox.rs `allow(missing_docs)` |
 | security/ | ✅ | ✅ sig/key_rot/external_anchor | 🟡 | 29 | ✅ | key_rotation `allow(missing_docs)` |
 | sif/ | ✅ | ✅ encode/decode/generated | ✅ | 18 | ✅ | FlatBuffer codegen committed |
-| sink/ | ✅ | ✅ 13 submodules | 🟡 | 18 | ✅ shm wired | shm.rs `allow(dead_code)` removed |
+| sink/ | ✅ | ✅ 13 submodules | 🟡 | 32 | ✅ shm wired | +14 WS-9: webhook 5 / syslog 5 / kafka 4 |
 | sys/ | ✅ | ✅ control_plane/host_info | 🟡 | 11 | ⛔ **control_plane unwired** | native watcher backend TODO |
 | util/hex | ✅ | ✅ new in WS-6 | ✅ | 9+6doc | ✅ | replaces hex crate |
 
@@ -106,7 +105,8 @@
 | WS-6 pre | real `dologctl run` loop | ✅ complete |
 | WS-2 | sink_shm wiring | ✅ complete |
 | WS-3 | hot_reload wiring | ✅ complete |
-| WS-4 | remote sinks (Kafka/Syslog/Webhook) | ⛔ pending |
+| WS-4 | remote sinks (Kafka/Syslog/Webhook) | 🟡 WS-9 base tests landed; real delivery pending |
+| WS-9 | remote-sink unit test base | ✅ complete (14 tests, core lib 226) |
 | WS-5 | docs/code consistency cleanup | ⛔ pending |
 | WS-6A | `rand` replacement | ⛔ candidate |
 | WS-6B | `crossbeam-channel` replacement | ⛔ candidate |

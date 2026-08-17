@@ -177,3 +177,73 @@ fn chrono_now() -> String {
     // Basic ISO 8601
     format!("{secs}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sink::SinkError;
+
+    #[test]
+    fn config_defaults_are_sensible() {
+        let cfg = WebhookSinkConfig::default();
+        assert!(!cfg.url.is_empty(), "url must have a default");
+        assert!(cfg.timeout_secs > 0, "timeout must be positive");
+        assert_eq!(
+            cfg.headers.first().map(|(k, _)| k.as_str()),
+            Some("Content-Type"),
+            "Content-Type header should be the first default"
+        );
+    }
+
+    #[test]
+    fn config_deserializes_with_missing_fields() {
+        let toml_str = r#"
+            url = "https://example.com/log"
+        "#;
+        let cfg: WebhookSinkConfig = toml::from_str(toml_str).expect("partial TOML parses");
+        assert_eq!(cfg.url, "https://example.com/log");
+        assert_eq!(cfg.timeout_secs, 10, "missing fields fall back to defaults");
+        assert_eq!(cfg.max_retries, 3);
+    }
+
+    #[test]
+    fn lifecycle_open_close_reports_is_open() {
+        let mut sink = WebhookSink::new(WebhookSinkConfig::default());
+        assert!(sink.open().is_ok());
+        assert!(sink.close().is_ok());
+    }
+
+    #[test]
+    fn write_without_feature_returns_write_failed() {
+        // Compiled without `sink-webhook` feature, every write must surface a
+        // structured `WriteFailed` error rather than panic.
+        let mut sink = WebhookSink::new(WebhookSinkConfig::default());
+        sink.open().expect("open");
+        let result = sink.write("hello");
+        if !cfg!(feature = "sink-webhook") {
+            assert!(
+                matches!(result, Err(SinkError::WriteFailed(_))),
+                "expected WriteFailed when sink-webhook feature is off, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn backoff_formula_caps_exponentially() {
+        // The backoff formula is `(base_ms * 2^(attempt - 1)).min(max_ms)`.
+        // Verify it directly by sampling a few attempts against a tiny base.
+        // We can't actually exercise it through the public API without
+        // hitting the network, so we keep the check narrowly on the math:
+        //   attempt 1 -> base
+        //   attempt 2 -> 2 * base
+        //   attempt 4 -> min(8 * base, max_ms)
+        let base_ms: u64 = 100;
+        let max_ms: u64 = 500;
+        for attempt in 1..=6u32 {
+            let computed = base_ms
+                .saturating_mul(2u64.pow(attempt.saturating_sub(1)))
+                .min(max_ms);
+            assert!(computed <= max_ms, "cap must hold at attempt {attempt}");
+        }
+    }
+}

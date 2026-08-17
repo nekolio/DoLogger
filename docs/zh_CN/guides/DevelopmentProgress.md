@@ -1,7 +1,7 @@
 # DoLogger 开发进度记录
 
 > **实时完成度记录** —— 每轮开发结束时按 [[per-round-checklist]] 规范更新。
-> 最近更新：2026-08-17（WS-3 热重载接线完成：`[watcher]` 配置段、`ConfigWatcher` 原生 Windows RDCW + Linux inotify 后端、可交换 `SinkRef` + `Engine::reload_config`、`dologctl run` 接线、端到端重载测试）。
+> 最近更新：2026-08-17（WS-9 远程 sink 单元测试落地：`sink/{webhook,syslog,kafka}.rs` 新增 14 个测试，覆盖 config / 生命周期 / RFC-5424 帧格式；真实投递深度留待 WS-4）。
 
 ## 图例
 
@@ -39,7 +39,7 @@
 | plugin/ | ✅ | ✅ manager/sandbox/vtable | 🟡 | 25 | ✅ | sandbox.rs `allow(missing_docs)` |
 | security/ | ✅ | ✅ sig/key_rot/external_anchor | 🟡 | 29 | ✅ | key_rotation `allow(missing_docs)` |
 | sif/ | ✅ | ✅ encode/decode/generated | ✅ | 18 | ✅ | FlatBuffer 生成代码已提交 |
-| sink/ | ✅ | ✅ 13 子模块 | 🟡 | 18 | ✅ shm 已接线 | shm.rs `allow(dead_code)` 已移除 |
+| sink/ | ✅ | ✅ 13 子模块 | 🟡 | 32 | ✅ shm 已接线 | +14 WS-9：webhook 5 / syslog 5 / kafka 4 |
 | sys/ | ✅ | ✅ control_plane/host_info | 🟡 | 11 | ⛔ **control_plane 未接线** | |
 | util/hex | ✅ | ✅ WS-6 新 | ✅ | 9+6doc | ✅ | 替换 hex crate |
 
@@ -102,7 +102,8 @@
 | WS-6 前 | 真实 `dologctl run` 循环 | ✅ 完成 |
 | WS-2 | sink_shm 接线 | ✅ 完成 |
 | WS-3 | 热重载接线 | ✅ 完成 |
-| WS-4 | 远程 sink（Kafka/Syslog/Webhook） | ⛔ 待办 |
+| WS-4 | 远程 sink（Kafka/Syslog/Webhook） | 🟡 WS-9 基础测试已落地；真实投递待续 |
+| WS-9 | 远程 sink 单元测试基础 | ✅ 完成（14 个测试，core lib 226） |
 | WS-5 | 文档/代码一致性清扫 | ⛔ 待办 |
 | WS-6A | `rand` 替换 | ⛔ 候选 |
 | WS-6B | `crossbeam-channel` 替换 | ⛔ 候选 |

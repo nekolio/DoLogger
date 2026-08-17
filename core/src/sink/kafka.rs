@@ -270,3 +270,71 @@ impl Sink for KafkaSink {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_defaults_are_sensible() {
+        let cfg = KafkaSinkConfig::default();
+        assert!(
+            !cfg.brokers.is_empty(),
+            "brokers must default to localhost:9092"
+        );
+        assert!(!cfg.topic.is_empty(), "topic must default to 'dologger'");
+        assert!(!cfg.enable_tls, "TLS must default to off");
+        assert_eq!(
+            cfg.acks.as_deref(),
+            Some("all"),
+            "acks default must be 'all' for durability"
+        );
+        assert_eq!(
+            cfg.compression.as_deref(),
+            Some("lz4"),
+            "compression default must be 'lz4'"
+        );
+    }
+
+    #[test]
+    fn config_deserializes_with_minimal_fields() {
+        let toml_str = r#"
+            brokers = "broker1:9092,broker2:9092"
+            topic = "audit"
+            enable_tls = true
+            sasl_username = "u"
+            sasl_password = "p"
+        "#;
+        let cfg: KafkaSinkConfig = toml::from_str(toml_str).expect("partial TOML parses");
+        assert_eq!(cfg.brokers, "broker1:9092,broker2:9092");
+        assert_eq!(cfg.topic, "audit");
+        assert!(cfg.enable_tls);
+        assert_eq!(cfg.sasl_username.as_deref(), Some("u"));
+        // Compression/acks keep their defaults when omitted.
+        assert_eq!(cfg.compression.as_deref(), Some("lz4"));
+    }
+
+    #[test]
+    fn stats_default_is_zeroed() {
+        let stats = KafkaSinkStats::default();
+        assert_eq!(stats.records_sent, 0);
+        assert_eq!(stats.errors, 0);
+        assert_eq!(stats.bytes_sent, 0);
+    }
+
+    #[test]
+    fn lifecycle_open_close_keeps_counters() {
+        // `open` will fail to construct a producer when the broker is
+        // unreachable; that's fine — we only verify that close still
+        // succeeds and the counters survive.
+        let cfg = KafkaSinkConfig {
+            brokers: "127.0.0.1:1".into(),
+            ..KafkaSinkConfig::default()
+        };
+        let mut sink = KafkaSink::new(cfg);
+        let _ = sink.open();
+        sink.close()
+            .expect("close must not panic when producer is unset");
+        assert_eq!(sink.records_sent, 0);
+    }
+}

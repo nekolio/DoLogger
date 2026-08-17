@@ -234,3 +234,101 @@ impl Sink for SyslogSink {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_defaults_are_sensible() {
+        let cfg = SyslogSinkConfig::default();
+        assert!(!cfg.hostname.is_empty(), "hostname must default");
+        assert!(!cfg.app_name.is_empty(), "app_name must default");
+        assert!(cfg.port > 0, "port must be positive");
+    }
+
+    #[test]
+    fn config_deserializes_with_missing_fields() {
+        let toml_str = r#"
+            hostname = "logs.example.com"
+            protocol = "udp"
+        "#;
+        let cfg: SyslogSinkConfig = toml::from_str(toml_str).expect("partial TOML parses");
+        assert_eq!(cfg.hostname, "logs.example.com");
+        assert!(matches!(cfg.protocol, SyslogProtocol::Udp));
+        // port and facility fall back to defaults.
+        assert_eq!(cfg.port, 514, "missing port falls back to 514");
+    }
+
+    #[test]
+    fn facility_codes_follow_rfc5424() {
+        // RFC 5424 §6.2.1: standard facilities occupy codes 0..=11 and 16..=23.
+        let standard = [
+            (SyslogFacility::Kernel, 0u8),
+            (SyslogFacility::User, 1),
+            (SyslogFacility::Local0, 16),
+            (SyslogFacility::Local7, 23),
+        ];
+        for (facility, expected) in standard {
+            assert_eq!(facility.code(), expected, "facility code mismatch");
+        }
+    }
+
+    #[test]
+    fn lifecycle_open_close_runs_without_panic() {
+        // Opening a UDP sink without a reachable server must not panic;
+        // it may fail to send, but `open` itself returns Ok.
+        let cfg = SyslogSinkConfig {
+            hostname: "127.0.0.1".into(),
+            port: 1, // unreachable, but open() only binds
+            protocol: SyslogProtocol::Udp,
+            ..SyslogSinkConfig::default()
+        };
+        let mut sink = SyslogSink::new(cfg);
+        sink.open()
+            .expect("open should succeed even when peer is unreachable");
+        sink.close().expect("close should release the socket");
+    }
+
+    #[test]
+    fn udp_round_trip_delivers_rfc5424_frame() {
+        // Bind a loopback receiver, send one record to it, and assert the
+        // emitted frame follows the RFC 5424 layout with the correct PRI.
+        let receiver = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        let port = receiver.local_addr().expect("receiver addr").port();
+
+        let cfg = SyslogSinkConfig {
+            host: "127.0.0.1".into(),
+            port,
+            protocol: SyslogProtocol::Udp,
+            // Local0 = 16 -> PRI = 16 * 8 + 6 (INFO) = 134.
+            facility: SyslogFacility::Local0,
+            app_name: "roundtrip".into(),
+            ..SyslogSinkConfig::default()
+        };
+        let mut sink = SyslogSink::new(cfg);
+        sink.open().expect("open connects to loopback");
+        sink.write("[0.000000] [INFO] [1] hello")
+            .expect("write sends a frame");
+
+        let mut buf = [0u8; 512];
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .and_then(|_| receiver.recv(&mut buf))
+            .expect("receive frame");
+        let frame = String::from_utf8_lossy(&buf[..]);
+        let frame = frame.trim_end_matches('\0').trim_end();
+        drop(sink);
+
+        // <134> = facility 16 (Local0) * 8 + severity 6 (INFO); version 1.
+        assert!(frame.starts_with("<134>1 "), "PRI+version prefix: {frame}");
+        assert!(
+            frame.contains(" roundtrip "),
+            "frame must carry the app_name: {frame}"
+        );
+        assert!(
+            frame.ends_with("hello"),
+            "frame must carry the message: {frame}"
+        );
+    }
+}
