@@ -161,7 +161,7 @@ impl CooperativeHelping {
         // Lock the sink for the duration of the helping drain.
         // This is the only path that locks this Mutex, so contention
         // is zero in practice.
-        let mut sink = self.sink.lock().unwrap();
+        let sink = self.sink.lock().unwrap();
 
         // SAFETY: drain_helping uses CAS on consumer_sequence so it
         // interoperates safely with the dedicated consumer thread.
@@ -211,6 +211,9 @@ pub struct Engine {
     pub pool: Arc<RecordPool>,
     /// Background pipeline (consumer thread + sink)
     pub pipeline: Mutex<Option<Pipeline>>,
+    /// Shared, swappable fan-out sink. Held so hot reload can atomically
+    /// replace the active output without rebuilding the pipeline.
+    pub sink: Arc<SinkRef>,
     /// Optional shared-memory sink, wired separately from `[sinks.*]`.
     pub shm_sink: Option<Arc<ShmSink>>,
     /// Active configuration
@@ -244,8 +247,11 @@ impl Engine {
 
         // Create and open the configured sinks, fanning out to all of them.
         // `config.sinks` is guaranteed non-empty (console default) by the
-        // config layer.
-        let mut sink = SinkRef::new(crate::sink::registry::build_fanout(&config.sinks)?);
+        // config layer. The sink is shared (`Arc<SinkRef>`) so hot reload can
+        // swap its inner sink atomically at runtime.
+        let sink = Arc::new(SinkRef::new(crate::sink::registry::build_fanout(
+            &config.sinks,
+        )?));
         sink.open()
             .map_err(|e| format!("Failed to open sink: {e}"))?;
 
@@ -354,7 +360,7 @@ impl Engine {
             &config,
             Arc::clone(&ring_buffer),
             Arc::clone(&pool),
-            sink,
+            Arc::clone(&sink),
             pipeline_sig_engine,
             Arc::clone(&rate_limiter),
             Arc::clone(&drop_level_policy),
@@ -398,7 +404,7 @@ impl Engine {
 
         // Create cooperative helping context
         let coop_helping = if config.ring_buffer_coop_helping {
-            let mut helping_sink = SinkRef::new(ConsoleSink::new());
+            let helping_sink = SinkRef::new(ConsoleSink::new());
             helping_sink
                 .open()
                 .map_err(|e| format!("Failed to open cooperative helping sink: {e}"))?;
@@ -426,6 +432,7 @@ impl Engine {
             ring_buffer,
             pool,
             pipeline: Mutex::new(Some(pipeline)),
+            sink,
             shm_sink,
             config,
             time_source: TimeSource::new(),
@@ -436,6 +443,62 @@ impl Engine {
             external_anchor,
             coop_helping,
         })
+    }
+
+    /// Atomically reload the engine's output configuration.
+    ///
+    /// Builds a new fan-out sink from `new_config` and opens it; only on
+    /// success does it swap the active sink (under `SinkRef`'s write lock) and
+    /// replace the stored config. On any error the previous configuration and
+    /// sink stay in effect and no records are lost. The returned error is one
+    /// of the config reload codes:
+    /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID`] (new config rejected) or
+    /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`] (sink build/open failed).
+    ///
+    /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID
+    /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED
+    pub fn reload_config(&mut self, new_config: DologgerConfig) -> Result<(), i32> {
+        use crate::error::{
+            DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED, DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID,
+        };
+
+        // Build a new fan-out from the incoming config. Validation happens
+        // here via the registry's sink construction; a rejected config is
+        // reported and the previous one is left untouched.
+        let new_sink = match crate::sink::registry::build_fanout(&new_config.sinks) {
+            Ok(s) => s,
+            Err(e) => {
+                self.sysmon.error(
+                    "engine",
+                    &format!(
+                        "Config reload rejected: {e} (err {DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID})"
+                    ),
+                );
+                return Err(DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID);
+            }
+        };
+        let new_ref = SinkRef::new(new_sink);
+        if let Err(e) = new_ref.open() {
+            self.sysmon.error(
+                "engine",
+                &format!("Config reload failed to open sink: {e} (err {DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED})"),
+            );
+            return Err(DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED);
+        }
+
+        // Swap atomically; close the replaced sink after the swap so any
+        // in-flight write finishes under the same lock acquisition.
+        let mut old = self.sink.swap(new_ref);
+        if let Err(e) = old.close() {
+            self.sysmon.warn(
+                "engine",
+                &format!("Config reload: closing previous sink failed: {e}"),
+            );
+        }
+
+        self.config = new_config;
+        self.sysmon.info("engine", "Configuration hot-reloaded");
+        Ok(())
     }
 
     /// Shutdown the engine gracefully.

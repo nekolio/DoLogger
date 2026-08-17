@@ -220,22 +220,43 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 
 ### Hot Reload
 
-(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or trigger a reload via the control plane (planned).)
+DoLogger can hot-reload the configuration file while `dologctl run` is active.
+It is **opt-in**: add a `[watcher]` section to the config file to enable it. By
+default the watcher is disabled, so existing deployments are unchanged until a
+`[watcher]` section turns it on.
 
-1. Non-security keys are reloaded immediately.
-2. Security-tier keys (non-downgradable items) — changes tightening them are accepted; changes loosening them are **rejected with a `CONFIG_RELOAD_DENIED` sysmon event**.
-3. Plugin changes require an engine restart (plugins are not dynamically loaded at runtime in this version).
+```toml
+[dologger]
+level = "INFO"
+
+[watcher]
+enabled = true
+poll_interval_ms = 1000   # polling-only interval
+debounce_ms = 500         # settle time after the last change
+backend = "auto"          # auto | polling | inotify | read-directory-changes | fsevents
+```
+
+- When `enabled` is `true`, `dologctl run` watches the active config file and
+  calls `Engine::reload_config` on each detected change.
+- Native backends are auto-detected: **inotify** on Linux, **ReadDirectoryChangesW**
+  on Windows, and polling on macOS (FSEvents deferred). `backend` overrides the
+  auto-detected choice.
+- A reload that fails to parse or to build/open its sinks is **rejected**: the
+  previous config stays active and a sysmon error is recorded (error `-0x0206`
+  `CONFIG_RELOAD_FAILED` / `-0x0208` `CONFIG_RELOAD_INVALID`). A transient bad
+  edit does not terminate the engine.
+- The active sink is swapped atomically through a shared `SinkRef`: in-flight
+  writes complete under the same lock acquisition before the replaced sink is
+  closed.
+- Plugin changes still require an engine restart (plugins are not re-loaded at
+  runtime by a reload).
+- Full security-tier / non-downgradable validation of reloaded values is
+  planned but not enforced by the reload path in this version.
 
 ```bash
-# pseudocode/illustrative — not automatic in v0.1.0
 # Change log level without restart
-# sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
-
-# pseudocode/illustrative — the control plane is not started in v0.1.0
-# curl -X POST http://127.0.0.1:9090/reload
-
-# curl http://127.0.0.1:9090/status | jq .level
-# "DEBUG"
+sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
+# `dologctl run` detects the change and reloads automatically.
 ```
 
 ### Compliance Templates
@@ -523,16 +544,13 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### Triggering Configuration Reload
 
+Hot reload is triggered automatically when `[watcher]` is enabled (see the
+Hot Reload section above). A control-plane reload endpoint remains planned:
+
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0
+# planned — the control plane is not started in this version
 # Reload without validation (applies changes if syntax is valid)
 # curl -X POST http://127.0.0.1:9090/reload
-
-# Dry-run: validate the pending changes without applying
-# (planned — v0.1.0 ignores the /reload request body)
-# curl -X POST http://127.0.0.1:9090/reload \
-#   -H "Content-Type: application/json" \
-#   -d '{"dry_run": true}'
 ```
 
 ### Security Considerations

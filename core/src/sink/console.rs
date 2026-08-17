@@ -12,6 +12,7 @@
 
 use crate::record::Record;
 use crate::sys::io;
+use std::sync::RwLock;
 
 /// Result type for Sink operations.
 pub type SinkResult = Result<(), SinkError>;
@@ -196,16 +197,29 @@ impl Sink for ConsoleSink {
 /// Type-erased Sink wrapper for the pipeline.
 ///
 /// Uses a `Box<dyn Sink>` to allow runtime configuration of the sink type.
+/// The inner sink is guarded by a `RwLock` so the configured output can be
+/// swapped atomically at runtime (hot reload) without rebuilding the pipeline:
+/// the consumer thread and the reloader share the same `Arc<SinkRef>`, and a
+/// reload replaces the inner sink under the write lock. Methods take `&self`
+/// because the guard provides interior mutability.
 pub struct SinkRef {
-    inner: Box<dyn Sink>,
+    inner: RwLock<Box<dyn Sink>>,
 }
 
 impl SinkRef {
     /// Create a new SinkRef from any Sink implementation.
     pub fn new(sink: impl Sink + 'static) -> Self {
         Self {
-            inner: Box::new(sink),
+            inner: RwLock::new(Box::new(sink)),
         }
+    }
+
+    /// Atomically replace the underlying sink. Used by hot reload to switch
+    /// the active output; the previous sink is returned so the caller may
+    /// close it once no consumer is writing through it.
+    pub fn swap(&self, new: SinkRef) -> Box<dyn Sink> {
+        let mut guard = self.inner.write().unwrap();
+        std::mem::replace(&mut *guard, new.inner.into_inner().unwrap())
     }
 
     /// Format a record using the console sink's default format
@@ -215,32 +229,32 @@ impl SinkRef {
     }
 
     /// Write a formatted record
-    pub fn write(&mut self, formatted: &str) -> SinkResult {
-        self.inner.write(formatted)
+    pub fn write(&self, formatted: &str) -> SinkResult {
+        self.inner.write().unwrap().write(formatted)
     }
 
     /// Write a batch of formatted records
-    pub fn write_batch(&mut self, formatted: &[String]) -> SinkResult {
-        self.inner.write_batch(formatted)
+    pub fn write_batch(&self, formatted: &[String]) -> SinkResult {
+        self.inner.write().unwrap().write_batch(formatted)
     }
 
     /// Flush buffered data
-    pub fn flush(&mut self) -> SinkResult {
-        self.inner.flush()
+    pub fn flush(&self) -> SinkResult {
+        self.inner.write().unwrap().flush()
     }
 
     /// Open the sink
-    pub fn open(&mut self) -> SinkResult {
-        self.inner.open()
+    pub fn open(&self) -> SinkResult {
+        self.inner.write().unwrap().open()
     }
 
     /// Close the sink
-    pub fn close(&mut self) -> SinkResult {
-        self.inner.close()
+    pub fn close(&self) -> SinkResult {
+        self.inner.write().unwrap().close()
     }
 
     /// Check if the underlying sink is healthy.
     pub fn is_healthy(&self) -> bool {
-        self.inner.is_healthy()
+        self.inner.read().unwrap().is_healthy()
     }
 }

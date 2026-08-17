@@ -37,7 +37,7 @@ fn main() {
 
     let pool = Arc::new(RecordPool::new(config.ring_buffer_size));
     let ring_buffer = Arc::new(RingBuffer::new(config.ring_buffer_size));
-    let mut sink = SinkRef::new(ConsoleSink::new());
+    let sink = Arc::new(SinkRef::new(ConsoleSink::new()));
     sink.open().expect("Failed to open sink");
 
     let time_source = TimeSource::new();
@@ -46,7 +46,7 @@ fn main() {
         &config,
         Arc::clone(&ring_buffer),
         Arc::clone(&pool),
-        sink,
+        Arc::clone(&sink),
         Arc::new(SignatureEngine::new()),
         Arc::new(RateLimiter::default()),
         Arc::new(DropLevelPolicy::new(LogLevel::Trace)),

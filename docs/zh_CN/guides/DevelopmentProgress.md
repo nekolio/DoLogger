@@ -1,7 +1,7 @@
 # DoLogger 开发进度记录
 
 > **实时完成度记录** —— 每轮开发结束时按 [[per-round-checklist]] 规范更新。
-> 最近更新：2026-08-17（WS-2 sink_shm 接线完成：`[shm]` 配置、Engine 接线、CLI `--shm` + `shm status/clear` 复用 core API、水位线文档、criterion 基准、集成测试）。
+> 最近更新：2026-08-17（WS-3 热重载接线完成：`[watcher]` 配置段、`ConfigWatcher` 原生 Windows RDCW + Linux inotify 后端、可交换 `SinkRef` + `Engine::reload_config`、`dologctl run` 接线、端到端重载测试）。
 
 ## 图例
 
@@ -16,9 +16,9 @@
 
 | 维度 | 完成度 | 主要缺口 |
 |:-:|:-:|:--|
-| 框架搭建 | ✅ ~100% | 4 个未接线模块（watcher / hot_reload / control_plane / host_info） |
-| 功能实现 | ✅ ~90% | 同上 4 个 + 远程 sink 深度（WS-4 审计） |
-| 细节 | 🟡 ~75% | 3 处 `allow(missing_docs)`、watcher 原生后端 TODO |
+| 框架搭建 | ✅ ~100% | 3 个未接线模块（hot_reload / control_plane / host_info） |
+| 功能实现 | ✅ ~90% | 同上 3 个 + 远程 sink 深度（WS-4 审计） |
+| 细节 | 🟡 ~80% | 3 处 `allow(missing_docs)`、shm `allow(dead_code)`、`HotReloadManager` 未接线 |
 | 测试 | 🟡 ~60% | CLI 6/7 命令模块无测试；fuzz 从未运行；C adapter 0 测试 |
 | 外围 | 🟡 ~50% | Go/Python/C adapter 无 CI；无 pyproject |
 | 文档 | ✅ ~95% | 28 处 "not implemented" 标记待随功能落地清除 |
@@ -34,20 +34,19 @@
 | policy.rs | ✅ | ✅ RateLimiter+DropLevel | ✅ | — | ✅ | |
 | record/ | ✅ | ✅ FieldRing 0-3 | ✅ | 10 | ✅ | |
 | buffer/ | ✅ | ✅ ring/pool/emergency | ✅ | 19 | ✅ | |
-| config/ | ✅ | ✅ settings/domain | 🟡 | 19 | ✅ | watcher.rs 原生后端全 TODO（仅 polling） |
+| config/ | ✅ | ✅ settings/domain + watcher | 🟡 | 21 | ✅ | 原生 RDCW/inotify + polling；`[watcher]` 已接线 |
 | pipeline/ | ✅ | ✅ scheduler/stages | ✅ | 22 | ✅ | circuit_breaker/canary/backpressure 全在 |
 | plugin/ | ✅ | ✅ manager/sandbox/vtable | 🟡 | 25 | ✅ | sandbox.rs `allow(missing_docs)` |
 | security/ | ✅ | ✅ sig/key_rot/external_anchor | 🟡 | 29 | ✅ | key_rotation `allow(missing_docs)` |
 | sif/ | ✅ | ✅ encode/decode/generated | ✅ | 18 | ✅ | FlatBuffer 生成代码已提交 |
 | sink/ | ✅ | ✅ 13 子模块 | 🟡 | 18 | ✅ shm 已接线 | shm.rs `allow(dead_code)` 已移除 |
-| sys/ | ✅ | ✅ control_plane/host_info | 🟡 | 11 | ⛔ **control_plane 未接线** | 原生 watcher 后端 TODO |
+| sys/ | ✅ | ✅ control_plane/host_info | 🟡 | 11 | ⛔ **control_plane 未接线** | |
 | util/hex | ✅ | ✅ WS-6 新 | ✅ | 9+6doc | ✅ | 替换 hex crate |
 
 ### 关键未接线项（都有代码+测试，唯独不进 Engine::init）
 
-1. `ConfigWatcher` — [watcher.rs](../../core/src/config/watcher.rs) 原生后端全 TODO
-2. `HotReloadManager` — [hot_reload.rs](../../core/src/config/hot_reload.rs) 未实例化
-3. `ControlPlane` — [control_plane.rs](../../core/src/sys/control_plane.rs) /status 硬编码占位
+1. `HotReloadManager` — [hot_reload.rs](../../core/src/config/hot_reload.rs) 未实例化（当前重载由 `ConfigWatcher` + `Engine::reload_config` 驱动）
+2. `ControlPlane` — [control_plane.rs](../../core/src/sys/control_plane.rs) /status 硬编码占位
 4. `HostInfoProvider` — [host_info.rs](../../core/src/sys/host_info.rs) 未进 Engine
 
 ## CLI（`dologctl`）— 15 命令全实现，测试薄弱
@@ -92,7 +91,7 @@
 - **CLI 覆盖**：25 子命令/子动作全部有 docs 段
 - **错误码覆盖**：error.rs 73 码 → ErrorCodesReference 全表 1:1
 - **docs/README** 准确且新；site README 准确
-- **"not implemented" 标记**：~28 处，全部是诚实的 v0.1.0 功能缺口描述（sandbox enforcement / daemon mode / KeyProvider / health endpoint / Ring 2 field signing / per-stage perf breakdown）——随 WS-2/3/4 落地逐项清除
+- **"not implemented" 标记**：~26 处，全部是诚实的 v0.1.0 功能缺口描述（sandbox enforcement / daemon mode / KeyProvider / health endpoint / Ring 2 field signing / per-stage perf breakdown）——随 WS-3/4 落地逐项清除
 
 ## 工作流状态
 
@@ -102,7 +101,7 @@
 | WS-6 | hex + hostname 原生替换 | ✅ 完成 |
 | WS-6 前 | 真实 `dologctl run` 循环 | ✅ 完成 |
 | WS-2 | sink_shm 接线 | ✅ 完成 |
-| WS-3 | 热重载接线 | ⛔ 待办 |
+| WS-3 | 热重载接线 | ✅ 完成 |
 | WS-4 | 远程 sink（Kafka/Syslog/Webhook） | ⛔ 待办 |
 | WS-5 | 文档/代码一致性清扫 | ⛔ 待办 |
 | WS-6A | `rand` 替换 | ⛔ 候选 |

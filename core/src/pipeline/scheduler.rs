@@ -65,7 +65,7 @@ impl Pipeline {
         config: &DologgerConfig,
         ring_buffer: Arc<RingBuffer<*mut Record>>,
         pool: Arc<RecordPool>,
-        mut sink: SinkRef,
+        sink: Arc<SinkRef>,
         signature_engine: Arc<SignatureEngine>,
         rate_limiter: Arc<RateLimiter>,
         drop_level_policy: Arc<DropLevelPolicy>,
@@ -82,11 +82,15 @@ impl Pipeline {
         // The sink is moved into a worker running on the io_pool; the
         // consumer thread sends formatted records through the channel.
         // When io_pool is None, the sink stays inline.
-        let (sink_tx, sink_done, mut consumer_sink) = match io_pool {
+        // The shared sink handle is owned by the caller (the Engine keeps it so hot
+        // reload can swap the inner sink at runtime); the consumer thread and
+        // any io_pool worker hold their own `Arc` clones below.
+        let (sink_tx, sink_done, consumer_sink) = match io_pool {
             Some(ref io_pool) => {
                 let (tx, rx) = crossbeam_channel::bounded::<SinkMsg>(256);
                 let done = Arc::new(AtomicBool::new(false));
                 let done_clone = Arc::clone(&done);
+                let sink = Arc::clone(&sink);
 
                 io_pool.execute(move || {
                     while let Ok(msg) = rx.recv() {
@@ -126,7 +130,7 @@ impl Pipeline {
                     pool,
                     shutdown: shutdown_flag,
                     batch_size,
-                    sink: consumer_sink.as_mut(),
+                    sink: consumer_sink.as_deref(),
                     signature_engine: &signature_engine,
                     rate_limiter: &rate_limiter,
                     drop_level_policy: &drop_level_policy,
@@ -185,7 +189,7 @@ struct ConsumerCtx<'a> {
     pool: Arc<RecordPool>,
     shutdown: Arc<AtomicBool>,
     batch_size: usize,
-    sink: Option<&'a mut SinkRef>,
+    sink: Option<&'a SinkRef>,
     signature_engine: &'a SignatureEngine,
     rate_limiter: &'a RateLimiter,
     drop_level_policy: &'a DropLevelPolicy,
@@ -222,7 +226,7 @@ impl ConsumerCtx<'_> {
                     "Sink channel disconnected — write dropped",
                 );
             }
-        } else if let Some(ref mut sink) = self.sink {
+        } else if let Some(sink) = self.sink {
             if let Err(e) = sink.write(&formatted) {
                 crate::sys::diagnostics::error("pipeline", &format!("Sink write error: {e}"));
             }
@@ -233,7 +237,7 @@ impl ConsumerCtx<'_> {
     fn dispatch_flush(&mut self) {
         if let Some(ref tx) = self.sink_tx {
             let _ = tx.send(SinkMsg::Flush);
-        } else if let Some(ref mut sink) = self.sink {
+        } else if let Some(sink) = self.sink {
             let _ = sink.flush();
         }
     }
@@ -242,7 +246,7 @@ impl ConsumerCtx<'_> {
     fn dispatch_close(&mut self) {
         if let Some(ref tx) = self.sink_tx {
             let _ = tx.send(SinkMsg::Close);
-        } else if let Some(ref mut sink) = self.sink {
+        } else if let Some(sink) = self.sink {
             let _ = sink.close();
         }
     }
@@ -478,10 +482,10 @@ mod tests {
         let records_written = Arc::new(AtomicUsize::new(0));
         let write_threads = Arc::new(Mutex::new(Vec::new()));
 
-        let mut sink = SinkRef::new(ThreadTrackingSink::new(
+        let sink = Arc::new(SinkRef::new(ThreadTrackingSink::new(
             Arc::clone(&records_written),
             Arc::clone(&write_threads),
-        ));
+        )));
         sink.open().unwrap();
 
         let mut pipeline = Pipeline::new(
@@ -547,10 +551,10 @@ mod tests {
         let records_written = Arc::new(AtomicUsize::new(0));
         let write_threads: Arc<Mutex<Vec<thread::ThreadId>>> = Arc::new(Mutex::new(Vec::new()));
 
-        let mut sink = SinkRef::new(ThreadTrackingSink::new(
+        let sink = Arc::new(SinkRef::new(ThreadTrackingSink::new(
             Arc::clone(&records_written),
             Arc::clone(&write_threads),
-        ));
+        )));
         sink.open().unwrap();
 
         let io_pool = Arc::new(ThreadPool::new(2, "io-test"));

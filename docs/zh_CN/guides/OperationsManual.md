@@ -216,22 +216,30 @@ dologctl config diff /etc/dologger/default.toml /etc/dologger/staging.toml
 
 ### 热重载
 
-（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或通过控制面触发重载（规划中）。）
+DoLogger 支持在 `dologctl run` 运行期间热重载配置文件。它是**选择性启用**的：在配置文件中添加 `[watcher]` 段即可开启。默认情况下监视器处于关闭状态，因此除非加入 `[watcher]` 段，否则现有部署不受影响。
 
-1. 非安全键立即生效。
-2. 安全级键（不可降级项）— 收紧变更会被接受；放宽变更会被**拒绝，并产生一条 `CONFIG_RELOAD_DENIED` sysmon 事件**。
-3. 插件变更需要重启引擎（此版本不支持运行时动态加载插件）。
+```toml
+[dologger]
+level = "INFO"
+
+[watcher]
+enabled = true
+poll_interval_ms = 1000   # 仅 polling 的轮询间隔
+debounce_ms = 500         # 最后一次变更后的稳定等待时间
+backend = "auto"          # auto | polling | inotify | read-directory-changes | fsevents
+```
+
+- 当 `enabled` 为 `true` 时，`dologctl run` 会监视当前配置文件，并在检测到变更时调用 `Engine::reload_config`。
+- 原生后端会自动检测：Linux 用 **inotify**，Windows 用 **ReadDirectoryChangesW**，macOS 用 polling（FSEvents 已延迟）。`backend` 可覆盖自动检测结果。
+- 解析失败或无法构建/打开其 sink 的重载会被**拒绝**：先前配置保持生效，并记录一条 sysmon 错误（错误 `-0x0206` `CONFIG_RELOAD_FAILED` / `-0x0208` `CONFIG_RELOAD_INVALID`）。一次临时的错误编辑不会终止引擎。
+- 活动 sink 通过共享 `SinkRef` 原子交换：在旧 sink 关闭前，进行中的写入会在同一次加锁期间完成。
+- 插件变更仍需要重启引擎（重载不会在运行时重新加载插件）。
+- 对重载值的完整安全级 / 不可降级校验已在规划中，但此版本的重载路径尚未强制实施。
 
 ```bash
-# 伪代码/示意 — v0.1.0 中不会自动生效
 # 无需重启修改日志级别
-# sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
-
-# 伪代码/示意 — v0.1.0 中控制面尚未启动
-# curl -X POST http://127.0.0.1:9090/reload
-
-# curl http://127.0.0.1:9090/status | jq .level
-# "DEBUG"
+sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
+# `dologctl run` 会检测到变更并自动重载。
 ```
 
 ### 合规模板
@@ -505,16 +513,12 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### 触发配置重载
 
+启用 `[watcher]` 时（见上文热重载小节），热重载会自动触发。控制面重载端点仍为规划中：
+
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面尚未启动
+# 规划中 — 此版本控制面尚未启动
 # 直接重载（语法合法即应用变更）
 # curl -X POST http://127.0.0.1:9090/reload
-
-# 干跑：仅校验待生效变更，不应用
-# （规划中 — v0.1.0 忽略 /reload 请求体）
-# curl -X POST http://127.0.0.1:9090/reload \
-#   -H "Content-Type: application/json" \
-#   -d '{"dry_run": true}'
 ```
 
 ### 安全注意事项

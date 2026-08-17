@@ -2,9 +2,10 @@
 
 > **Live completion-degree record** — updated at the end of each
 > development round per the [[per-round-checklist]] convention.
-> Last updated: 2026-08-17 (WS-2 sink_shm wiring COMPLETE: `[shm]` config,
-> Engine wiring, CLI `--shm` + `shm status/clear` reuse core API, watermark
-> docs, criterion bench, integration tests).
+> Last updated: 2026-08-17 (WS-3 hot reload wiring COMPLETE: `[watcher]`
+> config section, `ConfigWatcher` with native Windows RDCW + Linux inotify
+> backends, swappable `SinkRef` + `Engine::reload_config`, `dologctl run`
+> wiring, end-to-end reload tests).
 
 ## Legend
 
@@ -19,9 +20,9 @@
 
 | Dimension | Completion | Top gap |
 |:-:|:-:|:--|
-| Framework | ✅ ~100% | 5 unwired modules (shm / watcher / hot_reload / control_plane / host_info) |
-| Functionality | ✅ ~90% | the same 5 + remote sinks depth (WS-4 audit) |
-| Details | 🟡 ~75% | 3× `allow(missing_docs)`, shm `allow(dead_code)`, native watcher backends TODO |
+| Framework | ✅ ~100% | 3 unwired modules (hot_reload / control_plane / host_info) |
+| Functionality | ✅ ~90% | the same 3 + remote sinks depth (WS-4 audit) |
+| Details | 🟡 ~80% | 3× `allow(missing_docs)`, shm `allow(dead_code)`, `HotReloadManager` unwired |
 | Tests | 🟡 ~60% | CLI 6/7 command modules untested; fuzz never run; C adapter 0 tests |
 | Periphery | 🟡 ~50% | Go/Python/C adapters no CI; no pyproject |
 | Docs | ✅ ~95% | 28 "not implemented" markers to clear as features land |
@@ -37,7 +38,7 @@
 | policy.rs | ✅ | ✅ RateLimiter+DropLevel | ✅ | — | ✅ | |
 | record/ | ✅ | ✅ FieldRing 0-3 | ✅ | 10 | ✅ | |
 | buffer/ | ✅ | ✅ ring/pool/emergency | ✅ | 19 | ✅ | |
-| config/ | ✅ | ✅ settings/domain | 🟡 | 19 | ✅ | watcher.rs native backends all TODO (polling only) |
+| config/ | ✅ | ✅ settings/domain + watcher | 🟡 | 21 | ✅ | native RDCW/inotify + polling; `[watcher]` wired |
 | pipeline/ | ✅ | ✅ scheduler/stages | ✅ | 22 | ✅ | circuit_breaker/canary/backpressure present |
 | plugin/ | ✅ | ✅ manager/sandbox/vtable | 🟡 | 25 | ✅ | sandbox.rs `allow(missing_docs)` |
 | security/ | ✅ | ✅ sig/key_rot/external_anchor | 🟡 | 29 | ✅ | key_rotation `allow(missing_docs)` |
@@ -48,10 +49,9 @@
 
 ### Critical unwired modules (all have code + tests, just not in Engine::init)
 
-1. `ConfigWatcher` — [watcher.rs](../../core/src/config/watcher.rs) native backends all TODO
-2. `HotReloadManager` — [hot_reload.rs](../../core/src/config/hot_reload.rs) never instantiated
-3. `ControlPlane` — [control_plane.rs](../../core/src/sys/control_plane.rs) /status hardcoded placeholder
-4. `HostInfoProvider` — [host_info.rs](../../core/src/sys/host_info.rs) not in Engine
+1. `HotReloadManager` — [hot_reload.rs](../../core/src/config/hot_reload.rs) never instantiated (reload currently driven by `ConfigWatcher` + `Engine::reload_config`)
+2. `ControlPlane` — [control_plane.rs](../../core/src/sys/control_plane.rs) /status hardcoded placeholder
+3. `HostInfoProvider` — [host_info.rs](../../core/src/sys/host_info.rs) not in Engine
 
 ## CLI (`dologctl`) — 15 commands, thin tests
 
@@ -95,7 +95,7 @@
 - **CLI coverage**: all 25 subcommands/sub-actions have docs sections
 - **Error code coverage**: error.rs 73 codes → ErrorCodesReference 1:1
 - **docs/README** accurate and fresh; site README accurate
-- **"not implemented" markers**: ~28, all honest v0.1.0 feature-gap descriptions (sandbox enforcement / daemon mode / KeyProvider / health endpoint / Ring 2 field signing / per-stage perf breakdown) — clear as WS-2/3/4 land
+- **"not implemented" markers**: ~26, all honest v0.1.0 feature-gap descriptions (sandbox enforcement / daemon mode / KeyProvider / health endpoint / Ring 2 field signing / per-stage perf breakdown) — clear as WS-3/4 land
 
 ## Workstream status
 
@@ -105,7 +105,7 @@
 | WS-6 | hex + hostname native replacement | ✅ complete |
 | WS-6 pre | real `dologctl run` loop | ✅ complete |
 | WS-2 | sink_shm wiring | ✅ complete |
-| WS-3 | hot_reload wiring | ⛔ pending |
+| WS-3 | hot_reload wiring | ✅ complete |
 | WS-4 | remote sinks (Kafka/Syslog/Webhook) | ⛔ pending |
 | WS-5 | docs/code consistency cleanup | ⛔ pending |
 | WS-6A | `rand` replacement | ⛔ candidate |

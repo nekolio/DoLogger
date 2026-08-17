@@ -50,6 +50,10 @@ pub struct DologgerConfig {
     /// enable it with a CLI path override (all other fields default or come
     /// from the TOML table).
     pub shm: Option<crate::sink::ShmSinkConfig>,
+    /// Config-file watcher for hot reload, parsed from the top-level `[watcher]`
+    /// table. Off by default: reload is an opt-in feature so existing
+    /// deployments are unaffected until a `[watcher]` section enables it.
+    pub watcher: crate::config::WatcherConfig,
 }
 
 impl DologgerConfig {
@@ -246,6 +250,10 @@ impl Default for DologgerConfig {
             plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
             shm: None,
+            watcher: crate::config::WatcherConfig {
+                enabled: false,
+                ..Default::default()
+            },
         }
     }
 }
@@ -275,6 +283,10 @@ impl DologgerConfig {
             plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
             shm: None,
+            watcher: crate::config::WatcherConfig {
+                enabled: false,
+                ..Default::default()
+            },
         }
     }
 
@@ -903,6 +915,37 @@ impl DologgerConfig {
             }
         }
 
+        // Parse the optional top-level `[watcher]` table for hot reload.
+        // It is opt-in: the field defaults to disabled, so only an explicit
+        // section enables the config-file watcher.
+        if let Some(watcher) = table.get("watcher").and_then(|v| v.as_table()) {
+            if let Some(enabled) = watcher.get("enabled").and_then(|v| v.as_bool()) {
+                config.watcher.enabled = enabled;
+            }
+            if let Some(ms) = watcher.get("poll_interval_ms").and_then(|v| v.as_integer()) {
+                config.watcher.poll_interval_ms = ms.max(0) as u64;
+            }
+            if let Some(ms) = watcher.get("debounce_ms").and_then(|v| v.as_integer()) {
+                config.watcher.debounce_ms = ms.max(0) as u64;
+            }
+            if let Some(backend) = watcher.get("backend").and_then(|v| v.as_str()) {
+                config.watcher.backend = match backend {
+                    "polling" => crate::config::WatcherBackend::Polling,
+                    "inotify" => crate::config::WatcherBackend::Inotify,
+                    "read-directory-changes" | "rdcw" => {
+                        crate::config::WatcherBackend::ReadDirectoryChanges
+                    }
+                    "fsevents" => crate::config::WatcherBackend::Fsevents,
+                    unknown => {
+                        warnings.push(format!(
+                            "Unknown watcher backend '{unknown}', using detected default"
+                        ));
+                        crate::config::WatcherBackend::detect()
+                    }
+                };
+            }
+        }
+
         // Apply profile overrides
         config.apply_profile();
 
@@ -991,7 +1034,40 @@ mod tests {
             plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
             shm: None,
+            watcher: crate::config::WatcherConfig {
+                enabled: false,
+                ..Default::default()
+            },
         }
+    }
+
+    // --- [watcher] section parsing ---
+
+    #[test]
+    fn test_watcher_section_parses() {
+        let (config, warnings) = DologgerConfig::parse(
+            "[dologger]\nlevel = \"INFO\"\n[watcher]\nenabled = true\npoll_interval_ms = 250\ndebounce_ms = 100\nbackend = \"inotify\"\n",
+            None,
+        )
+        .expect("config parses");
+        assert!(warnings.is_empty());
+        assert!(config.watcher.enabled);
+        assert_eq!(config.watcher.poll_interval_ms, 250);
+        assert_eq!(config.watcher.debounce_ms, 100);
+        assert_eq!(
+            config.watcher.backend,
+            crate::config::WatcherBackend::Inotify
+        );
+    }
+
+    #[test]
+    fn test_watcher_defaults_disabled() {
+        let (config, _) =
+            DologgerConfig::parse("[dologger]\nlevel = \"INFO\"\n", None).expect("config parses");
+        assert!(
+            !config.watcher.enabled,
+            "hot reload must be opt-in and disabled by default"
+        );
     }
 
     // --- Compliance profile tests ---

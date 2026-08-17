@@ -41,13 +41,13 @@ fn main() {
     let ring_buffer = Arc::new(RingBuffer::new(config.ring_buffer_size));
 
     // FileSink with fsync for AUDIT records
-    let mut sink = SinkRef::new(FileSink::new(FileSinkConfig {
+    let sink = Arc::new(SinkRef::new(FileSink::new(FileSinkConfig {
         path: output_path.into(),
         max_size: 10 * 1024 * 1024, // 10MB rotation
         fsync_on_write: true,
         durability_level: DurabilityLevel::Media,
         buffer_size: 65536,
-    }));
+    })));
     sink.open().expect("Failed to open file sink");
 
     let time_source = TimeSource::new();
@@ -56,7 +56,7 @@ fn main() {
         &config,
         Arc::clone(&ring_buffer),
         Arc::clone(&pool),
-        sink,
+        Arc::clone(&sink),
         Arc::new(SignatureEngine::new()),
         Arc::new(RateLimiter::default()),
         Arc::new(DropLevelPolicy::new(LogLevel::Trace)),

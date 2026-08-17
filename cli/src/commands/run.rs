@@ -4,14 +4,14 @@
 //! submits a batch of test records, and reports per-record pipeline stage
 //! timing with a summary at the end.
 
-use std::path::PathBuf;
-use std::time::Instant;
-
-use dologger_core::config::DologgerConfig;
+use dologger_core::config::{ConfigWatcher, DologgerConfig};
 use dologger_core::record::{thread_id_u64, LogLevel};
 use dologger_core::sink::ShmSinkConfig;
 use dologger_core::sys::TimeSource;
 use dologger_core::Engine;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use super::perf::format_ns;
 use crate::output::{self, color};
@@ -285,13 +285,18 @@ pub fn cmd_run(config_path: Option<&str>, shm_path: Option<&str>) {
     // --- Load config & init engine ---
     let config = apply_shm_override(load_run_config(config_path), shm_path);
     stdout!("{d}Initializing engine...{reset}");
-    let mut engine = match Engine::init(config) {
+    let engine = match Engine::init(config) {
         Ok(e) => e,
         Err(e) => {
             stderr!("{r}Error:{reset} Engine initialization failed: {e}");
             std::process::exit(crate::EXIT_ERR);
         }
     };
+
+    // Share the engine behind a mutex so the config watcher's background
+    // thread can atomically hot-reload it when the config file changes.
+    let engine = Arc::new(Mutex::new(engine));
+    let _watcher = start_config_watcher(&engine, shm_path.map(|s| s.to_string()));
     stdout!("{g}Engine running.  Press Ctrl-C to stop.{reset}");
     stdout!("");
 
@@ -305,8 +310,66 @@ pub fn cmd_run(config_path: Option<&str>, shm_path: Option<&str>) {
     // --- Graceful shutdown ---
     stdout!("");
     stdout!("{d}Shutdown signal received.  Draining pipeline...{reset}");
-    engine.shutdown();
+    engine.lock().unwrap().shutdown();
     stdout!("{g}Engine shutdown complete.{reset}");
+}
+
+/// Start the config-file watcher for hot reload, if enabled in the engine
+/// config. Returns `None` when `[watcher]` is disabled or there is no config
+/// file path to watch; on a start failure it logs a warning and returns
+/// `None` so the engine still runs without reload.
+fn start_config_watcher(
+    engine: &Arc<Mutex<Engine>>,
+    shm_path: Option<String>,
+) -> Option<ConfigWatcher> {
+    // Read watcher settings and the active config path from the engine.
+    let (watcher_config, watch_path) = {
+        let guard = engine.lock().unwrap();
+        let path = guard.config.config_path.clone()?;
+        (guard.config.watcher.clone(), path)
+    };
+    if !watcher_config.enabled {
+        return None;
+    }
+
+    let engine = Arc::clone(engine);
+    let watch_for_reload = watch_path.clone();
+    let callback = Box::new(move |_path: &Path| {
+        // Re-read the active config file and reload. A transient bad edit
+        // must NOT terminate the engine: return an error so the previous
+        // config is preserved and the watcher keeps watching.
+        let content = match std::fs::read_to_string(&watch_for_reload) {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(format!(
+                    "Cannot read config '{}': {e}",
+                    watch_for_reload.display()
+                ))
+            }
+        };
+        let (config, _warnings) =
+            match DologgerConfig::parse(&content, Some(PathBuf::from(&watch_for_reload))) {
+                Ok(v) => v,
+                Err((code, msg)) => {
+                    return Err(format!("Config parse failed (err 0x{code:x}): {msg}"))
+                }
+            };
+        let config = apply_shm_override(config, shm_path.as_deref());
+        let mut guard = engine.lock().unwrap();
+        guard
+            .reload_config(config)
+            .map_err(|err| format!("Config reload failed (err 0x{:x})", err as u32))
+    });
+
+    match ConfigWatcher::start(vec![watch_path], callback, watcher_config) {
+        Ok(watcher) => Some(watcher),
+        Err(e) => {
+            let y = yellow();
+            let reset = output::when_color(color::RESET);
+            stderr!("{y}Warning:{reset} Config watcher could not start: {e}");
+            None
+        }
+    }
 }
 
 /// Install an OS-native SIGINT/SIGTERM handler that flips

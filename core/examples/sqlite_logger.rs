@@ -42,7 +42,7 @@ fn main() {
         let pool = Arc::new(RecordPool::new(config.ring_buffer_size));
         let ring_buffer = Arc::new(RingBuffer::new(config.ring_buffer_size));
 
-        let mut sink = SinkRef::new(SqliteSink::with_path(db_path));
+        let sink = Arc::new(SinkRef::new(SqliteSink::with_path(db_path)));
         sink.open().expect("Failed to open SQLite sink");
 
         io::stdout_line(&format!("Database: {db_path}"));
@@ -54,7 +54,7 @@ fn main() {
             &config,
             Arc::clone(&ring_buffer),
             Arc::clone(&pool),
-            sink,
+            Arc::clone(&sink),
             Arc::new(SignatureEngine::new()),
             Arc::new(RateLimiter::default()),
             Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
