@@ -246,14 +246,17 @@ fn load_trust_store_parses_active_and_revoked() {
     let mut active_pub = String::new();
     for k in [&key_a, &key_b] {
         let hex_pub = k.verifying_key().to_bytes();
-        active_pub.push_str(&hex::encode(hex_pub));
+        active_pub.push_str(&dologger_core::hex::encode(hex_pub));
         active_pub.push('\n');
     }
     std::fs::write(dir.join("active.pub"), active_pub).unwrap();
     let fp_b = fingerprint_key(&key_b.verifying_key());
     std::fs::write(
         dir.join("revoked.txt"),
-        format!("{} compromised 1750000000\n", hex::encode(fp_b)),
+        format!(
+            "{} compromised 1750000000\n",
+            dologger_core::hex::encode(fp_b)
+        ),
     )
     .unwrap();
 

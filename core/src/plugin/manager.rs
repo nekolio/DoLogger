@@ -366,7 +366,7 @@ impl PluginManager {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let bytes = hex::decode(line).map_err(|e| {
+            let bytes = crate::util::hex::decode(line).map_err(|e| {
                 format!(
                     "{}:{}: not a valid hex public key ({e})",
                     active.display(),
@@ -398,7 +398,7 @@ impl PluginManager {
                 }
                 let mut tokens = line.split_whitespace();
                 let fp_hex = tokens.next().unwrap_or("");
-                let bytes = hex::decode(fp_hex).map_err(|e| {
+                let bytes = crate::util::hex::decode(fp_hex).map_err(|e| {
                     format!(
                         "{}:{}: not a valid hex fingerprint ({e})",
                         crl.display(),

@@ -354,20 +354,26 @@ All C ABI functions return `int`. Zero (`DO_LOG_OK`) indicates success; negative
 
 ### Error Code Categories
 
-The error code space uses hexadecimal nibble categorization:
+The error code space uses hexadecimal-nibble categorization that follows the
+journey of a record through the engine. **The authoritative, complete table
+lives in [Error Codes Reference](ErrorCodesReference.md).** Summary:
 
-| Range    | Category          | Example |
+| Range    | Category            | Example |
 |:-:|:-:|:-:|
-| `0x01xx` | General           | `DO_LOG_ERR_INTERNAL`, `DO_LOG_ERR_INVALID_ARG` |
-| `0x02xx` | Configuration     | `DO_LOG_ERR_CONFIG_PARSE`, `DO_LOG_ERR_CONFIG_NOT_FOUND` |
-| `0x03xx` | Plugin            | `DO_LOG_ERR_PLUGIN_LOAD_FAILED`, `DO_LOG_ERR_PLUGIN_NOT_FOUND` |
-| `0x04xx` | Record / Field    | `DO_LOG_ERR_FIELD_NOT_FOUND`, `DO_LOG_ERR_FIELD_PERMISSION_DENIED` |
-| `0x05xx` | Ring / Pipeline   | `DO_LOG_ERR_BUFFER_FULL`, `DO_LOG_ERR_PIPELINE_STAGE` |
-| `0x06xx` | Signature / Audit | `DO_LOG_ERR_SIGN_FAILED`, `DO_LOG_ERR_VERIFY_FAILED` |
-| `0x07xx` | Sink / I/O        | `DO_LOG_ERR_SINK_WRITE_FAILED`, `DO_LOG_ERR_WORM_WRITE_FAILED` |
-| `0x08xx` | Sandbox / Security| `DO_LOG_ERR_SANDBOX_INIT_FAILED`, `DO_LOG_ERR_SANDBOX_VIOLATION` |
-| `0x09xx` | Resource / Quota  | `DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED` |
-| `0x0Bxx` | Compliance        | `DO_LOG_ERR_COMPLIANCE_VIOLATION`, `DO_LOG_ERR_CIRCULAR_DEPENDENCY` |
+| `0x01xx` | General / API       | `DO_LOG_ERR_INVALID_ARG`, `DO_LOG_ERR_NOT_INITIALIZED` |
+| `0x02xx` | Configuration       | `DO_LOG_ERR_CONFIG_PARSE`, `DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED` |
+| `0x03xx` | Plugin              | `DO_LOG_ERR_PLUGIN_LOAD_FAILED`, `DO_LOG_ERR_PLUGIN_ABI` |
+| `0x04xx` | Record / Field      | `DO_LOG_ERR_FIELD_NOT_FOUND`, `DO_LOG_ERR_FIELD_PERMISSION_DENIED` |
+| `0x05xx` | Buffer / Pipeline   | `DO_LOG_ERR_BUFFER_FULL`, `DO_LOG_ERR_PIPELINE_STAGE` |
+| `0x06xx` | Signature / Audit   | `DO_LOG_ERR_SIGN_FAILED`, `DO_LOG_ERR_LSN_CHAIN_BROKEN` |
+| `0x07xx` | Security / Sandbox  | `DO_LOG_ERR_SANDBOX_VIOLATION`, `DO_LOG_ERR_UNTRUSTED_PLUGIN` |
+| `0x08xx` | Sink / IO           | `DO_LOG_ERR_SINK_WRITE_FAILED`, `DO_LOG_ERR_SHM_INIT_FAILED` |
+| `0x09xx` | Network / Remote    | `DO_LOG_ERR_CIRCUIT_OPEN`, `DO_LOG_ERR_TLS_FAILED` |
+| `0x0Axx` | Resource / Quota    | `DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED` |
+| `0x0Bxx` | Compliance          | `DO_LOG_ERR_COMPLIANCE_VIOLATION`, `DO_LOG_ERR_AUDIT_DURABILITY_INSUFFICIENT` |
+| `0x0Cxx` | Clock / Time safety | `DO_LOG_ERR_TIME_BACKWARD` |
+| `0x0Dxx` | SIF / Serialization | `DO_LOG_ERR_SIF_INVALID` |
+| `0x0Exx` | Internal / Fatal    | `DO_LOG_ERR_FATAL` |
 
 ### Retrieving Detailed Error Information
 

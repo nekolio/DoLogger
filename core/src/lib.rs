@@ -23,6 +23,7 @@ pub mod security;
 pub mod sif;
 pub mod sink;
 pub mod sys;
+pub mod util;
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -39,6 +40,8 @@ use crate::security::ExternalAnchor;
 use crate::security::SignatureEngine;
 use crate::sink::ConsoleSink;
 use crate::sink::SecuritySink;
+use crate::sink::ShmSink;
+use crate::sink::ShmSinkConfig;
 use crate::sink::SinkRef;
 use crate::sink::WormSink;
 use crate::sys::Sysmon;
@@ -93,6 +96,7 @@ pub use sys::system_monitor;
 pub use sys::system_monitor as sysmon;
 pub use sys::thread_pool;
 pub use sys::time;
+pub use util::hex;
 
 // ===========================================================================
 // Cooperative Helping
@@ -207,6 +211,8 @@ pub struct Engine {
     pub pool: Arc<RecordPool>,
     /// Background pipeline (consumer thread + sink)
     pub pipeline: Mutex<Option<Pipeline>>,
+    /// Optional shared-memory sink, wired separately from `[sinks.*]`.
+    pub shm_sink: Option<Arc<ShmSink>>,
     /// Active configuration
     pub config: DologgerConfig,
     /// Time source for timestamps and IDs
@@ -274,7 +280,7 @@ impl Engine {
                 );
             }
         } else if let Some(anchor_hex) = &config.plugin_trust_anchor {
-            match hex::decode(anchor_hex) {
+            match crate::util::hex::decode(anchor_hex) {
                 Ok(bytes) if bytes.len() == 32 => {
                     let mut anchor = [0u8; 32];
                     anchor.copy_from_slice(&bytes);
@@ -318,6 +324,27 @@ impl Engine {
             crate::plugin::vtable::PluginDispatch::default()
         };
 
+        // Start sysmon channel before building sinks, so early telemetry
+        // (e.g. SHM_INIT) is captured.
+        let sysmon = Sysmon::start();
+
+        // Wire the optional shared-memory sink before the main pipeline so the
+        // consumer thread can mirror accepted records into it. sink_shm is
+        // wired separately from `[sinks.*]` (see sink/registry) and is never
+        // used for the AUDIT domain — it is rejected when signatures are on.
+        let shm_sink = match &config.shm {
+            Some(shm_config) => {
+                ShmSinkConfig::check_audit_forbidden(config.enable_signature)?;
+                shm_config.validate()?;
+                let sink = Arc::new(ShmSink::new(shm_config.clone()));
+                sink.open(&sysmon)
+                    .map_err(|e| format!("Failed to open sink_shm: {e}"))?;
+                Some(sink)
+            }
+            None => None,
+        };
+        let pipeline_shm = shm_sink.clone();
+
         // Create pipeline with all stage dependencies.
         // Each pipeline and the main engine use independent SignatureEngine
         // instances for key isolation.  The audit pipeline (below) also
@@ -333,10 +360,8 @@ impl Engine {
             Arc::clone(&drop_level_policy),
             dispatch,
             None,
+            pipeline_shm,
         )?;
-
-        // Start sysmon channel
-        let sysmon = Sysmon::start();
 
         // Create audit pipeline with its own ring buffer partition
         let (audit_pipeline, external_anchor) = if config.enable_signature {
@@ -401,6 +426,7 @@ impl Engine {
             ring_buffer,
             pool,
             pipeline: Mutex::new(Some(pipeline)),
+            shm_sink,
             config,
             time_source: TimeSource::new(),
             signature_engine,
@@ -427,6 +453,12 @@ impl Engine {
                 p.shutdown();
             }
             *guard = None;
+        }
+
+        // Close the shared-memory sink (mark producer dead + cleanup) after
+        // the consumer thread has joined, so no writer races the close.
+        if let Some(shm) = &self.shm_sink {
+            shm.close(&self.sysmon);
         }
 
         self.sysmon.shutdown();

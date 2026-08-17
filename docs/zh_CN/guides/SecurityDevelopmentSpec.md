@@ -38,7 +38,7 @@
 | **R2：边界检查** | 每次数组访问、字符串操作和缓冲区写入必须进行边界检查。C 插件：使用 `snprintf` 而非 `sprintf`，`strncpy` 而非 `strcpy`，大小跟踪缓冲区而非原始指针。 | 静态分析（参见[静态分析工具链](#静态分析工具链)） |
 | **R3：无 use-after-free** | 不得保留指向已释放内存的指针。释放后将指针设为 `NULL`。在 Rust 中，这由借用检查器强制执行——只有 `unsafe` 代码可能违反此规则。 | Valgrind / AddressSanitizer |
 | **R4：无 double-free** | 每个分配恰好释放一次。在调试构建中使用分配跟踪检测 double-free。 | 调试分配器 + `dologger_internal.log` |
-| **R5：无缓冲区溢出** | 所有 VTable 函数输出缓冲区由引擎调用方分配。插件**不得**写入超过提供的 `length` 参数的范围。如果缓冲区不足，返回 `DO_LOG_ERR_BUF_TOO_SMALL`。 | 模糊测试（参见[模糊测试要求](#模糊测试要求)） |
+| **R5：无缓冲区溢出** | 所有 VTable 函数输出缓冲区由引擎调用方分配。插件**不得**写入超过提供的 `length` 参数的范围。如果缓冲区不足，返回 `DO_LOG_ERR_BUFFER_TOO_SMALL`。 | 模糊测试（参见[模糊测试要求](#模糊测试要求)） |
 | **R6：栈保护** | C 插件：使用 `-fstack-protector-strong` 编译。Rust 插件：通过 LLVM 自动提供。 | 编译器标志 |
 | **R7：整数溢出** | 对所有大小计算（尤其是缓冲区大小计算）使用检查算术。Rust：使用 `checked_add`、`saturating_add`，或在 release 中启用 `overflow-checks = true`。C：使用 `__builtin_add_overflow`。 | 静态分析 + 模糊测试 |
 

@@ -309,6 +309,54 @@ ring_buffer_size = 524288       # 覆盖 262144 默认值
 
 ---
 
+## 共享内存 Sink（sink_shm）
+
+`sink_shm` 通过跨进程的共享内存环形缓冲区，将 SIF 记录以零拷贝方式投递给外部消费进程。它与 `[sinks.*]` **分开接线**，不属于 sink 注册表。通过顶层 `[shm]` 表启用：
+
+```toml
+[shm]
+path = "/dologger_default.shm"   # Unix 为 POSIX 名；Windows 为映射名
+buffer_size_mb = 64              # 2 的幂，>= 8
+slot_size_kb = 64                # 每槽最大容量，>= 64
+full_policy = "drop_newest"      # drop_newest | drop_oldest
+permissions = 0o660              # 仅 Unix
+auto_cleanup = true              # 引擎关闭时 unlink 该区域
+allowed_consumers = []           # 空 = 允许所有
+```
+
+`sink_shm` **非持久化**——`durability_level` 被强制为 `UNSAFE`。因此它在 AUDIT 模式（`enable_signature = true` / `prod-audit`）下被禁止，该模式需要持久化 WORM 存储；引擎以 `DO_LOG_ERR_AUDIT_SHM_FORBIDDEN` 拒绝此组合。
+
+### 通过 CLI 启用
+
+`dologctl run --shm <path>` 启用 `sink_shm` 并覆盖共享内存路径，同时保留配置中其他 `[shm]` 字段（或使用默认值）：
+
+```bash
+dologctl run --shm /dologger_default.shm
+```
+
+### 共享水位线语义
+
+环形缓冲区头包含两个序号：
+
+| 字段 | 持有者 | 含义 |
+|:-:|:-:|-|
+| `producer_seq` | DoLogger（生产者） | 下一个写入槽位；每接受一条记录递增 |
+| `consumer_seq` | 消费者（共享） | 回收水位线——其下槽位可安全覆盖 |
+
+`consumer_seq` 是**单一共享水位线**，由消费者通过 `compare_exchange` 协作推进。只有一个水位线，因此慢消费者可能触发 `drop_oldest`/`drop_newest`——DoLogger 在共享内存路径上从不阻塞生产者。仍在读取已被回收槽位的消费者必须预期 `overwritten_count` 增加并重新读取区域。
+
+### 检查区域
+
+```bash
+dologctl shm status /dologger_default.shm          # 人类可读
+dologctl shm status /dologger_default.shm --output json
+dologctl shm clear /dologger_default.shm           # 需生产者 DEAD 或 --force
+```
+
+`dologctl shm status` 与 `clear` 通过核心 `dologger_core::sink::shm::read_status` API 读取头部——头部布局的唯一事实源（消费者 ABI 见 `core/include/dologger_shm.h`）。
+
+---
+
 ## 监控与告警
 
 ### Sysmon 事件流

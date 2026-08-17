@@ -117,7 +117,7 @@ dologger_error_t etcd_config_load(void *state, dologger_config_buf_t *out) {
     EtcdState *s = (EtcdState *)state;
     char *etcd_value = etcd_get(s->etcd_client, "/dologger/config");
     if (!etcd_value) {
-        return DO_LOG_ERR_CFG_MISSING;
+        return DO_LOG_ERR_CONFIG_VALIDATION;
     }
     strncpy(out->data, etcd_value, out->capacity);
     out->length = strlen(out->data);
@@ -534,7 +534,7 @@ dologger_error_t validate_plugin_dag(PluginRegistry *registry) {
         if detect_cycle_from(P, visited_set):
             dologger_emit_sysmon("LICENSE_POLICY_VIOLATION",
                 "circular dependency detected starting at plugin '%s'", P->name);
-            return DO_LOG_ERR_PLUGIN_LOAD;
+            return DO_LOG_ERR_PLUGIN_LOAD_FAILED;
     return DO_LOG_OK;
 }
 ```

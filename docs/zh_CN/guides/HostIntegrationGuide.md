@@ -349,20 +349,24 @@ Red 插件写入 `ext.*` 命名空间。这些字段仅受 CRC32C 保护，且**
 
 ### 错误码分类
 
-错误码空间采用十六进制 nibble 分类：
+错误码空间采用十六进制 nibble 分类，遵循一条记录在引擎中的旅程。**权威完整表见[错误码参考](ErrorCodesReference.md)。** 摘要：
 
 | 范围 | 类别 | 示例 |
 |:-:|:-:|:-:|
-| `0x01xx` | 一般 | `DO_LOG_ERR_INTERNAL`、`DO_LOG_ERR_INVALID_ARG` |
-| `0x02xx` | 配置 | `DO_LOG_ERR_CONFIG_PARSE`、`DO_LOG_ERR_CONFIG_NOT_FOUND` |
-| `0x03xx` | 插件 | `DO_LOG_ERR_PLUGIN_LOAD_FAILED`、`DO_LOG_ERR_PLUGIN_NOT_FOUND` |
+| `0x01xx` | 一般 / API | `DO_LOG_ERR_INVALID_ARG`、`DO_LOG_ERR_NOT_INITIALIZED` |
+| `0x02xx` | 配置 | `DO_LOG_ERR_CONFIG_PARSE`、`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED` |
+| `0x03xx` | 插件 | `DO_LOG_ERR_PLUGIN_LOAD_FAILED`、`DO_LOG_ERR_PLUGIN_ABI` |
 | `0x04xx` | 记录 / 字段 | `DO_LOG_ERR_FIELD_NOT_FOUND`、`DO_LOG_ERR_FIELD_PERMISSION_DENIED` |
-| `0x05xx` | 环形 / 管道 | `DO_LOG_ERR_BUFFER_FULL`、`DO_LOG_ERR_PIPELINE_STAGE` |
-| `0x06xx` | 签名 / 审计 | `DO_LOG_ERR_SIGN_FAILED`、`DO_LOG_ERR_VERIFY_FAILED` |
-| `0x07xx` | Sink / I/O | `DO_LOG_ERR_SINK_WRITE_FAILED`、`DO_LOG_ERR_WORM_WRITE_FAILED` |
-| `0x08xx` | 沙箱 / 安全 | `DO_LOG_ERR_SANDBOX_INIT_FAILED`、`DO_LOG_ERR_SANDBOX_VIOLATION` |
-| `0x09xx` | 资源 / 配额 | `DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED` |
-| `0x0Bxx` | 合规 | `DO_LOG_ERR_COMPLIANCE_VIOLATION`、`DO_LOG_ERR_CIRCULAR_DEPENDENCY` |
+| `0x05xx` | 缓冲 / 管线 | `DO_LOG_ERR_BUFFER_FULL`、`DO_LOG_ERR_PIPELINE_STAGE` |
+| `0x06xx` | 签名 / 审计 | `DO_LOG_ERR_SIGN_FAILED`、`DO_LOG_ERR_LSN_CHAIN_BROKEN` |
+| `0x07xx` | 安全 / 沙箱 | `DO_LOG_ERR_SANDBOX_VIOLATION`、`DO_LOG_ERR_UNTRUSTED_PLUGIN` |
+| `0x08xx` | Sink / IO | `DO_LOG_ERR_SINK_WRITE_FAILED`、`DO_LOG_ERR_SHM_INIT_FAILED` |
+| `0x09xx` | 网络 / 远程 | `DO_LOG_ERR_CIRCUIT_OPEN`、`DO_LOG_ERR_TLS_FAILED` |
+| `0x0Axx` | 资源 / 配额 | `DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED` |
+| `0x0Bxx` | 合规 | `DO_LOG_ERR_COMPLIANCE_VIOLATION`、`DO_LOG_ERR_AUDIT_DURABILITY_INSUFFICIENT` |
+| `0x0Cxx` | 时钟 / 时间安全 | `DO_LOG_ERR_TIME_BACKWARD` |
+| `0x0Dxx` | SIF / 序列化 | `DO_LOG_ERR_SIF_INVALID` |
+| `0x0Exx` | 内部 / 致命 | `DO_LOG_ERR_FATAL` |
 
 ### 获取详细错误信息
 

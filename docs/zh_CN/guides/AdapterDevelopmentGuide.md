@@ -350,15 +350,15 @@ class DoLoggerConfigError(DoLoggerError):
 
 
 class DoLoggerIOError(DoLoggerError):
-    """日志提交期间的 I/O 错误（0x07xx）。"""
+    """日志提交期间的 I/O 错误（0x08xx）。"""
 
 
 # 错误码 -> 异常 映射（摘自 dologger_error_code_t）
-DO_LOG_ERR_INVALID_ARG = -0x0102
-DO_LOG_ERR_NOT_INITIALIZED = -0x0104
+DO_LOG_ERR_INVALID_ARG = -0x0101
+DO_LOG_ERR_NOT_INITIALIZED = -0x0103
 DO_LOG_ERR_CONFIG_PARSE = -0x0203
 DO_LOG_ERR_BUFFER_FULL = -0x0501
-DO_LOG_ERR_SINK_WRITE_FAILED = -0x0701
+DO_LOG_ERR_SINK_WRITE_FAILED = -0x0801
 
 _ERROR_MAP = {
     DO_LOG_ERR_INVALID_ARG: DoLoggerInitError,
@@ -804,12 +804,12 @@ target_link_libraries(myapp PRIVATE ${DOLOGGER_CORE_LIB})
 | C 返回值 | Python | Go | Rust | C++ |
 |:-:|:-:|:-:|:-:|:-:|
 | `DO_LOG_OK`（0） | 返回 `None` | 返回 `nil` error | 返回 `Ok(())` | 正常返回 |
-| `DO_LOG_ERR_INIT`（-1） | `DoLoggerInitError` | `&Error{Code: -1}` | `Err(DoLogError::Init)` | `EngineError(-1, ...)` |
-| `DO_LOG_ERR_CFG`（-2） | `DoLoggerConfigError` | `&Error{Code: -2}` | `Err(DoLogError::Config)` | `EngineError(-2, ...)` |
+| `DO_LOG_ERR_INIT_FAILED`（-0x0109） | `DoLoggerInitError` | `&Error{Code: -0x0109}` | `Err(DoLogError::Init)` | `EngineError(-0x0109, ...)` |
+| `DO_LOG_ERR_CONFIG_VALIDATION`（-0x0204） | `DoLoggerConfigError` | `&Error{Code: -0x0204}` | `Err(DoLogError::Config)` | `EngineError(-0x0204, ...)` |
 | `DO_LOG_ERR_INVALID_ARG` | `ValueError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::InvalidArg)` | `std::invalid_argument` |
-| `DO_LOG_ERR_NOMEM` | `MemoryError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::NoMem)` | `std::bad_alloc` |
-| I/O 错误（0x03xx） | `DoLoggerIOError` | `&Error{Code: ...}` | `Err(DoLogError::IO)` | `EngineError(..., ...)` |
-| 插件错误（0x05xx） | `DoLoggerPluginError` | `&Error{Code: ...}` | `Err(DoLogError::Plugin)` | `EngineError(..., ...)` |
+| `DO_LOG_ERR_OUT_OF_MEMORY` | `MemoryError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::NoMem)` | `std::bad_alloc` |
+| I/O 错误（0x08xx） | `DoLoggerIOError` | `&Error{Code: ...}` | `Err(DoLogError::IO)` | `EngineError(..., ...)` |
+| 插件错误（0x03xx） | `DoLoggerPluginError` | `&Error{Code: ...}` | `Err(DoLogError::Plugin)` | `EngineError(..., ...)` |
 
 ### 错误获取模式
 

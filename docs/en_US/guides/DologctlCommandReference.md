@@ -105,10 +105,12 @@ dologctl config validate -c /etc/dologger.toml --strict
 
 ### dologctl run
 
-Run the DoLogger engine (v0.1.0 supports `--dry-run` validation and `--trace` timing modes only; the long-running foreground mode is not implemented yet).
+Run the DoLogger engine. `--dry-run` validates configuration only; `--trace`
+runs the pipeline with per-record timing; plain `run` starts the foreground
+engine and waits for Ctrl-C (graceful shutdown). `--shm` enables `sink_shm`.
 
 ```text
-dologctl run [--dry-run] [--config <path>] [--trace]
+dologctl run [--dry-run] [--config <path>] [--trace] [--shm <path>]
 ```
 
 | Option | Description |
@@ -116,16 +118,15 @@ dologctl run [--dry-run] [--config <path>] [--trace]
 | `-c, --config <path>` | Configuration file to load |
 | `--dry-run` | Validate the configuration and exit without starting the engine |
 | `--trace` | Enable per-record pipeline stage timing (diagnostic overhead — dev only) |
+| `--shm <path>` | Enable `sink_shm` and override its shared-memory path (other fields from the `[shm]` TOML table or defaults) |
 
 Examples:
 
 ```bash
 dologctl run --dry-run --config dologger.toml   # validate config only
-dologctl run --trace --config dologger.toml     # per-record pipeline timings (v0.1.0's actual run mode)
+dologctl run --config dologger.toml             # foreground engine, Ctrl-C to stop
+dologctl run --shm /dologger_default.shm        # foreground engine + shared-memory sink
 ```
-
-> [!NOTE]
-> In v0.1.0 the long-running engine startup path is not yet wired up: plain `dologctl run` exits `1` with `Engine startup not yet implemented`. Use `--dry-run` for validation or `--trace` for a timed pipeline run.
 
 ---
 
@@ -374,7 +375,7 @@ dologctl record-stop app
 
 ### dologctl shm status
 
-Display metadata of a shared memory ring buffer region (header, slots, producer liveness flags).
+Display metadata of a shared memory ring buffer region (header, slots, producer liveness flags). Reads the header through the core `read_status` API — the single source of truth for the header layout.
 
 ```text
 dologctl shm status <path>

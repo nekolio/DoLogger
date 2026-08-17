@@ -62,6 +62,7 @@ fn main() {
         Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
         PluginDispatch::default(),
         None,
+        None,
     )
     .expect("Failed to create pipeline");
 

@@ -29,7 +29,7 @@ use dologger_core::plugin::vtable::{FieldProviderVTable, HostAccessors, HostInit
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
 #[allow(dead_code)]
-const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
+const DO_LOG_ERR_INVALID_ARG: i32 = -0x0101;
 
 // Plugin mount phase — FieldProvider stage
 const PHASE_FIELD_PROVIDER: u32 = dologger_core::plugin::phase::PHASE_FIELD_PROVIDER;

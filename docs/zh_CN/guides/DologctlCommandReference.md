@@ -105,10 +105,10 @@ dologctl config validate -c /etc/dologger.toml --strict
 
 ### dologctl run
 
-运行 DoLogger 引擎(v0.1.0 仅支持 `--dry-run` 校验与 `--trace` 计时两种模式;长驻前台模式尚未实现)。
+运行 DoLogger 引擎。`--dry-run` 仅校验配置;`--trace` 以逐条计时运行管道;直接 `run` 启动前台引擎并等待 Ctrl-C(优雅关闭)。`--shm` 启用 `sink_shm`。
 
 ```text
-dologctl run [--dry-run] [--config <path>] [--trace]
+dologctl run [--dry-run] [--config <path>] [--trace] [--shm <path>]
 ```
 
 | 选项 | 说明 |
@@ -116,16 +116,15 @@ dologctl run [--dry-run] [--config <path>] [--trace]
 | `-c, --config <path>` | 要加载的配置文件 |
 | `--dry-run` | 只校验配置,不启动引擎 |
 | `--trace` | 启用逐条记录的管道阶段计时(有诊断开销 —— 仅用于开发) |
+| `--shm <path>` | 启用 `sink_shm` 并覆盖其共享内存路径(其余字段取自 `[shm]` TOML 表或默认值) |
 
 示例:
 
 ```bash
 dologctl run --dry-run --config dologger.toml   # 只校验配置
-dologctl run --trace --config dologger.toml     # 逐条记录管道计时（v0.1.0 的实际运行模式）
+dologctl run --config dologger.toml             # 前台引擎, Ctrl-C 停止
+dologctl run --shm /dologger_default.shm        # 前台引擎 + 共享内存 sink
 ```
-
-> [!NOTE]
-> v0.1.0 尚未接通长驻引擎的启动路径:直接 `dologctl run` 会以退出码 `1` 报 `Engine startup not yet implemented`。请使用 `--dry-run` 校验配置,或使用 `--trace` 进行计时管道运行。
 
 ---
 
@@ -369,7 +368,7 @@ dologctl record-stop app
 
 ### dologctl shm status
 
-显示共享内存环形缓冲区区域的元数据(头部、槽位、生产者存活标志)。
+显示共享内存环形缓冲区区域的元数据(头部、槽位、生产者存活标志)。通过核心 `read_status` API 读取头部——头部布局的唯一事实源。
 
 ```text
 dologctl shm status <path>

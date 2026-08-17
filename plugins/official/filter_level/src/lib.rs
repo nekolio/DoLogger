@@ -25,7 +25,7 @@ use dologger_core::Record;
 
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
-const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
+const DO_LOG_ERR_INVALID_ARG: i32 = -0x0101;
 
 // Plugin mount phase — Filter stage
 const PHASE_FILTER: u32 = 0x0002;

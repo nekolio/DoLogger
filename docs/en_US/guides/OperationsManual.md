@@ -312,6 +312,68 @@ Overrides are merged on top of the profile defaults. Non-downgradable items cann
 
 ---
 
+## Shared Memory Sink (sink_shm)
+
+`sink_shm` delivers SIF records to external consumer processes through a
+zero-copy, cross-process shared-memory ring buffer. It is wired **separately**
+from `[sinks.*]` and is not a member of the sink registry. Enable it with the
+top-level `[shm]` table:
+
+```toml
+[shm]
+path = "/dologger_default.shm"   # POSIX name on Unix; mapping name on Windows
+buffer_size_mb = 64              # power of two, >= 8
+slot_size_kb = 64                # per-slot max, >= 64
+full_policy = "drop_newest"      # drop_newest | drop_oldest
+permissions = 0o660              # Unix only
+auto_cleanup = true              # unlink the region on engine shutdown
+allowed_consumers = []           # empty = allow all
+```
+
+`sink_shm` is **non-persistent** — `durability_level` is forced to `UNSAFE`. It
+is therefore forbidden in AUDIT mode (`enable_signature = true` / `prod-audit`),
+which requires durable WORM storage; the engine rejects that combination with
+`DO_LOG_ERR_AUDIT_SHM_FORBIDDEN`.
+
+### Enabling via the CLI
+
+`dologctl run --shm <path>` enables `sink_shm` and overrides the shared-memory
+path, keeping any other `[shm]` fields from the config (or defaults):
+
+```bash
+dologctl run --shm /dologger_default.shm
+```
+
+### Shared watermark semantics
+
+The ring buffer header carries two sequence numbers:
+
+| Field | Owner | Meaning |
+|:-:|:-:|-|
+| `producer_seq` | DoLogger (producer) | Next slot to write; advanced per accepted record |
+| `consumer_seq` | Consumers (shared) | Recycle watermark — slots below it are safe to overwrite |
+
+`consumer_seq` is a **single shared watermark** advanced cooperatively by
+consumers via `compare_exchange`. There is exactly one watermark, so a
+slow consumer can cause `drop_oldest`/`drop_newest` to kick in — DoLogger never
+blocks producers on the shared-memory path. Consumers that are still draining a
+slot that has been recycled must expect `overwritten_count` to increase and
+re-read the region.
+
+### Inspecting a region
+
+```bash
+dologctl shm status /dologger_default.shm          # human-readable
+dologctl shm status /dologger_default.shm --output json
+dologctl shm clear /dologger_default.shm           # requires producer DEAD or --force
+```
+
+`dologctl shm status` and `clear` read the header through the core
+`dologger_core::sink::shm::read_status` API — the single source of truth for
+the header layout (see `core/include/dologger_shm.h` for the consumer ABI).
+
+---
+
 ## Monitoring and Alerting
 
 ### Sysmon Event Stream

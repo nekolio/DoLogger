@@ -269,8 +269,8 @@ impl ExternalAnchor {
             "anchor_id": record.anchor_id,
             "timestamp_ms": record.timestamp_ms,
             "last_lsn": record.last_lsn,
-            "chain_root_hash": hex::encode(record.chain_root_hash),
-            "signature": hex::encode(record.signature),
+            "chain_root_hash": crate::util::hex::encode(record.chain_root_hash),
+            "signature": crate::util::hex::encode(record.signature),
         })
     }
 
@@ -475,8 +475,8 @@ mod tests {
         assert!(json.contains("anchor_id"));
         assert!(json.contains("chain_root_hash"));
         assert!(json.contains("signature"));
-        assert!(json.contains(&hex::encode(rec.chain_root_hash)));
-        assert!(json.contains(&hex::encode(rec.signature)));
+        assert!(json.contains(&crate::util::hex::encode(rec.chain_root_hash)));
+        assert!(json.contains(&crate::util::hex::encode(rec.signature)));
 
         // JSON must be valid and parseable
         let parsed: serde_json::Value =

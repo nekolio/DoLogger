@@ -114,7 +114,7 @@ dologger_error_t etcd_config_load(void *state, dologger_config_buf_t *out) {
     EtcdState *s = (EtcdState *)state;
     char *etcd_value = etcd_get(s->etcd_client, "/dologger/config");
     if (!etcd_value) {
-        return DO_LOG_ERR_CFG_MISSING;
+        return DO_LOG_ERR_CONFIG_VALIDATION;
     }
     strncpy(out->data, etcd_value, out->capacity);
     out->length = strlen(out->data);
@@ -531,7 +531,7 @@ dologger_error_t validate_plugin_dag(PluginRegistry *registry) {
         if detect_cycle_from(P, visited_set):
             dologger_emit_sysmon("LICENSE_POLICY_VIOLATION",
                 "检测到从插件 '%s' 开始的循环依赖", P->name);
-            return DO_LOG_ERR_PLUGIN_LOAD;
+            return DO_LOG_ERR_PLUGIN_LOAD_FAILED;
     return DO_LOG_OK;
 }
 ```
@@ -606,7 +606,7 @@ dologger_error_t plugin_state_serialize(dologger_state_buf_t *out) {
     // 将您的状态序列化到 out->data 中
     // out->capacity 是最大缓冲区大小
     // 设置 out->length 为实际写入的字节数
-    // 如果容量不足则返回 DO_LOG_ERR_BUF_TOO_SMALL
+    // 如果容量不足则返回 DO_LOG_ERR_BUFFER_TOO_SMALL
 }
 
 dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in) {
@@ -643,7 +643,7 @@ typedef struct {
 dologger_error_t plugin_state_serialize(dologger_state_buf_t *out) {
     size_t needed = sizeof(RateLimiterState);
     if (out->capacity < needed) {
-        return DO_LOG_ERR_BUF_TOO_SMALL;
+        return DO_LOG_ERR_BUFFER_TOO_SMALL;
     }
     memcpy(out->data, &g_state, needed);
     out->length = needed;

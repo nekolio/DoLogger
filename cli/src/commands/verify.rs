@@ -244,7 +244,7 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
     let verifying_key: Option<VerifyingKey> = match pubkey_hex {
         Some(hex_str) => {
             let hex_str = hex_str.trim();
-            match hex::decode(hex_str) {
+            match dologger_core::hex::decode(hex_str) {
                 Ok(bytes) if bytes.len() == 32 => {
                     let arr: [u8; 32] = bytes.try_into().unwrap();
                     match VerifyingKey::from_bytes(&arr) {
@@ -408,7 +408,7 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
 fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>) {
     // Parse public key (silently)
     let verifying_key: Option<VerifyingKey> = pubkey_hex
-        .and_then(|h| hex::decode(h.trim()).ok())
+        .and_then(|h| dologger_core::hex::decode(h.trim()).ok())
         .and_then(|b| <[u8; 32]>::try_from(b).ok())
         .and_then(|arr| VerifyingKey::from_bytes(&arr).ok());
 
@@ -514,7 +514,7 @@ pub fn cmd_verify_anchor(path: &str, pubkey_hex: Option<&str>, format: OutputFor
     let verifying_key: Option<VerifyingKey> = match pubkey_hex {
         Some(hex_str) => {
             let hex_str = hex_str.trim();
-            match hex::decode(hex_str) {
+            match dologger_core::hex::decode(hex_str) {
                 Ok(bytes) if bytes.len() == 32 => {
                     let arr: [u8; 32] = bytes.try_into().unwrap();
                     match VerifyingKey::from_bytes(&arr) {
@@ -608,7 +608,7 @@ pub fn cmd_verify_anchor(path: &str, pubkey_hex: Option<&str>, format: OutputFor
         }
 
         // Verify Ed25519 signature
-        let chain_root_hash = match hex::decode(&anchor.chain_root_hash) {
+        let chain_root_hash = match dologger_core::hex::decode(&anchor.chain_root_hash) {
             Ok(bytes) if bytes.len() == 32 => {
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&bytes);
@@ -621,7 +621,7 @@ pub fn cmd_verify_anchor(path: &str, pubkey_hex: Option<&str>, format: OutputFor
             }
         };
 
-        let sig_bytes = match hex::decode(&anchor.signature) {
+        let sig_bytes = match dologger_core::hex::decode(&anchor.signature) {
             Ok(bytes) if bytes.len() == 64 => {
                 let mut arr = [0u8; 64];
                 arr.copy_from_slice(&bytes);
@@ -700,7 +700,7 @@ pub fn cmd_verify_anchor(path: &str, pubkey_hex: Option<&str>, format: OutputFor
 fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
     let vk = match pubkey_hex {
         Some(h) => {
-            match hex::decode(h.trim())
+            match dologger_core::hex::decode(h.trim())
                 .ok()
                 .and_then(|b| <[u8; 32]>::try_from(b).ok())
                 .and_then(|arr| VerifyingKey::from_bytes(&arr).ok())
@@ -754,7 +754,7 @@ fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
             ts_issues += 1;
         }
 
-        let hash = match hex::decode(&anchor.chain_root_hash) {
+        let hash = match dologger_core::hex::decode(&anchor.chain_root_hash) {
             Ok(b) if b.len() == 32 => {
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(&b);
@@ -765,7 +765,7 @@ fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
                 continue;
             }
         };
-        let sig = match hex::decode(&anchor.signature) {
+        let sig = match dologger_core::hex::decode(&anchor.signature) {
             Ok(b) if b.len() == 64 => {
                 let mut arr = [0u8; 64];
                 arr.copy_from_slice(&b);

@@ -55,8 +55,12 @@ fn print_info() {
     // Gather system info
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    let hostname = hostname::get()
-        .map(|h| h.to_string_lossy().to_string())
+    // Re-use the same env-based lookup as `core::sys::host_info::hostname`
+    // so the CLI has no extra dependency on the `hostname` crate.  On Windows
+    // `COMPUTERNAME` is set by the system; on POSIX hosts `HOSTNAME` is the
+    // common convention; we fall back to `unknown`.
+    let hostname = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "unknown".to_string());
     let pid = std::process::id();
     let cwd = std::env::current_dir()

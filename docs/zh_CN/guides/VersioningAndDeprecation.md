@@ -166,7 +166,7 @@ int dologger_record_set_tags(dologger_record_t *record,
 
 1. **MINOR N**：该键继续工作。启动时发出 `DEPRECATED_CONFIG_KEY` sysmon 事件，列出已废弃的键及其替代。
 2. **MINOR N+1**：该键继续工作但发出 **WARN** 级别的 sysmon 事件。
-3. **MAJOR**：该键被移除。配置验证器以 `DO_LOG_ERR_CFG_PARSE` 拒绝并附清晰的错误消息，指明替代键。
+3. **MAJOR**：该键被移除。配置验证器以 `DO_LOG_ERR_CONFIG_PARSE` 拒绝并附清晰的错误消息，指明替代键。
 
 ```toml
 # 示例：已废弃键的迁移

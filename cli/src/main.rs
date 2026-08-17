@@ -91,6 +91,10 @@ enum Commands {
         /// Enable per-record pipeline stage timing trace
         #[arg(long)]
         trace: bool,
+
+        /// Enable sink_shm and override its path (other fields from TOML or defaults)
+        #[arg(long)]
+        shm: Option<String>,
     },
     /// Manage plugins
     Plugin {
@@ -355,7 +359,8 @@ fn main() {
             dry_run,
             config,
             trace,
-        } => cmd_run(dry_run, config.as_deref(), trace),
+            shm,
+        } => cmd_run(dry_run, config.as_deref(), trace, shm.as_deref()),
         Commands::Plugin { action } => cmd_plugin(action),
         Commands::Config { action } => cmd_config(action),
         Commands::VerifyLog { path, pubkey } => {
@@ -436,7 +441,7 @@ fn cmd_init(template: &str) {
     }
 }
 
-fn cmd_run(dry_run: bool, config_path: Option<&str>, trace: bool) {
+fn cmd_run(dry_run: bool, config_path: Option<&str>, trace: bool, shm_path: Option<&str>) {
     if dry_run {
         stdout!("=== DoLogger Dry-Run Configuration Validation ===\n");
         if trace {
@@ -444,12 +449,9 @@ fn cmd_run(dry_run: bool, config_path: Option<&str>, trace: bool) {
         }
         validate_config(config_path)
     } else if trace {
-        commands::run::cmd_run_trace(config_path);
+        commands::run::cmd_run_trace(config_path, shm_path);
     } else {
-        stderr!("Engine startup not yet implemented");
-        stderr!("Use --dry-run to validate configuration without starting.");
-        stderr!("Use --trace to run with pipeline stage timing.");
-        std::process::exit(EXIT_ERR);
+        commands::run::cmd_run(config_path, shm_path);
     }
 }
 

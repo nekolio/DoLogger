@@ -27,6 +27,7 @@ use crate::plugin::vtable::{OutputBuffer, PluginDispatch};
 use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::record::Record;
 use crate::security::SignatureEngine;
+use crate::sink::ShmSink;
 use crate::sink::SinkRef;
 use crate::sys::ThreadPool;
 
@@ -56,6 +57,9 @@ impl Pipeline {
     ///   When `None`, sink writes happen inline on the consumer thread.
     ///   When `Some`, writes are sent through a bounded crossbeam channel
     ///   to a worker running on the pool, decoupling CPU from I/O.
+    /// * `shm_sink` — optional shared-memory sink. When present, each
+    ///   accepted record is additionally serialised to SIF and written to the
+    ///   ring buffer on the consumer thread (parallel to the configured sink).
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &DologgerConfig,
@@ -67,6 +71,7 @@ impl Pipeline {
         drop_level_policy: Arc<DropLevelPolicy>,
         dispatch: PluginDispatch,
         io_pool: Option<Arc<ThreadPool>>,
+        shm_sink: Option<Arc<ShmSink>>,
     ) -> Result<Self, String> {
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_flag = Arc::clone(&shutdown);
@@ -129,6 +134,7 @@ impl Pipeline {
                     dispatch: &dispatch,
                     io_pool,
                     sink_tx,
+                    shm_sink: shm_sink.as_ref(),
                 };
                 consumer_loop(&mut ctx);
             })
@@ -198,6 +204,9 @@ struct ConsumerCtx<'a> {
     /// I/O thread pool; stored for ordered drop (must outlive channel sender)
     #[allow(dead_code)]
     io_pool: Option<Arc<ThreadPool>>,
+    /// Optional shared-memory sink. Written per accepted record (SIF) on the
+    /// consumer thread, parallel to the configured sink.
+    shm_sink: Option<&'a Arc<ShmSink>>,
 }
 
 impl ConsumerCtx<'_> {
@@ -309,6 +318,14 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
                 batch_dropped += 1;
             }
 
+            // Mirror the accepted record into the shared-memory sink (if any)
+            // while it is still owned by the consumer. SIF serialisation is
+            // cheap and the shm write is non-blocking / lossy by design.
+            if let Some(shm) = c.shm_sink {
+                let sif = crate::sif::encode_record(record);
+                shm.write(&sif);
+            }
+
             // SAFETY: record_ptr was obtained from this pool via alloc() and
             // has exclusive ownership during the drain callback. It has not
             // been freed yet.
@@ -359,6 +376,13 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         if run_pipeline(record, &mut pctx) {
             final_writes.push(format_record(record, c.dispatch));
         }
+
+        // Mirror the accepted record into the shared-memory sink (if any).
+        if let Some(shm) = c.shm_sink {
+            let sif = crate::sif::encode_record(record);
+            shm.write(&sif);
+        }
+
         // SAFETY: record_ptr was obtained from this pool via alloc() and
         // has exclusive ownership at shutdown (final drain). It has not
         // been freed yet.
@@ -470,6 +494,7 @@ mod tests {
             Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
             PluginDispatch::default(), // no plugins loaded
             None,                      // No io_pool — inline writes
+            None,                      // No shm sink
         )
         .expect("Pipeline creation should succeed");
 
@@ -540,6 +565,7 @@ mod tests {
             Arc::new(DropLevelPolicy::new(LogLevel::Trace)),
             PluginDispatch::default(), // no plugins loaded
             Some(io_pool),             // io_pool enabled
+            None,                      // No shm sink
         )
         .expect("Pipeline creation should succeed");
 

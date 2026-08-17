@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use dologger_core::config::DologgerConfig;
 use dologger_core::record::{thread_id_u64, LogLevel};
+use dologger_core::sink::ShmSinkConfig;
 use dologger_core::sys::TimeSource;
 use dologger_core::Engine;
 
@@ -56,8 +57,10 @@ const TRACE_RECORD_COUNT: usize = 10;
 /// pipeline stage timing.
 ///
 /// * `config_path` — optional path to a TOML configuration file.
-pub fn cmd_run_trace(config_path: Option<&str>) {
-    let config = load_run_config(config_path);
+/// * `shm_path` — optional shared-memory path; enables sink_shm (overriding
+///   any `[shm]` path from the config, keeping other `[shm]` fields).
+pub fn cmd_run_trace(config_path: Option<&str>, shm_path: Option<&str>) {
+    let config = apply_shm_override(load_run_config(config_path), shm_path);
 
     let b = bold();
     let bc = bright_cyan();
@@ -252,6 +255,87 @@ pub fn cmd_run_trace(config_path: Option<&str>) {
     stdout!("{g}Engine shutdown complete.{reset}");
 }
 
+/// Flag flipped by the SIGINT / SIGTERM handler.  Static so the C-style
+/// signal handler has a stable address; the engine run loop polls it.
+static SHUTDOWN_FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Run the engine in normal (steady-state) mode.
+///
+/// Loads the configuration, initialises the engine, then blocks until a
+/// termination signal (SIGINT / SIGTERM on POSIX) is received.  Shutdown
+/// is graceful: the pipeline drains, sinks close, and shared-memory
+/// auto-cleanup runs if configured.
+///
+/// On non-Windows platforms we install a tiny `libc::signal` handler that
+/// flips the static `SHUTDOWN_FLAG`.  On Windows, no extra dependency is
+/// added for console-control handling — the OS default for Ctrl-C
+/// terminates the process.
+pub fn cmd_run(config_path: Option<&str>, shm_path: Option<&str>) {
+    let b = bold();
+    let bc = bright_cyan();
+    let d = dim();
+    let g = green();
+    let r = red();
+    let reset = output::when_color(color::RESET);
+
+    stdout!("{b}{bc}DoLogger Engine{reset}");
+    stdout!("{d}──────────────{reset}");
+    stdout!("");
+
+    // --- Load config & init engine ---
+    let config = apply_shm_override(load_run_config(config_path), shm_path);
+    stdout!("{d}Initializing engine...{reset}");
+    let mut engine = match Engine::init(config) {
+        Ok(e) => e,
+        Err(e) => {
+            stderr!("{r}Error:{reset} Engine initialization failed: {e}");
+            std::process::exit(crate::EXIT_ERR);
+        }
+    };
+    stdout!("{g}Engine running.  Press Ctrl-C to stop.{reset}");
+    stdout!("");
+
+    // --- Wait for termination signal ---
+    install_signal_handler();
+
+    while !SHUTDOWN_FLAG.load(std::sync::atomic::Ordering::SeqCst) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    // --- Graceful shutdown ---
+    stdout!("");
+    stdout!("{d}Shutdown signal received.  Draining pipeline...{reset}");
+    engine.shutdown();
+    stdout!("{g}Engine shutdown complete.{reset}");
+}
+
+/// Install an OS-native SIGINT/SIGTERM handler that flips
+/// `SHUTDOWN_FLAG` on receipt.  POSIX only — Windows does not install
+/// a handler here to avoid pulling `windows-sys` into the CLI
+/// dependency graph.
+#[cfg(not(windows))]
+fn install_signal_handler() {
+    // SAFETY: signal handlers may only call async-signal-safe operations.
+    // `AtomicBool::store` is documented by the standard library as safe
+    // to call from a C-style signal handler on all supported platforms.
+    unsafe extern "C" fn handler(_sig: libc::c_int) {
+        SHUTDOWN_FLAG.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    // Install handlers for SIGINT (Ctrl-C) and SIGTERM (service stop).
+    unsafe {
+        libc::signal(libc::SIGINT, handler as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
+    }
+}
+
+#[cfg(windows)]
+fn install_signal_handler() {
+    // No-op: Windows OS default for Ctrl-C is to terminate the process.
+    // We deliberately do not link `windows-sys` here to keep the CLI
+    // dependency graph minimal.
+}
+
 // ===========================================================================
 // Config loading
 // ===========================================================================
@@ -318,5 +402,21 @@ fn load_run_config(config_path: Option<&str>) -> DologgerConfig {
             ring_buffer_size: 65536,
             ..DologgerConfig::dev_profile()
         }
+    }
+}
+
+/// Apply the `--shm <path>` CLI override: enables sink_shm and overrides the
+/// shared-memory path, keeping any other `[shm]` fields from the TOML config
+/// (or defaults when the section is absent).
+fn apply_shm_override(config: DologgerConfig, shm_path: Option<&str>) -> DologgerConfig {
+    match shm_path {
+        Some(path) => DologgerConfig {
+            shm: Some(ShmSinkConfig {
+                path: path.to_string(),
+                ..config.shm.clone().unwrap_or_default()
+            }),
+            ..config
+        },
+        None => config,
     }
 }

@@ -564,7 +564,7 @@ impl Record {
         match field_name {
             "record.id" => Ok(format!("{:016x}{:016x}", self.id.hi, self.id.lo)),
             "record.timestamp" => Ok(format!("{}.{:09}", self.timestamp.hi, self.timestamp.lo)),
-            "record.signature" => Ok(hex::encode(&self.signature[..16])), // truncated
+            "record.signature" => Ok(crate::util::hex::encode(&self.signature[..16])), // truncated
             "record.origin_lsn" => Ok(self.origin_lsn.to_string()),
             "level" => Ok(self.level.to_str().to_string()),
             "message" => Ok(self.message.as_str().to_string()),
@@ -593,7 +593,7 @@ impl Record {
             "exception.code" => Ok(self.exception_code.to_string()),
             "labels" => Ok(self.labels.as_str().to_string()),
             "security.lsn" => Ok(self.lsn.to_string()),
-            "security.prev_hash" => Ok(hex::encode(&self.prev_hash[..8])),
+            "security.prev_hash" => Ok(crate::util::hex::encode(&self.prev_hash[..8])),
             "security.gap" => Ok(self.security_gap.to_string()),
             "security.audit_tags" => Ok(self.audit_tags.as_str().to_string()),
             _ if field_name.starts_with("ext.") => Ok(self.ext_data.as_str().to_string()),
@@ -702,13 +702,6 @@ impl Record {
         self.ext_data.set(value);
         // Auto-compute CRC32C when Ring 3 extension data is written
         self.ext_crc32c = crate::security::crc32c(value.as_bytes());
-    }
-}
-
-// Simple hex encoding helper (avoids an extra dependency)
-mod hex {
-    pub fn encode(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 

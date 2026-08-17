@@ -167,7 +167,7 @@ When a configuration key is deprecated:
 
 1. **MINOR N**: The key continues to work. A `DEPRECATED_CONFIG_KEY` sysmon event is emitted at startup listing the deprecated key and its replacement.
 2. **MINOR N+1**: The key continues to work but emits a **WARN**-level sysmon event.
-3. **MAJOR**: The key is removed. The configuration validator rejects it with `DO_LOG_ERR_CFG_PARSE` and a clear error message naming the replacement key.
+3. **MAJOR**: The key is removed. The configuration validator rejects it with `DO_LOG_ERR_CONFIG_PARSE` and a clear error message naming the replacement key.
 
 ```toml
 # (illustrative example — no keys are deprecated pre-1.0; syntax only, not a

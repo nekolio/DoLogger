@@ -45,6 +45,11 @@ pub struct DologgerConfig {
     /// Configured output sinks. Parsed from `[sinks.<name>]` tables; when the
     /// section is absent or empty the console default is used.
     pub sinks: Vec<crate::sink::SinkKindConfig>,
+    /// Optional shared-memory sink, parsed from the top-level `[shm]` table.
+    /// When absent, no sink_shm is wired. `dologctl run --shm <path>` can
+    /// enable it with a CLI path override (all other fields default or come
+    /// from the TOML table).
+    pub shm: Option<crate::sink::ShmSinkConfig>,
 }
 
 impl DologgerConfig {
@@ -240,6 +245,7 @@ impl Default for DologgerConfig {
             plugin_allow_red_plugins: false,
             plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
+            shm: None,
         }
     }
 }
@@ -268,6 +274,7 @@ impl DologgerConfig {
             plugin_allow_red_plugins: false,
             plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
+            shm: None,
         }
     }
 
@@ -883,6 +890,19 @@ impl DologgerConfig {
             config.sinks.push(crate::sink::SinkKindConfig::console());
         }
 
+        // Parse the optional top-level `[shm]` table. sink_shm is wired
+        // separately from `[sinks.*]` (see sink/registry), so it has its own
+        // top-level section. A malformed section disables sink_shm with a
+        // warning rather than failing the whole config load.
+        if let Some(shm) = table.get("shm") {
+            match shm.clone().try_into::<crate::sink::ShmSinkConfig>() {
+                Ok(cfg) => config.shm = Some(cfg),
+                Err(e) => warnings.push(format!(
+                    "[shm] configuration invalid, sink_shm disabled: {e}"
+                )),
+            }
+        }
+
         // Apply profile overrides
         config.apply_profile();
 
@@ -970,6 +990,7 @@ mod tests {
             plugin_allow_red_plugins: false,
             plugin_enable_pipeline: false,
             sinks: vec![crate::sink::SinkKindConfig::console()],
+            shm: None,
         }
     }
 

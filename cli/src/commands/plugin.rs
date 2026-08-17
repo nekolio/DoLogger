@@ -126,7 +126,7 @@ fn is_valid_plugin_extension(path: &Path) -> bool {
 /// Read `DO_LOG_PLUGIN_TRUST_ANCHOR` (64 hex chars) into a `[u8; 32]`.
 fn trust_anchor_from_env() -> Option<[u8; 32]> {
     let raw = std::env::var("DO_LOG_PLUGIN_TRUST_ANCHOR").ok()?;
-    let bytes = hex::decode(raw.trim()).ok()?;
+    let bytes = dologger_core::hex::decode(raw.trim()).ok()?;
     bytes.try_into().ok()
 }
 
@@ -533,8 +533,8 @@ pub fn cmd_plugin_keygen(path: &str) {
     let reset = output::when_color(color::RESET);
 
     let signing_key = SigningKey::generate(&mut OsRng);
-    let seed_hex = hex::encode(signing_key.to_bytes());
-    let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+    let seed_hex = dologger_core::hex::encode(signing_key.to_bytes());
+    let pubkey_hex = dologger_core::hex::encode(signing_key.verifying_key().to_bytes());
 
     if let Err(e) = std::fs::write(path, format!("{seed_hex}\n")) {
         stderr!("Error: Cannot write key file '{path}': {e}");
@@ -635,7 +635,7 @@ pub fn cmd_plugin_sign(
         std::process::exit(1);
     };
 
-    let seed_bytes: [u8; 32] = match hex::decode(&seed_hex) {
+    let seed_bytes: [u8; 32] = match dologger_core::hex::decode(&seed_hex) {
         Ok(bytes) => match bytes.try_into() {
             Ok(arr) => arr,
             Err(_) => {
@@ -675,7 +675,7 @@ pub fn cmd_plugin_sign(
     );
     stdout!(
         "  Public key: {}",
-        hex::encode(signing_key.verifying_key().to_bytes())
+        dologger_core::hex::encode(signing_key.verifying_key().to_bytes())
     );
 }
 

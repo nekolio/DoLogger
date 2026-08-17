@@ -28,8 +28,6 @@
 //! | macOS | `shm_open()` + `mmap()` |
 //! | Windows | `CreateFileMappingW` + `MapViewOfFile` |
 
-#![allow(dead_code)]
-
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,28 +42,26 @@ use crate::sys::Sysmon;
 // ---------------------------------------------------------------------------
 
 /// Magic number for shared memory validation ("DLOG").
-const SHM_MAGIC: u32 = 0x474F4C44;
+pub const SHM_MAGIC: u32 = 0x474F4C44;
 /// Current layout version.
-const SHM_VERSION: u32 = 1;
+pub const SHM_VERSION: u32 = 1;
 /// Header size in bytes.
-const SHM_HEADER_SIZE: usize = 64;
+pub const SHM_HEADER_SIZE: usize = 64;
 /// Minimum buffer size in MB (must be power of two).
 const MIN_BUFFER_SIZE_MB: usize = 8;
 /// Minimum slot size in KB.
 const MIN_SLOT_SIZE_KB: usize = 64;
-/// Default ring buffer capacity in slots.
-const DEFAULT_SLOT_COUNT: usize = 1024;
 
 // ---------------------------------------------------------------------------
 // Flags for shared memory header
 // ---------------------------------------------------------------------------
 
 /// Producer is alive and writing.
-const FLAG_PRODUCER_ALIVE: u32 = 0x00000001;
+pub const FLAG_PRODUCER_ALIVE: u32 = 0x00000001;
 /// Producer has shut down cleanly.
-const FLAG_PRODUCER_DEAD: u32 = 0x00000002;
+pub const FLAG_PRODUCER_DEAD: u32 = 0x00000002;
 /// Buffer has overflowed.
-const FLAG_BUFFER_OVERFLOW: u32 = 0x00000004;
+pub const FLAG_BUFFER_OVERFLOW: u32 = 0x00000004;
 
 // ---------------------------------------------------------------------------
 // Shared memory header (must match dologger_shm.h exactly)
@@ -219,6 +215,85 @@ mod shm_platform {
             libc::shm_unlink(name_c.as_ptr());
         }
     }
+
+    /// Release the mapping and fd without unlinking the shared-memory object.
+    /// Used when `auto_cleanup` is disabled — the region persists for consumers.
+    pub fn release(handle: ShmHandle) {
+        unsafe {
+            libc::munmap(handle.ptr as *mut libc::c_void, handle.size);
+            libc::close(handle.shm_fd);
+        }
+    }
+
+    /// A read-only handle to an existing shared-memory region.
+    pub struct ShmReadHandle {
+        pub ptr: *mut u8,
+        pub size: usize,
+        pub shm_fd: RawFd,
+    }
+
+    // SAFETY: Owns a read-only mmap pointer — safe to send across threads.
+    unsafe impl Send for ShmReadHandle {}
+
+    /// Open an existing shared-memory region read-only for inspection.
+    pub fn open_readonly(name: &str) -> Result<ShmReadHandle, String> {
+        use std::ffi::CString;
+        let name_c = CString::new(name).map_err(|e| format!("shm name: {e}"))?;
+
+        let fd = unsafe { libc::shm_open(name_c.as_ptr(), libc::O_RDONLY, 0o660) };
+        if fd < 0 {
+            return Err(format!(
+                "shm_open('{name}'): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd, &mut stat) } != 0 {
+            let e = std::io::Error::last_os_error();
+            unsafe { libc::close(fd) };
+            return Err(format!("fstat('{name}'): {e}"));
+        }
+        let size = stat.st_size as usize;
+
+        if size < super::SHM_HEADER_SIZE {
+            unsafe { libc::close(fd) };
+            return Err(format!(
+                "SHM region too small: {size} bytes (need at least {})",
+                super::SHM_HEADER_SIZE
+            ));
+        }
+
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                size,
+                libc::PROT_READ,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+        if ptr == libc::MAP_FAILED {
+            let e = std::io::Error::last_os_error();
+            unsafe { libc::close(fd) };
+            return Err(format!("mmap('{name}'): {e}"));
+        }
+
+        Ok(ShmReadHandle {
+            ptr: ptr as *mut u8,
+            size,
+            shm_fd: fd,
+        })
+    }
+
+    /// Close a read-only shared-memory handle (does NOT unlink).
+    pub fn close_readonly(handle: ShmReadHandle) {
+        unsafe {
+            libc::munmap(handle.ptr as *mut libc::c_void, handle.size);
+            libc::close(handle.shm_fd);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -256,9 +331,7 @@ mod shm_platform {
 
     pub struct ShmHandle {
         pub ptr: *mut u8,
-        pub size: usize,
         pub mapping_handle: isize,
-        pub shm_name: String,
     }
 
     // SAFETY: Owns a pointer from MapViewOfFile — safe to send across threads.
@@ -301,13 +374,88 @@ mod shm_platform {
 
         Ok(ShmHandle {
             ptr,
-            size,
             mapping_handle: handle,
-            shm_name: name.to_string(),
         })
     }
 
     pub fn destroy(handle: ShmHandle) {
+        unsafe {
+            UnmapViewOfFile(handle.ptr);
+            CloseHandle(handle.mapping_handle);
+        }
+    }
+
+    /// Release the mapping and handle without unlinking the shared-memory object.
+    /// Used when `auto_cleanup` is disabled — the region persists for consumers.
+    pub fn release(handle: ShmHandle) {
+        unsafe {
+            UnmapViewOfFile(handle.ptr);
+            CloseHandle(handle.mapping_handle);
+        }
+    }
+
+    /// A read-only handle to an existing shared-memory region.
+    pub struct ShmReadHandle {
+        pub ptr: *mut u8,
+        pub mapping_handle: isize,
+    }
+
+    // SAFETY: Owns a read-only MapViewOfFile pointer — safe to send across threads.
+    unsafe impl Send for ShmReadHandle {}
+
+    /// Open an existing shared-memory region read-only for inspection.
+    pub fn open_readonly(name: &str) -> Result<ShmReadHandle, String> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+
+        extern "system" {
+            fn OpenFileMappingW(
+                dwDesiredAccess: u32,
+                bInheritHandle: i32,
+                lpName: *const u16,
+            ) -> isize;
+            fn MapViewOfFile(
+                hFileMappingObject: isize,
+                dwDesiredAccess: u32,
+                dwFileOffsetHigh: u32,
+                dwFileOffsetLow: u32,
+                dwNumberOfBytesToMap: usize,
+            ) -> *mut u8;
+        }
+
+        const FILE_MAP_READ: u32 = 0x0004;
+        const INVALID_HANDLE_VALUE: isize = -1;
+
+        let wide_name: Vec<u16> = OsStr::new(name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let handle = unsafe { OpenFileMappingW(FILE_MAP_READ, 0, wide_name.as_ptr()) };
+
+        if handle == 0 || handle == INVALID_HANDLE_VALUE {
+            return Err(format!(
+                "OpenFileMappingW('{name}'): {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+
+        let ptr = unsafe { MapViewOfFile(handle, FILE_MAP_READ, 0, 0, super::SHM_HEADER_SIZE) };
+
+        if ptr.is_null() {
+            let e = std::io::Error::last_os_error();
+            unsafe { CloseHandle(handle) };
+            return Err(format!("MapViewOfFile('{name}'): {e}"));
+        }
+
+        Ok(ShmReadHandle {
+            ptr,
+            mapping_handle: handle,
+        })
+    }
+
+    /// Close a read-only shared-memory handle (does NOT unlink).
+    pub fn close_readonly(handle: ShmReadHandle) {
         unsafe {
             UnmapViewOfFile(handle.ptr);
             CloseHandle(handle.mapping_handle);
@@ -505,6 +653,77 @@ pub struct ShmSinkStats {
 }
 
 // ---------------------------------------------------------------------------
+// Read-only inspection
+// ---------------------------------------------------------------------------
+
+/// A read-only snapshot of an existing shared-memory ring buffer header.
+///
+/// This is the single source of truth for header inspection — tooling
+/// (`dologctl shm status`) and integration tests share this layout instead of
+/// maintaining a hand-written mirror of the header.
+#[derive(Debug, Clone)]
+pub struct ShmStatus {
+    /// Shared memory object path
+    pub path: String,
+    /// Total buffer size in bytes
+    pub buffer_size_bytes: u64,
+    /// Ring buffer magic
+    pub magic: u32,
+    /// Header version
+    pub version: u32,
+    /// Total number of slots
+    pub slot_count: u32,
+    /// Bytes per slot (including 4B length prefix)
+    pub slot_size_bytes: u32,
+    /// Producer process ID
+    pub producer_pid: u32,
+    /// Header flags
+    pub flags: u32,
+    /// Whether the producer process is currently alive and writing
+    pub producer_alive: bool,
+    /// Producer sequence number (records written so far)
+    pub producer_seq: u64,
+    /// Consumer sequence number (watermark — records safely consumed)
+    pub consumer_seq: u64,
+    /// Records dropped (drop_newest policy)
+    pub dropped_count: u64,
+    /// Records overwritten (drop_oldest policy)
+    pub overwritten_count: u64,
+}
+
+/// Open an existing shared-memory region read-only and snapshot its header.
+///
+/// This never creates or writes the region — it is safe to call against a
+/// region owned by a live producer process. `consumer_seq` is a shared
+/// watermark: consumers advance it to mark records as safe-to-recycle.
+pub fn read_status(path: &str) -> Result<ShmStatus, String> {
+    let handle = shm_platform::open_readonly(path)?;
+
+    // SAFETY: open_readonly guarantees `ptr` is a valid read-only mapping
+    // large enough for the header, and the region stays alive for `handle`.
+    let header = unsafe { header_ref(handle.ptr) };
+
+    let status = ShmStatus {
+        path: path.to_string(),
+        buffer_size_bytes: header.buffer_size_bytes,
+        magic: header.magic,
+        version: header.version,
+        slot_count: header.slot_count,
+        slot_size_bytes: header.slot_size_bytes,
+        producer_pid: header.producer_pid,
+        flags: header.flags.load(Ordering::Acquire),
+        producer_alive: header.producer_alive(),
+        producer_seq: header.producer_seq.load(Ordering::Acquire),
+        consumer_seq: header.consumer_seq.load(Ordering::Acquire),
+        dropped_count: header.dropped_count.load(Ordering::Acquire),
+        overwritten_count: header.overwritten_count.load(Ordering::Acquire),
+    };
+
+    shm_platform::close_readonly(handle);
+    Ok(status)
+}
+
+// ---------------------------------------------------------------------------
 // ShmSink
 // ---------------------------------------------------------------------------
 
@@ -646,6 +865,9 @@ impl ShmSink {
                         );
                         header.overwritten_count.fetch_add(1, Ordering::Relaxed);
                         self.total_overwritten.fetch_add(1, Ordering::Relaxed);
+                        header
+                            .flags
+                            .fetch_or(FLAG_BUFFER_OVERFLOW, Ordering::Relaxed);
                         self.total_written.fetch_add(1, Ordering::Relaxed);
                         self.total_bytes
                             .fetch_add(sif_data.len() as u64, Ordering::Relaxed);
@@ -711,7 +933,7 @@ impl ShmSink {
                 sysmon.info("shm", &format!("SHM_CLEANUP path={}", self.config.path));
                 shm_platform::destroy(handle);
             } else {
-                drop(handle);
+                shm_platform::release(handle);
             }
         }
     }

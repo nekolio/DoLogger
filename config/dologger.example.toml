@@ -88,3 +88,19 @@ port = 514
 protocol = "udp"                # udp | tcp | tls
 facility = "user"               # RFC 5424 facility code
 app_name = "dologger"
+
+# ---------------------------------------------------------------------------
+# Shared memory sink (sink_shm) — optional, top-level table (NOT under [sinks.*])
+# ---------------------------------------------------------------------------
+# sink_shm delivers SIF records to external consumer processes through a
+# zero-copy, cross-process shared-memory ring buffer. It is non-persistent
+# (durability forced to UNSAFE) and is forbidden in AUDIT/signature mode.
+# Remove or leave empty to disable.
+[shm]
+path = "/dologger_default.shm"   # POSIX name on Unix; mapping name on Windows
+buffer_size_mb = 64              # power of two, >= 8
+slot_size_kb = 64                # per-slot max, >= 64
+full_policy = "drop_newest"      # drop_newest | drop_oldest
+permissions = 0o660              # Unix only
+auto_cleanup = true              # unlink the region on engine shutdown
+allowed_consumers = []           # empty = allow all

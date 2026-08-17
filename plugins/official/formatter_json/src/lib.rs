@@ -32,8 +32,8 @@ use serde_json::Value;
 
 // Re-use core error codes
 const DO_LOG_OK: i32 = 0;
-const DO_LOG_ERR_INVALID_ARG: i32 = -0x0102;
-const DO_LOG_ERR_BUFFER_TOO_SMALL: i32 = -0x0107;
+const DO_LOG_ERR_INVALID_ARG: i32 = -0x0101;
+const DO_LOG_ERR_BUFFER_TOO_SMALL: i32 = -0x0106;
 
 // Plugin mount phase — Formatting stage
 const PHASE_FORMATTING: u32 = dologger_core::plugin::phase::PHASE_FORMATTING;

@@ -320,7 +320,7 @@ impl KeyRotationManager {
             "key-rotation",
             &format!(
                 "Key rotation initiated: new key fingerprint {} (grace period: {} days)",
-                hex::encode(new_fingerprint),
+                crate::util::hex::encode(new_fingerprint),
                 self.grace_period_days
             ),
         );
@@ -396,8 +396,8 @@ impl KeyRotationManager {
             "key-rotation",
             &format!(
                 "Key rotation completed: old key {} retired, new key {} now sole active",
-                hex::encode(old_fingerprint),
-                hex::encode(self.primary_fingerprint())
+                crate::util::hex::encode(old_fingerprint),
+                crate::util::hex::encode(self.primary_fingerprint())
             ),
         );
 
@@ -446,8 +446,8 @@ impl KeyRotationManager {
             "key-rotation",
             &format!(
                 "Key rotation cancelled: new key {} removed, reverted to {}",
-                hex::encode(new_fingerprint),
-                hex::encode(old_fingerprint)
+                crate::util::hex::encode(new_fingerprint),
+                crate::util::hex::encode(old_fingerprint)
             ),
         );
 
@@ -517,7 +517,7 @@ impl KeyRotationManager {
             "key-rotation",
             &format!(
                 "KEY REVOKED: fingerprint {} reason {}",
-                hex::encode(fingerprint),
+                crate::util::hex::encode(fingerprint),
                 reason.as_str()
             ),
         );
@@ -547,7 +547,7 @@ impl KeyRotationManager {
             .crl
             .iter()
             .map(|e| CrlJsonEntry {
-                fingerprint: hex::encode(e.fingerprint),
+                fingerprint: crate::util::hex::encode(e.fingerprint),
                 revoked_at: e.revoked_at,
                 reason: e.reason.as_str().to_string(),
             })
@@ -575,7 +575,7 @@ impl KeyRotationManager {
 
         let mut entries = Vec::with_capacity(raw_entries.len());
         for raw in raw_entries {
-            let fp_bytes = hex::decode(&raw.fingerprint)
+            let fp_bytes = crate::util::hex::decode(&raw.fingerprint)
                 .map_err(|e| format!("Invalid fingerprint hex '{}': {e}", raw.fingerprint))?;
             let fp_len = fp_bytes.len();
             let fp: KeyFingerprint = fp_bytes
@@ -874,7 +874,7 @@ mod tests {
         let json_str = String::from_utf8(json_bytes.clone()).unwrap();
         assert!(!json_str.is_empty());
         // Should contain the fingerprint as hex
-        assert!(json_str.contains(&hex::encode(old_fp)));
+        assert!(json_str.contains(&crate::util::hex::encode(old_fp)));
 
         // Import CRL
         let imported = KeyRotationManager::import_crl(&json_bytes).unwrap();

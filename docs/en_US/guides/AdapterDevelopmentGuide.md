@@ -360,12 +360,12 @@ class DoLoggerInvalidArgError(DoLoggerError):
     """Invalid argument passed to the C ABI."""
 
 
-# Error code -> exception mapping (real header values)
+# Error code -> exception mapping (real header values, see ErrorCodesReference)
 _ERROR_MAP = {
-    -0x0102: DoLoggerInvalidArgError,   # DO_LOG_ERR_INVALID_ARG
-    -0x0101: DoLoggerInitError,         # DO_LOG_ERR_INTERNAL
+    -0x0101: DoLoggerInvalidArgError,   # DO_LOG_ERR_INVALID_ARG
+    -0x0108: DoLoggerInitError,         # DO_LOG_ERR_INTERNAL
     -0x0203: DoLoggerConfigError,       # DO_LOG_ERR_CONFIG_PARSE
-    -0x0701: DoLoggerIOError,           # DO_LOG_ERR_SINK_WRITE_FAILED
+    -0x0801: DoLoggerIOError,           # DO_LOG_ERR_SINK_WRITE_FAILED
     # ... add mappings for the codes your adapter surface exposes ...
 }
 
@@ -805,11 +805,11 @@ target_link_libraries(myapp PRIVATE ${DOLOGGER_CORE_LIB})
 | C Return Value | Python | Go | Rust | C++ |
 |:-:|:-:|:-:|:-:|:-:|
 | `DO_LOG_OK` (0) | Return `None` | Return `nil` error | Return `Ok(())` | Return normally |
-| `DO_LOG_ERR_INTERNAL` (-0x0101) | `DoLoggerInitError` | `&Error{Code: ...}` | `Err(DoLogError::Internal)` | `EngineError(...)` |
+| `DO_LOG_ERR_INTERNAL` (-0x0108) | `DoLoggerInitError` | `&Error{Code: ...}` | `Err(DoLogError::Internal)` | `EngineError(...)` |
 | `DO_LOG_ERR_CONFIG_PARSE` (-0x0203) | `DoLoggerConfigError` | `&Error{Code: ...}` | `Err(DoLogError::Config)` | `EngineError(...)` |
-| `DO_LOG_ERR_INVALID_ARG` (-0x0102) | `DoLoggerInvalidArgError` | `&Error{Code: ...}` | `Err(DoLogError::InvalidArg)` | `std::invalid_argument` |
-| `DO_LOG_ERR_OUT_OF_MEMORY` (-0x0106) | `MemoryError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::NoMem)` | `std::bad_alloc` |
-| Sink errors (0x07xx) | `DoLoggerIOError` | `&Error{Code: ...}` | `Err(DoLogError::IO)` | `EngineError(...)` |
+| `DO_LOG_ERR_INVALID_ARG` (-0x0101) | `DoLoggerInvalidArgError` | `&Error{Code: ...}` | `Err(DoLogError::InvalidArg)` | `std::invalid_argument` |
+| `DO_LOG_ERR_OUT_OF_MEMORY` (-0x0105) | `MemoryError(DoLoggerError)` | `&Error{Code: ...}` | `Err(DoLogError::NoMem)` | `std::bad_alloc` |
+| Sink errors (0x08xx) | `DoLoggerIOError` | `&Error{Code: ...}` | `Err(DoLogError::IO)` | `EngineError(...)` |
 | Plugin errors (0x03xx) | `DoLoggerPluginError` | `&Error{Code: ...}` | `Err(DoLogError::Plugin)` | `EngineError(...)` |
 
 ### Error Retrieval Pattern

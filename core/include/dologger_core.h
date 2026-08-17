@@ -79,71 +79,122 @@ typedef enum {
  * Error codes
  * ======================================================================== */
 
-/** @brief Error code constants returned by DoLogger API functions. */
+/**
+ * @brief Error code constants returned by DoLogger API functions.
+ *
+ * The code space mirrors the *journey of a record* through the engine, so a
+ * value's high nibble tells the phase in which the failure surfaced. See the
+ * module docs of `core/src/error.rs` and the reference table
+ * `docs/*/guides/ErrorCodesReference.md` for the full catalog. All codes are
+ * negative; 0 (`DO_LOG_OK`) means success. Plugin-defined codes live in the
+ * high-bit range `-0x80000000` and below and are passed through untouched.
+ */
 typedef enum {
-    /* --- General / Initialization (0x01xx) --- */
+    /* --- General / API (0x01xx): caller-boundary checks --- */
     DO_LOG_OK                        =  0,       /**< Success */
-    DO_LOG_ERR_INTERNAL              = -0x0101,  /**< Generic internal error */
-    DO_LOG_ERR_INVALID_ARG           = -0x0102,  /**< Invalid argument */
-    DO_LOG_ERR_NOT_SUPPORTED         = -0x0103,  /**< Not supported on this platform */
-    DO_LOG_ERR_NOT_INITIALIZED       = -0x0104,  /**< Core not initialized */
-    DO_LOG_ERR_ALREADY_INITIALIZED   = -0x0105,  /**< Core already initialized */
-    DO_LOG_ERR_OUT_OF_MEMORY         = -0x0106,  /**< Memory allocation failure */
-    DO_LOG_ERR_BUFFER_TOO_SMALL      = -0x0107,  /**< Buffer too small */
-    DO_LOG_ERR_TIMEOUT               = -0x0108,  /**< Operation timed out */
+    DO_LOG_ERR_INVALID_ARG           = -0x0101,  /**< Invalid argument */
+    DO_LOG_ERR_NOT_SUPPORTED         = -0x0102,  /**< Not supported on this platform */
+    DO_LOG_ERR_NOT_INITIALIZED       = -0x0103,  /**< Core not initialized */
+    DO_LOG_ERR_ALREADY_INITIALIZED   = -0x0104,  /**< Core already initialized */
+    DO_LOG_ERR_OUT_OF_MEMORY         = -0x0105,  /**< Memory allocation failure */
+    DO_LOG_ERR_BUFFER_TOO_SMALL      = -0x0106,  /**< Buffer too small for the result */
+    DO_LOG_ERR_TIMEOUT               = -0x0107,  /**< Operation timed out */
+    DO_LOG_ERR_INTERNAL              = -0x0108,  /**< Generic internal error */
+    DO_LOG_ERR_INIT_FAILED           = -0x0109,  /**< Engine init internal fatal error */
 
-    /* --- Configuration (0x02xx) --- */
+    /* --- Configuration (0x02xx): load / parse / validate / merge / reload --- */
     DO_LOG_ERR_CONFIG_NOT_FOUND      = -0x0201,  /**< Config file not found */
     DO_LOG_ERR_CONFIG_PERMISSION     = -0x0202,  /**< Config file permission denied */
-    DO_LOG_ERR_CONFIG_PARSE          = -0x0203,  /**< Config parse error */
-    DO_LOG_ERR_CONFIG_VALIDATION     = -0x0204,  /**< Config validation failed */
-    DO_LOG_ERR_CONFIG_MERGE          = -0x0205,  /**< Config merge conflict */
-    DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED = -0x0206, /**< Hot reload failed */
+    DO_LOG_ERR_CONFIG_PARSE          = -0x0203,  /**< Config parse (TOML syntax) error */
+    DO_LOG_ERR_CONFIG_VALIDATION     = -0x0204,  /**< Config semantic validation failed */
+    DO_LOG_ERR_CONFIG_MERGE          = -0x0205,  /**< Config merge conflict (domain inheritance) */
+    DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED = -0x0206, /**< Hot reload failed; old config kept */
+    DO_LOG_ERR_CONFIG_HASH_MISMATCH  = -0x0207,  /**< Hot reload config hash mismatch */
+    DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID = -0x0208, /**< New reload config failed validation */
 
-    /* --- Plugin (0x03xx) --- */
+    /* --- Plugin (0x03xx): registry and runtime --- */
     DO_LOG_ERR_PLUGIN_NOT_FOUND      = -0x0301,  /**< Plugin not found */
-    DO_LOG_ERR_PLUGIN_LOAD_FAILED    = -0x0302,  /**< Plugin load failed */
+    DO_LOG_ERR_PLUGIN_LOAD_FAILED    = -0x0302,  /**< Plugin load failed (link/missing symbol) */
     DO_LOG_ERR_PLUGIN_MANIFEST_INVALID = -0x0303, /**< Invalid manifest */
-    DO_LOG_ERR_PLUGIN_VERSION_MISMATCH = -0x0304, /**< Version mismatch */
-    DO_LOG_ERR_PLUGIN_DEPENDENCY_MISSING = -0x0305, /**< Missing dependency */
-    DO_LOG_ERR_PLUGIN_LOCK_MISMATCH  = -0x0306,  /**< Lock file mismatch */
-    DO_LOG_ERR_PLUGIN_SIGNATURE_INVALID = -0x0307, /**< Bad signature */
+    DO_LOG_ERR_PLUGIN_VERSION_MISMATCH = -0x0304, /**< Plugin version incompatible with ABI */
+    DO_LOG_ERR_PLUGIN_ABI            = -0x0305,  /**< Plugin ABI incompatible with core */
+    DO_LOG_ERR_PLUGIN_DEPENDENCY_MISSING = -0x0306, /**< Missing dependency */
+    DO_LOG_ERR_PLUGIN_LOCK_MISMATCH  = -0x0307,  /**< Lock file mismatch (deterministic load) */
+    DO_LOG_ERR_PLUGIN_SIGNATURE_INVALID = -0x0308, /**< Bad plugin signature */
+    DO_LOG_ERR_MISSING_CAPABILITY    = -0x0309,  /**< Capability required, no provider */
+    DO_LOG_ERR_CIRCULAR_DEPENDENCY   = -0x030A,  /**< Circular dependency in plugin graph */
+    DO_LOG_ERR_TOKEN_EXCEEDED_DEPTH  = -0x030B,  /**< Cross-plugin token chain depth exceeded */
+    DO_LOG_ERR_CALL_DEADLOCK         = -0x030C,  /**< Cross-plugin call deadlock (cyclic wait) */
+    DO_LOG_ERR_STATE_FORMAT_UNSUPPORTED = -0x030D, /**< Plugin state format version unsupported */
+    DO_LOG_ERR_STATE_ROLLBACK_REJECTED = -0x030E, /**< State migration rejected rollback (epoch) */
+    DO_LOG_ERR_STATE_MIGRATE_FAILED  = -0x030F,  /**< Plugin state serialize/deserialize failed */
 
     /* --- Record / Field (0x04xx) --- */
-    DO_LOG_ERR_FIELD_NOT_FOUND       = -0x0401,  /**< Field not found */
-    DO_LOG_ERR_FIELD_PERMISSION_DENIED = -0x0402, /**< Permission denied */
-    DO_LOG_ERR_FIELD_TYPE_MISMATCH   = -0x0403,  /**< Field type mismatch */
-    DO_LOG_ERR_RECORD_INVALID        = -0x0404,  /**< Record invalid state */
+    DO_LOG_ERR_RECORD_INVALID        = -0x0401,  /**< Record invalid state */
+    DO_LOG_ERR_FIELD_NOT_FOUND       = -0x0402,  /**< Field not found */
+    DO_LOG_ERR_FIELD_PERMISSION_DENIED = -0x0403, /**< Field access denied (Ring permission) */
+    DO_LOG_ERR_FIELD_TYPE_MISMATCH   = -0x0404,  /**< Field type mismatch */
+    DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET = -0x0405, /**< Required field not provided earlier */
 
-    /* --- Ring Buffer / Pipeline (0x05xx) --- */
-    DO_LOG_ERR_BUFFER_FULL           = -0x0501,  /**< Ring buffer full */
+    /* --- Buffer / Pipeline (0x05xx): ingest, backpressure --- */
+    DO_LOG_ERR_BUFFER_FULL           = -0x0501,  /**< Ring buffer full, drop/block forbidden */
     DO_LOG_ERR_PIPELINE_STAGE        = -0x0502,  /**< Pipeline stage error */
+    DO_LOG_ERR_AUDIT_QUEUE_FULL      = -0x0503,  /**< Audit-domain queue full (no-drop policy) */
 
-    /* --- Signature / Audit (0x06xx) --- */
-    DO_LOG_ERR_SIGN_FAILED           = -0x0601,  /**< Signing failed */
-    DO_LOG_ERR_VERIFY_FAILED         = -0x0602,  /**< Verification failed */
-    DO_LOG_ERR_LSN_CHAIN_BROKEN      = -0x0603,  /**< LSN chain broken */
-    DO_LOG_ERR_KEY_NOT_AVAILABLE     = -0x0604,  /**< Key not available */
+    /* --- Signature / Audit chain (0x06xx) --- */
+    DO_LOG_ERR_SIGN_FAILED           = -0x0601,  /**< Signature generation failed */
+    DO_LOG_ERR_VERIFY_FAILED         = -0x0602,  /**< Signature verification failed */
+    DO_LOG_ERR_LSN_CHAIN_BROKEN      = -0x0603,  /**< LSN chain broken (tampering) */
+    DO_LOG_ERR_LSN_GAP_DETECTED      = -0x0604,  /**< LSN gap detected (reorder window) */
+    DO_LOG_ERR_KEY_NOT_AVAILABLE     = -0x0605,  /**< Key not available for signing */
+    DO_LOG_ERR_KEY_PROVIDER_FAILED   = -0x0606,  /**< KeyProvider plugin operation failed */
+    DO_LOG_ERR_AUDIT_DROP_FORBIDDEN  = -0x0607,  /**< AUDIT domain configured with drop policy */
+    DO_LOG_ERR_AUDIT_CALLBACK_ONLY   = -0x0608,  /**< AUDIT domain has only a callback sink */
+    DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK = -0x0609, /**< AUDIT domain lacks a persistent sink */
 
-    /* --- Sink / IO (0x07xx) --- */
-    DO_LOG_ERR_SINK_WRITE_FAILED     = -0x0701,  /**< Sink write failed */
-    DO_LOG_ERR_SINK_CONNECTION_LOST  = -0x0702,  /**< Connection lost */
-    DO_LOG_ERR_WORM_WRITE_FAILED     = -0x0703,  /**< WORM write failed */
+    /* --- Security / Sandbox (0x07xx): plugin execution protection --- */
+    DO_LOG_ERR_SANDBOX_INIT_FAILED   = -0x0701,  /**< Sandbox init failed */
+    DO_LOG_ERR_SANDBOX_VIOLATION     = -0x0702,  /**< Sandbox policy violation (syscall blocked) */
+    DO_LOG_ERR_UNTRUSTED_PLUGIN      = -0x0703,  /**< Unsigned plugin in production mode */
 
-    /* --- Sandbox / Security (0x08xx) --- */
-    DO_LOG_ERR_SANDBOX_INIT_FAILED   = -0x0801,  /**< Sandbox init failed */
-    DO_LOG_ERR_SANDBOX_VIOLATION     = -0x0802,  /**< Policy violation */
+    /* --- Sink / IO (0x08xx): local and shared-memory output --- */
+    DO_LOG_ERR_SINK_WRITE_FAILED     = -0x0801,  /**< Sink write failed (full/partial) */
+    DO_LOG_ERR_SINK_CONNECTION_FAILED = -0x0802, /**< Sink failed to connect its target */
+    DO_LOG_ERR_SINK_CONNECTION_LOST  = -0x0803,  /**< Sink connection lost after establishment */
+    DO_LOG_ERR_SINK_FORMAT_INVALID   = -0x0804,  /**< Sink output format config invalid */
+    DO_LOG_ERR_SINK_CONFIG_INVALID   = -0x0805,  /**< Sink config rejected (e.g. block policy) */
+    DO_LOG_ERR_SINK_NO_FALLBACK      = -0x0806,  /**< Sink does not support fallback chain */
+    DO_LOG_ERR_CALLBACK_TIMEOUT      = -0x0807,  /**< Callback sink host invocation timed out */
+    DO_LOG_ERR_WORM_WRITE_FAILED     = -0x0808,  /**< WORM write failed (disk full/permission) */
+    DO_LOG_ERR_SHM_INIT_FAILED       = -0x0809,  /**< Shared-memory create/map failed */
+    DO_LOG_ERR_SHM_RING_FULL         = -0x080A,  /**< Shared-memory ring buffer full */
+    DO_LOG_ERR_AUDIT_SHM_FORBIDDEN   = -0x080B,  /**< sink_shm forbidden for AUDIT domain */
 
-    /* --- Resource / Quota (0x09xx) --- */
-    DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED = -0x0901,  /**< Memory quota exceeded */
-    DO_LOG_ERR_QUOTA_CPU_EXCEEDED    = -0x0902,  /**< CPU quota exceeded */
+    /* --- Network / Remote (0x09xx): remote sinks --- */
+    DO_LOG_ERR_CIRCUIT_OPEN          = -0x0901,  /**< Remote-sink circuit breaker OPEN */
+    DO_LOG_ERR_TLS_FAILED            = -0x0902,  /**< TLS handshake/certificate failure */
+    DO_LOG_ERR_SASL_FAILED           = -0x0903,  /**< SASL authentication failure */
+    DO_LOG_ERR_REMOTE_TIMEOUT        = -0x0904,  /**< Remote sink operation timed out */
+
+    /* --- Resource / Quota (0x0Axx) --- */
+    DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED = -0x0A01,  /**< Memory quota exceeded */
+    DO_LOG_ERR_QUOTA_CPU_EXCEEDED    = -0x0A02,  /**< CPU quota exceeded */
+    DO_LOG_ERR_RECURSION_DEPTH_EXCEEDED = -0x0A03, /**< Logging recursion depth exceeded */
 
     /* --- Compliance (0x0Bxx) --- */
-    DO_LOG_ERR_COMPLIANCE_VIOLATION  = -0x0B01,  /**< Compliance violation */
-    DO_LOG_ERR_CIRCULAR_DEPENDENCY   = -0x0B02,  /**< Circular dependency */
+    DO_LOG_ERR_COMPLIANCE_VIOLATION  = -0x0B01,  /**< Compliance violation (non-downgradable) */
+    DO_LOG_ERR_AUDIT_DURABILITY_INSUFFICIENT = -0x0B02, /**< AUDIT sink durability < MEDIA */
+
+    /* --- Clock / Time safety (0x0Cxx) --- */
+    DO_LOG_ERR_TIME_BACKWARD         = -0x0C01,  /**< Monotonic clock jumped backward */
 
     /* --- SIF / Serialization (0x0Dxx) --- */
-    DO_LOG_ERR_SIF_INVALID           = -0x0D01   /**< SIF frame malformed / failed verification */
+    DO_LOG_ERR_SIF_INVALID           = -0x0D01,  /**< SIF frame malformed / failed verification */
+    DO_LOG_ERR_SIF_VERSION_UNSUPPORTED = -0x0D02 /**< SIF schema version not supported */
+
+    /* --- Internal / Fatal (0x0Exx): engine-fatal conditions.
+     *     Plugin-defined codes use the high-bit range 0x80000000-0xFFFFFFFF
+     *     and are passed through without core interpretation. --- */
 } dologger_error_code_t;
 
 /* =========================================================================

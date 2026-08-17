@@ -161,41 +161,40 @@ _Static_assert(sizeof(dologger_shm_header_t) == 64,
 #define DOLOGGER_SHM_SLOT_DATA_OFFSET 4
 
 /* -------------------------------------------------------------------------
- * SIF record header (simplified)
+ * SIF record frame (standard — FlatBuffers)
  * ------------------------------------------------------------------------- */
 
 /**
- * Simplified SIF record header as written by DoLogger core.
- * A full FlatBuffers-based SIF specification is planned.
+ * The SIF (Standard Intermediate Format) payload written into each slot is a
+ * single-record SIF frame, NOT a hand-rolled fixed-layout struct. The full
+ * schema is defined in `core/sif/dologger_sif.fbs` and the encoder/decoder
+ * live in `core/src/sif/` (Rust). This header only documents the on-wire
+ * frame boundary so consumers can locate and validate the payload.
  *
- * Layout (all fields little-endian):
- *   [0..3]   Magic "SIF1"
- *   [4..7]   Total length (u32, excluding magic + this field)
- *   [8..15]  LSN (u64)
- *   [16..23] Timestamp hi (u64)
- *   [24..31] Timestamp lo (u64)
- *   [32]     Level (u8: 0=TRACE .. 6=AUDIT)
- *   [33]     Flags (u8: bit0=has_signature, bit1=has_prev_hash)
- *   [34..41] Thread ID (u64)
- *   [42..45] Process ID (u32)
- *   [46..]   Variable-length fields:
- *            - message:  u16 LE length + UTF-8 bytes
- *            - source:   u16 LE length + UTF-8 bytes
- *            - hostname: u16 LE length + UTF-8 bytes
- *            - [signature: 64 bytes, if flags & 0x01]
- *            - [prev_hash: 32 bytes, if flags & 0x02]
+ * Frame layout (all multi-byte integers little-endian):
+ *   [0..3]    Magic "SIF1"
+ *   [4..7]    version    — schema version (MAJOR<<24|MINOR<<16|PATCH); 1.0.0
+ *   [8..11]   total_length — total SIF frame length (magic + header + payload)
+ *   [12..15]  record_count — number of Record tables (1 for single record)
+ *   [16..]    FlatBuffer payload (root type `Record`)
+ *
+ * The 16-byte frame overhead is `SIF_MAGIC` (4) + `SifHeader` (12).
+ * `total_length` includes the 4 magic bytes + 12 header bytes + payload.
+ *
+ * Consumers MUST validate the magic bytes (`"SIF1"`) and the schema version
+ * before interpreting the FlatBuffer payload. For version-independent field
+ * access, parse the payload with the matching FlatBuffers-generated code for
+ * the `Record` schema in `core/sif/dologger_sif.fbs`.
  */
 
-/** Magic bytes for simplified SIF format. */
-#define DOLOGGER_SIF_MAGIC 0x31464953  /* "SIF1" in LE */
+/** Magic bytes for the SIF frame ("SIF1" — first 4 bytes of the payload). */
+#define DOLOGGER_SIF_MAGIC 0x31464953u
 
-/** Minimum size of a valid SIF record. */
-#define DOLOGGER_SIF_MIN_SIZE 46
+/** SIF frame overhead: 4-byte magic + 12-byte SifHeader. */
+#define DOLOGGER_SIF_FRAME_OVERHEAD 16u
 
-/** Flag: record has a signature field. */
-#define DOLOGGER_SIF_FLAG_SIGNATURE  0x01
-/** Flag: record has a prev_hash field. */
-#define DOLOGGER_SIF_FLAG_PREV_HASH  0x02
+/** Current SIF schema version, packed (1.0.0). */
+#define DOLOGGER_SIF_VERSION 0x01000000u
 
 #ifdef __cplusplus
 }

@@ -34,7 +34,11 @@ pub use kafka::{KafkaSink, KafkaSinkConfig, KafkaSinkStats};
 pub use open_telemetry::{OtelSink, OtelSinkConfig};
 pub use registry::{build_fanout, build_sink, build_sinks, SinkKindConfig};
 pub use security::{SecuritySink, SecuritySinkConfig};
-pub use shm::{ShmFullPolicy, ShmSink, ShmSinkConfig, ShmSinkStats};
+pub use shm::{
+    read_status, ShmFullPolicy, ShmSink, ShmSinkConfig, ShmSinkStats, ShmStatus,
+    FLAG_BUFFER_OVERFLOW, FLAG_PRODUCER_ALIVE, FLAG_PRODUCER_DEAD, SHM_HEADER_SIZE, SHM_MAGIC,
+    SHM_VERSION,
+};
 #[cfg(feature = "sink-sqlite")]
 pub use sqlite::{SqliteSink, SqliteSinkConfig};
 pub use syslog::{SyslogFacility, SyslogProtocol, SyslogSink, SyslogSinkConfig};
