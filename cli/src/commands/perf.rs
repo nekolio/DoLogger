@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use dologger_core::buffer::RecordPool;
 use dologger_core::buffer::RingBuffer;
-use dologger_core::record::{thread_id_u64, LogLevel};
+use dologger_core::record::{thread_id_u64, LogLevel, RECORD_STRING_INLINE_MAX};
 use dologger_core::sys::TimeSource;
 
 use crate::output::{self, color, OutputFormat};
@@ -70,8 +70,9 @@ pub fn cmd_perf(count: usize, message_size: usize, format: OutputFormat) {
 }
 
 fn cmd_perf_text(count: usize, message_size: usize) {
-    // Clamp message size to inline capacity (255 bytes: 256 buffer - 1 null)
-    let msg_size = message_size.min(255);
+    // Clamp message size to the inline capacity (heap fallback would skew
+    // the benchmark toward allocation; keep the hot path representative).
+    let msg_size = message_size.min(RECORD_STRING_INLINE_MAX);
     let message = "x".repeat(msg_size);
 
     // Compute ring buffer size as next power-of-two >= count, minimum 64K.
@@ -174,7 +175,7 @@ fn cmd_perf_text(count: usize, message_size: usize) {
 }
 
 fn cmd_perf_json(count: usize, message_size: usize) {
-    let msg_size = message_size.min(255);
+    let msg_size = message_size.min(RECORD_STRING_INLINE_MAX);
     let message = "x".repeat(msg_size);
     let ring_size = count.next_power_of_two().max(MIN_RING_SIZE);
 

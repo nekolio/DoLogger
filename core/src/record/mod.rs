@@ -181,25 +181,30 @@ pub struct Record {
 // ---------------------------------------------------------------------------
 
 /// Size of the `RecordString` union (one cache line, keeps `Record` layout fixed).
-pub const RECORD_STRING_INLINE_CAPACITY: usize = 256;
+///
+/// Reduced from 256 to 128 bytes as part of the Record refactor (ADR-002):
+/// the ≤256B per-record budget leaves no room for a 256-byte message field.
+/// Messages above the inline cap still spill to the heap `Arc<str>` variant,
+/// so long-form payloads remain supported — only the zero-alloc window shrinks.
+pub const RECORD_STRING_INLINE_CAPACITY: usize = 128;
 
-/// Maximum bytes stored inline. Byte `255` is the variant sentinel, so inline
-/// content is capped at 254 bytes with the NUL terminator at index `len`.
-/// Messages ≥ 255 bytes use the heap (`Arc<str>`) variant instead.
+/// Maximum bytes stored inline. Byte `127` is the variant sentinel, so inline
+/// content is capped at 126 bytes with the NUL terminator at index `len`.
+/// Messages ≥ 127 bytes use the heap (`Arc<str>`) variant instead.
 pub const RECORD_STRING_INLINE_MAX: usize = RECORD_STRING_INLINE_CAPACITY - 2;
 
-/// A string stored either inline (≤ 254 bytes) or on the heap.
+/// A string stored either inline (≤ 126 bytes) or on the heap.
 ///
 /// This avoids heap allocation for the vast majority of log messages,
 /// while still supporting arbitrarily long messages when needed.
 ///
-/// The two variants share one 256-byte `#[repr(C)]` union so the outer
+/// The two variants share one 128-byte `#[repr(C)]` union so the outer
 /// [`Record`] layout stays fixed. The active variant is tracked by a sentinel
 /// in the union's last byte:
 ///
-/// | `inline[255]` | Variant                                        |
+/// | `inline[127]` | Variant                                        |
 /// |:-------------:|:-----------------------------------------------|
-/// | `0xFF`        | inline — NUL-terminated bytes at `[0..254]`     |
+/// | `0xFF`        | inline — NUL-terminated bytes at `[0..126]`     |
 /// | `0`           | heap  — `Arc<str>` (fat pointer) at `[0..16)`   |
 ///
 /// `empty()` and every teardown write the sentinel explicitly, so a torn or
@@ -207,17 +212,17 @@ pub const RECORD_STRING_INLINE_MAX: usize = RECORD_STRING_INLINE_CAPACITY - 2;
 #[repr(C)]
 pub union RecordString {
     /// Inline fixed-size buffer (fast path for short strings).
-    /// Byte `inline[255]` is the variant sentinel, not message content.
+    /// Byte `inline[127]` is the variant sentinel, not message content.
     inline: [u8; RECORD_STRING_INLINE_CAPACITY],
-    /// Heap path: reference-counted string for messages ≥ 255 bytes.
-    /// Only bytes `[0..16)` are used; byte 255 holds the sentinel `0`.
+    /// Heap path: reference-counted string for messages ≥ 127 bytes.
+    /// Only bytes `[0..16)` are used; byte 127 holds the sentinel `0`.
     heap: ManuallyDrop<Arc<str>>,
 }
 
 impl RecordString {
     /// Create an empty RecordString in the inline variant.
     ///
-    /// `inline[255]` is set to the inline sentinel so the all-zeros layout
+    /// `inline[127]` is set to the inline sentinel so the all-zeros layout
     /// (used by `Record::new`) never reads as a live heap pointer.
     pub const fn empty() -> Self {
         let mut inline = [0u8; RECORD_STRING_INLINE_CAPACITY];
@@ -233,23 +238,23 @@ impl RecordString {
         unsafe { self.inline[RECORD_STRING_INLINE_CAPACITY - 1] != 0xFF }
     }
 
-    /// Set the string value, using heap fallback for strings ≥ 255 bytes.
+    /// Set the string value, using heap fallback for strings ≥ 127 bytes.
     pub fn set(&mut self, s: &str) {
         self.drop_heap();
         let bytes = s.as_bytes();
         if bytes.len() > RECORD_STRING_INLINE_MAX {
             // Heap path — preserve the full length.
             // SAFETY: drop_heap() freed any prior heap string; the Arc is
-            // stored in bytes [0..16) and the sentinel write at byte 255 does
+            // stored in bytes [0..16) and the sentinel write at byte 127 does
             // not overlap it.
             unsafe {
                 self.heap = ManuallyDrop::new(Arc::from(s));
                 self.inline[RECORD_STRING_INLINE_CAPACITY - 1] = 0;
             }
         } else {
-            // Inline path — NUL-terminated at bytes.len() (≤ 254, so the
-            // sentinel byte 255 stays free).
-            // SAFETY: bytes.len() ≤ 254 and both source and destination
+            // Inline path — NUL-terminated at bytes.len() (≤ 126, so the
+            // sentinel byte 127 stays free).
+            // SAFETY: bytes.len() ≤ 126 and both source and destination
             // pointers are valid for that many bytes.
             unsafe {
                 ptr::copy_nonoverlapping(bytes.as_ptr(), self.inline.as_mut_ptr(), bytes.len());
@@ -312,7 +317,7 @@ impl RecordString {
     /// stale inline content.
     fn clear(&mut self) {
         self.drop_heap();
-        // SAFETY: writing the full `[u8; 256]` reinitializes the inline
+        // SAFETY: writing the full `[u8; 128]` reinitializes the inline
         // variant; the sentinel makes the empty state unambiguous.
         unsafe {
             self.inline = [0u8; RECORD_STRING_INLINE_CAPACITY];
@@ -726,7 +731,7 @@ const _: () = {
     assert!(core::mem::align_of::<Record>() == 64);
     // Record size must be a multiple of cache-line size to avoid false sharing
     assert!(core::mem::size_of::<Record>().is_multiple_of(64));
-    // RecordString must stay a single 256-byte union (heap variant is a fat
+    // RecordString must stay a single 128-byte union (heap variant is a fat
     // pointer living within the inline buffer; Record layout must not drift).
     assert!(core::mem::size_of::<RecordString>() == RECORD_STRING_INLINE_CAPACITY);
     // The heap variant is an `Arc<str>` fat pointer: 16 bytes on 64-bit,
@@ -761,7 +766,7 @@ mod tests {
     #[test]
     fn recordstring_inline_heap_boundary() {
         let mut rs = RecordString::empty();
-        // 254 bytes (INLINE_MAX) stays inline.
+        // 126 bytes (INLINE_MAX) stays inline.
         let max_inline = "x".repeat(RECORD_STRING_INLINE_MAX);
         rs.set(&max_inline);
         assert_eq!(rs.len(), RECORD_STRING_INLINE_MAX);
@@ -771,7 +776,7 @@ mod tests {
         rs.set("y");
         assert_eq!(rs.as_str(), "y");
 
-        // 255 bytes (INLINE_MAX + 1) crosses to the heap path.
+        // 127 bytes (INLINE_MAX + 1) crosses to the heap path.
         let first_heap = "y".repeat(RECORD_STRING_INLINE_MAX + 1);
         rs.set(&first_heap);
         assert_eq!(rs.len(), RECORD_STRING_INLINE_MAX + 1);

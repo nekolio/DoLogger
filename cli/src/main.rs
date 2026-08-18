@@ -165,7 +165,8 @@ enum Commands {
         #[arg(long, default_value = "100000")]
         count: usize,
 
-        /// Size of each log message in bytes (default: 80, max: 255)
+        /// Size of each log message in bytes (default: 80; clamped to the
+        /// zero-alloc message size of 128 bytes to keep the hot path measured)
         #[arg(long, default_value = "80")]
         message_size: usize,
     },
