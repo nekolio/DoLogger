@@ -24,15 +24,6 @@ fn next_power_of_two(n: u32) -> usize {
     p as usize
 }
 
-/// Operations we can perform on the ring buffer.
-#[derive(Debug, Clone, Copy)]
-enum Op {
-    /// Drain with the given batch size (0 = drain all via usize::MAX)
-    Drain(u16),
-    /// Drain helping with the given max count (0 = drain all via usize::MAX)
-    DrainHelping(u16),
-}
-
 fuzz_target!(|data: &[u8]| {
     if data.len() < 2 {
         return;
@@ -54,7 +45,6 @@ fuzz_target!(|data: &[u8]| {
     // Phase 1: Push items up to capacity, using remaining bytes as values
     let mut pushed_count: u64 = 0;
     let mut chunks = remaining.chunks_exact(8);
-    let remainder = chunks.remainder();
 
     for chunk in chunks.by_ref() {
         let val = u64::from_le_bytes(chunk.try_into().unwrap());
@@ -75,7 +65,10 @@ fuzz_target!(|data: &[u8]| {
 
     // Verify fill level is in valid range
     let fill = buf.fill_level();
-    assert!((0.0..=1.0).contains(&fill), "fill_level out of range: {fill}");
+    assert!(
+        (0.0..=1.0).contains(&fill),
+        "fill_level out of range: {fill}"
+    );
 
     // Phase 2: Drain and verify
     let mut drained_values: Vec<u64> = Vec::new();

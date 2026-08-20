@@ -115,7 +115,7 @@ impl Sink for SqliteSink {
             )
             .map_err(|e| SinkError::WriteFailed(format!("sqlite pragma: {e}")))?;
 
-            // Create the log records table
+            // Keep legacy columns nullable so existing databases remain readable.
             conn.execute_batch(
                 "CREATE TABLE IF NOT EXISTS dologger_records (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,11 +138,12 @@ impl Sink for SqliteSink {
                     session_id  TEXT,
                     request_id  TEXT,
                     trace_id    TEXT,
-                    span_id     TEXT,
-                    lsn         INTEGER,
-                    signature   BLOB,
-                    ext_data    TEXT,
-                    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+                     span_id     TEXT,
+                     lsn         INTEGER,
+                     signature   BLOB,
+                     ext_data    TEXT,
+                     content_hash BLOB,
+                     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_level ON dologger_records(level);
@@ -150,6 +151,8 @@ impl Sink for SqliteSink {
                 CREATE INDEX IF NOT EXISTS idx_lsn ON dologger_records(lsn);",
             )
             .map_err(|e| SinkError::WriteFailed(format!("sqlite ddl: {e}")))?;
+
+            ensure_content_hash_column(&conn)?;
 
             *self.conn.lock().unwrap() = Some(conn);
             self.is_open = true;
@@ -230,26 +233,24 @@ impl SqliteSink {
             let guard = self.conn.lock().unwrap();
             let conn = guard.as_ref().ok_or(SinkError::Closed)?;
 
-            let record_id = format!("{:016x}{:016x}", record.id.hi, record.id.lo);
-            let timestamp_ns =
-                (record.timestamp.hi as i64) * 1_000_000_000 + (record.timestamp.lo as i64);
+            let record_id = format!("{:016x}{:016x}", record.id_hi(), record.id_lo());
+            let timestamp_ns = record.timestamp as i64;
             let level = record.level.to_str();
             let message = record.message.as_str();
-            let source_file = record.source_file.as_str();
-            let source_func = record.source_function.as_str();
-            let thread_name = record.thread_name.as_str();
-            let process_name = record.process_name.as_str();
-            let host_name = record.host_name.as_str();
-            let app_name = record.app_name.as_str();
-            let app_version = record.app_version.as_str();
-            let environment = record.environment.as_str();
-            let user_id = record.user_id.as_str();
-            let session_id = record.session_id.as_str();
-            let request_id = record.request_id.as_str();
-            let trace_id = record.trace_id.as_str();
-            let span_id = record.span_id.as_str();
-            let ext_data = record.ext_data.as_str();
-            let sig_blob: &[u8] = &record.signature;
+            let source_file = record.source_file();
+            let source_func = record.source_function();
+            let thread_name = record.thread_name();
+            let process_name = record.process_name();
+            let host_name = record.host_name();
+            let app_name = record.app_name();
+            let app_version = record.app_version();
+            let environment = record.environment();
+            let user_id = record.user_id();
+            let session_id = record.session_id();
+            let request_id = record.request_id();
+            let trace_id = record.trace_id();
+            let span_id = record.span_id();
+            let content_hash = &record.content_hash;
 
             conn.execute(
                 "INSERT INTO dologger_records
@@ -258,15 +259,15 @@ impl SqliteSink {
                      thread_id, thread_name, process_id, process_name,
                      host_name, app_name, app_version, environment,
                      user_id, session_id, request_id, trace_id, span_id,
-                     lsn, signature, ext_data)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
+                     lsn, content_hash)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)",
                 params![
                     record_id,
                     timestamp_ns,
                     level,
                     message,
                     if source_file.is_empty() { None } else { Some(source_file) },
-                    record.source_line as i64,
+                    record.source_line() as i64,
                     if source_func.is_empty() { None } else { Some(source_func) },
                     record.thread_id as i64,
                     if thread_name.is_empty() { None } else { Some(thread_name) },
@@ -282,8 +283,7 @@ impl SqliteSink {
                     if trace_id.is_empty() { None } else { Some(trace_id) },
                     if span_id.is_empty() { None } else { Some(span_id) },
                     record.lsn as i64,
-                    sig_blob,
-                    if ext_data.is_empty() { None } else { Some(ext_data) },
+                    content_hash.as_slice(),
                 ],
             )
             .map_err(|e| SinkError::WriteFailed(format!("sqlite insert: {e}")))?;
@@ -313,6 +313,145 @@ impl SqliteSink {
     /// Get the number of records written.
     pub fn records_written(&self) -> u64 {
         self.records_written
+    }
+}
+
+#[cfg(feature = "sink-sqlite")]
+fn ensure_content_hash_column(conn: &Connection) -> Result<(), SinkError> {
+    let mut statement = conn
+        .prepare("PRAGMA table_info(dologger_records)")
+        .map_err(|e| SinkError::WriteFailed(format!("sqlite schema inspect: {e}")))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|e| SinkError::WriteFailed(format!("sqlite schema inspect: {e}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| SinkError::WriteFailed(format!("sqlite schema inspect: {e}")))?;
+
+    if !columns.iter().any(|column| column == "content_hash") {
+        conn.execute(
+            "ALTER TABLE dologger_records ADD COLUMN content_hash BLOB",
+            [],
+        )
+        .map_err(|e| SinkError::WriteFailed(format!("sqlite schema migrate: {e}")))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(all(test, feature = "sink-sqlite"))]
+mod tests {
+    use super::*;
+    use crate::record::Record;
+    use crate::sink::Sink;
+
+    static TEST_COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn test_db_path(test_name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "dologger_sqlite_{test_name}_{}_{}.db",
+            std::process::id(),
+            TEST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ))
+    }
+
+    fn remove_db(path: &PathBuf) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    #[test]
+    fn open_migrates_legacy_schema_and_writes_new_record() {
+        let path = test_db_path("legacy");
+        remove_db(&path);
+
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE dologger_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                record_id TEXT,
+                timestamp_ns INTEGER,
+                level TEXT NOT NULL,
+                message TEXT NOT NULL,
+                source_file TEXT,
+                source_line INTEGER,
+                source_func TEXT,
+                thread_id INTEGER,
+                thread_name TEXT,
+                process_id INTEGER,
+                process_name TEXT,
+                host_name TEXT,
+                app_name TEXT,
+                app_version TEXT,
+                environment TEXT,
+                user_id TEXT,
+                session_id TEXT,
+                request_id TEXT,
+                trace_id TEXT,
+                span_id TEXT,
+                lsn INTEGER,
+                signature BLOB,
+                ext_data TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO dologger_records
+                (record_id, level, message, signature, ext_data)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                "legacy-id",
+                "INFO",
+                "legacy row",
+                vec![0xabu8, 0xcdu8],
+                "legacy extension",
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        let mut sink = SqliteSink::with_path(&path);
+        sink.open().unwrap();
+        let mut record = Record::new(0);
+        record.message.set("legacy migration");
+        record.set_source_line(17);
+        sink.write_record(&record).unwrap();
+        sink.close().unwrap();
+
+        let conn = Connection::open(&path).unwrap();
+        let content_hash: Vec<u8> = conn
+            .query_row(
+                "SELECT content_hash FROM dologger_records WHERE message = ?1",
+                ["legacy migration"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content_hash, vec![0; 32]);
+        let (legacy_record_id, legacy_signature, legacy_ext_data, legacy_content_hash): (
+            String,
+            Vec<u8>,
+            String,
+            Option<Vec<u8>>,
+        ) = conn
+            .query_row(
+                "SELECT record_id, signature, ext_data, content_hash
+                 FROM dologger_records WHERE message = ?1",
+                ["legacy row"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(legacy_record_id, "legacy-id");
+        assert_eq!(legacy_signature, vec![0xab, 0xcd]);
+        assert_eq!(legacy_ext_data, "legacy extension");
+        assert!(legacy_content_hash.is_none());
+        let record_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM dologger_records", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(record_count, 2);
+        remove_db(&path);
     }
 }
 

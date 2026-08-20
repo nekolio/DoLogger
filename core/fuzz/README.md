@@ -103,7 +103,7 @@ Exercises the Record/SIF binary format and field access API:
 - CRC32C computation determinism, incremental update, empty input
 - LogLevel parsing from arbitrary u8 values
 - Ring 2 audit tag appending
-- Ring 3 CRC32C auto-computation
+- Ring 3 KV writes and content-hash coverage
 
 ## Directory Layout
 

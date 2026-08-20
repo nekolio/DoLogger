@@ -7,7 +7,7 @@
 //! | Ring 0 | Kernel-core (ID, timestamp)              | Core R/W, Formatter/Sink read-only via dedicated API |
 //! | Ring 1 | System trusted (level, message, host)    | Core + HostInfoProvider write, plugins read-only |
 //! | Ring 2 | Verified plugin fields                   | Blue/Yellow plugins R/W, audit-tagged |
-//! | Ring 3 | Untrusted extension fields               | Any plugin R/W, CRC32C only |
+//! | Ring 3 | Untrusted extension fields               | Any plugin R/W, SHA-256 content-hash covered |
 //!
 //! # Memory Layout (ADR-002 Appendix A.2)
 //!
@@ -713,6 +713,22 @@ impl Record {
         }
     }
 
+    fn kv_get_display_string(&self, tag: u8) -> Option<String> {
+        let ptr = self.kv_find(tag)?;
+        // SAFETY: ptr is a valid KvSlot owned by this Record.
+        let (_, ty, data) = unsafe { (*ptr).get()? };
+        match ty {
+            ty if ty == KvType::String.as_u8() => std::str::from_utf8(data).ok().map(String::from),
+            ty if ty == KvType::UInt64.as_u8() && data.len() >= 8 => {
+                Some(u64::from_le_bytes(data[..8].try_into().ok()?).to_string())
+            }
+            ty if ty == KvType::Int64.as_u8() && data.len() >= 8 => {
+                Some(i64::from_le_bytes(data[..8].try_into().ok()?).to_string())
+            }
+            _ => None,
+        }
+    }
+
     // ── Convenience accessors ──
 
     /// Get the record ID as a hex string (KV tag 1, binary 16B LE).
@@ -1171,7 +1187,7 @@ impl Record {
             );
             return Err(FieldError::SecurityViolation);
         }
-        // Ring 2/3 fields accept any caller (audit-tagged / CRC-protected).
+        // Ring 2/3 fields accept any caller (audit-tagged / content-hash-covered).
 
         match name {
             // ── Fixed fields ──
@@ -1268,6 +1284,14 @@ impl Record {
     /// Returns `Ok(value_string)` on success, or a typed [`FieldError`].
     pub fn field_get(&self, name: &str, _ring: FieldRing) -> Result<String, FieldError> {
         match name {
+            "id" | "record.id" => {
+                let value = self.id_hex();
+                if value.is_empty() {
+                    Err(FieldError::NotFound)
+                } else {
+                    Ok(value)
+                }
+            }
             "timestamp" | "record.timestamp" => Ok(self.timestamp.to_string()),
             "level" => Ok(self.level.to_str().to_string()),
             "message" => Ok(self.message.as_str().to_string()),
@@ -1278,7 +1302,7 @@ impl Record {
             // ── KV fields ──
             other => {
                 let tag = resolve_tag(other).ok_or(FieldError::NotFound)?;
-                self.kv_get_string(tag).ok_or(FieldError::NotFound)
+                self.kv_get_display_string(tag).ok_or(FieldError::NotFound)
             }
         }
     }
@@ -1324,7 +1348,7 @@ impl Record {
             | "security.gap" => Some(FieldRing::Ring1),
             // Ring 2: verified plugin (any caller may write, audit-tagged)
             other if other.starts_with("verified.") => Some(FieldRing::Ring2),
-            // Ring 3: untrusted extension (any caller may write, CRC-protected)
+            // Ring 3: untrusted extension (any caller may write, content-hash-covered)
             other if other.starts_with("ext.") => Some(FieldRing::Ring3),
             // Legacy aliases
             "source_file"
@@ -1593,9 +1617,20 @@ mod tests {
         let mut r = Record::new(0);
         r.set_source_line(42);
         assert_eq!(r.source_line(), 42);
+        assert_eq!(r.field_get("source.line", FieldRing::Ring1).unwrap(), "42");
 
         r.set_coroutine_id(0xDEAD_BEEF);
         assert_eq!(r.coroutine_id(), 0xDEAD_BEEF);
+        assert_eq!(
+            r.field_get("coroutine.id", FieldRing::Ring1).unwrap(),
+            "3735928559"
+        );
+
+        r.set_exception_code(-42);
+        assert_eq!(
+            r.field_get("exception.code", FieldRing::Ring1).unwrap(),
+            "-42"
+        );
     }
 
     #[test]
@@ -1605,6 +1640,7 @@ mod tests {
         let hex = r.id_hex();
         assert!(hex.contains("1122334455667788"));
         assert!(hex.contains("99aabbccddeeff01"));
+        assert_eq!(r.field_get("id", FieldRing::Ring0).unwrap(), hex);
     }
 
     #[test]

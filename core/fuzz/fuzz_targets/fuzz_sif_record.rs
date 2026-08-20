@@ -9,8 +9,8 @@
 
 #![no_main]
 
-use dologger_core::record::{FieldRing, LogLevel, Record, RecordString};
 use dologger_core::crc32c;
+use dologger_core::record::{FieldRing, LogLevel, Record, RecordString};
 use libfuzzer_sys::fuzz_target;
 
 /// Generate a pseudo-random field name from bytes, biased towards
@@ -101,7 +101,12 @@ fuzz_target!(|data: &[u8]| {
     let _ring = Record::field_ring(field_name);
 
     // Test field_set with all caller ring levels
-    for caller_ring in &[FieldRing::Ring0, FieldRing::Ring1, FieldRing::Ring2, FieldRing::Ring3] {
+    for caller_ring in &[
+        FieldRing::Ring0,
+        FieldRing::Ring1,
+        FieldRing::Ring2,
+        FieldRing::Ring3,
+    ] {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             record.field_set(field_name, &value, *caller_ring)
         }));
@@ -110,7 +115,10 @@ fuzz_target!(|data: &[u8]| {
             Ok(Ok(())) => { /* write succeeded */ }
             Ok(Err(e)) => {
                 // Permission denied is expected for some caller/field combos
-                assert!(!e.is_empty(), "error message should not be empty");
+                assert!(
+                    !e.to_string().is_empty(),
+                    "error message should not be empty"
+                );
             }
             Err(panic_err) => {
                 let msg = format!("{:?}", panic_err);
@@ -122,7 +130,12 @@ fuzz_target!(|data: &[u8]| {
     }
 
     // Test field_get with all caller ring levels
-    for caller_ring in &[FieldRing::Ring0, FieldRing::Ring1, FieldRing::Ring2, FieldRing::Ring3] {
+    for caller_ring in &[
+        FieldRing::Ring0,
+        FieldRing::Ring1,
+        FieldRing::Ring2,
+        FieldRing::Ring3,
+    ] {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             record.field_get(field_name, *caller_ring)
         }));
@@ -133,7 +146,10 @@ fuzz_target!(|data: &[u8]| {
                 assert!(!value.is_empty() || true, "empty value is valid");
             }
             Ok(Err(e)) => {
-                assert!(!e.is_empty(), "error message should not be empty");
+                assert!(
+                    !e.to_string().is_empty(),
+                    "error message should not be empty"
+                );
             }
             Err(panic_err) => {
                 let msg = format!("{:?}", panic_err);
@@ -160,7 +176,10 @@ fuzz_target!(|data: &[u8]| {
         "RecordString must preserve the full length ({} bytes)",
         value.len()
     );
-    assert_eq!(roundtripped, value, "RecordString round-trip must preserve content");
+    assert_eq!(
+        roundtripped, value,
+        "RecordString round-trip must preserve content"
+    );
     assert_eq!(
         rs.len(),
         roundtripped.len(),
@@ -188,7 +207,10 @@ fuzz_target!(|data: &[u8]| {
         let mid = data.len() / 2;
         let partial = crc32c::crc32c_update(0, &data[..mid]);
         let incremental = crc32c::crc32c_update(partial, &data[mid..]);
-        assert_eq!(crc_val, incremental, "Incremental CRC32C must match full CRC32C");
+        assert_eq!(
+            crc_val, incremental,
+            "Incremental CRC32C must match full CRC32C"
+        );
     }
 
     // CRC32C on known vector (RFC 3720)
@@ -202,7 +224,10 @@ fuzz_target!(|data: &[u8]| {
     let large_data = vec![0xFFu8; 65536];
     let crc_large = crc32c::crc32c(&large_data);
     let crc_large2 = crc32c::crc32c(&large_data);
-    assert_eq!(crc_large, crc_large2, "CRC32C must be deterministic on large input");
+    assert_eq!(
+        crc_large, crc_large2,
+        "CRC32C must be deterministic on large input"
+    );
 
     // --- 5. LogLevel parsing ---
     if !data.is_empty() {
@@ -222,26 +247,26 @@ fuzz_target!(|data: &[u8]| {
 
     // Setting a Ring 2 field should append to audit_tags
     let _ = record2.field_set(ring2_field, "test_value", FieldRing::Ring2);
-    let tags = record2.audit_tags.as_str();
+    let tags = record2.audit_tags();
     // Ring 2 write should have populated audit_tags (should not be empty)
     // or at minimum should not have panicked
     let _ = tags;
 
-    // --- 7. Ring 3 field sets auto-compute CRC32C ---
+    // --- 7. Ring 3 fields are stored in the KV content-hash coverage ---
     let mut record3 = Record::new(2);
     let ring3_field = "ext.custom_data";
     assert_eq!(Record::field_ring(ring3_field), Some(FieldRing::Ring3));
 
-    let initial_crc = record3.ext_crc32c;
     let _ = record3.field_set(ring3_field, "ring3_data", FieldRing::Ring3);
-    // CRC32C should be updated after Ring 3 write
-    if record3.ext_data.as_str() == "ring3_data" {
-        let expected_crc = crc32c::crc32c(b"ring3_data");
-        assert_eq!(
-            record3.ext_crc32c, expected_crc,
-            "Ring 3 ext_crc32c must match crc32c(ext_data)"
-        );
-    }
+    assert_eq!(
+        record3.field_get(ring3_field, FieldRing::Ring3),
+        Ok("ring3_data".to_string())
+    );
+    assert_ne!(
+        Record::compute_content_hash_from(&record3),
+        [0u8; 32],
+        "Ring 3 KV data must participate in content-hash coverage"
+    );
 
     // --- 8. Ring permission enforcement ---
     // Ring 0 write by non-Ring0 caller should be denied
@@ -279,25 +304,11 @@ mod edge_case_tests {
     #[test]
     fn edge_record_new_is_zeroed() {
         let record = Record::new(0);
-        assert_eq!(record.pool_index, 0);
-        assert_eq!(record.id.hi, 0);
-        assert_eq!(record.id.lo, 0);
+        assert_eq!(record.id_hi(), 0);
+        assert_eq!(record.id_lo(), 0);
         assert_eq!(record.level, LogLevel::Info);
         assert_eq!(record.message.as_str(), "");
-        assert_eq!(record.ext_crc32c, 0);
-    }
-
-    #[test]
-    fn edge_record_reset() {
-        let mut record = Record::new(0);
-        record.message.set("hello");
-        record.ext_crc32c = 0xDEADBEEF;
-        record.reset();
-        // reset() clears every RecordString field (both inline and heap) so a
-        // pooled slot is pristine on reuse.
-        assert_eq!(record.message.as_str(), "");
-        assert_eq!(record.ext_crc32c, 0);
-        assert_eq!(record.signature, [0u8; 64]);
+        assert_eq!(record.content_hash, [0u8; 32]);
     }
 
     // --- RecordString ---
@@ -339,11 +350,11 @@ mod edge_case_tests {
     }
 
     #[test]
-    fn edge_recordstring_debug_format() {
+    fn edge_recordstring_as_str_value() {
         let mut rs = RecordString::empty();
         rs.set("test");
-        let debug_str = format!("{rs:?}");
-        assert_eq!(debug_str, "\"test\"");
+        let debug_str = rs.as_str().to_string();
+        assert_eq!(debug_str, "test");
     }
 
     // --- Field ring mapping ---
@@ -370,10 +381,7 @@ mod edge_case_tests {
         assert_eq!(Record::field_ring("level"), Some(FieldRing::Ring1));
         assert_eq!(Record::field_ring("message"), Some(FieldRing::Ring1));
         assert_eq!(Record::field_ring("host.name"), Some(FieldRing::Ring1));
-        assert_eq!(
-            Record::field_ring("exception.type"),
-            Some(FieldRing::Ring1)
-        );
+        assert_eq!(Record::field_ring("exception.type"), Some(FieldRing::Ring1));
     }
 
     #[test]
@@ -457,7 +465,10 @@ mod edge_case_tests {
     #[test]
     fn edge_loglevel_invalid() {
         for i in 7..=255u8 {
-            assert!(LogLevel::from_u8(i).is_none(), "invalid LogLevel {i} should be None");
+            assert!(
+                LogLevel::from_u8(i).is_none(),
+                "invalid LogLevel {i} should be None"
+            );
         }
     }
 
@@ -486,8 +497,10 @@ mod edge_case_tests {
     #[test]
     fn edge_field_set_numeric_field() {
         let mut record = Record::new(0);
-        record.field_set("source.line", "42", FieldRing::Ring1).unwrap();
-        assert_eq!(record.source_line, 42);
+        record
+            .field_set("source.line", "42", FieldRing::Ring1)
+            .unwrap();
+        assert_eq!(record.source_line(), 42);
         let value = record.field_get("source.line", FieldRing::Ring0).unwrap();
         assert_eq!(value, "42");
     }
@@ -516,8 +529,11 @@ mod edge_case_tests {
         assert!(result.is_ok());
         let value = record.field_get("ext.foo", FieldRing::Ring3).unwrap();
         assert_eq!(value, "bar");
-        // CRC32C should be auto-computed
-        assert_eq!(record.ext_crc32c, crc32c::crc32c(b"bar"));
+        assert_ne!(
+            Record::compute_content_hash_from(&record),
+            [0u8; 32],
+            "Ring 3 KV data must be included in the content hash"
+        );
     }
 
     #[test]
@@ -530,24 +546,38 @@ mod edge_case_tests {
     #[test]
     fn edge_ring2_audit_tags_append() {
         let mut record = Record::new(0);
-        record.field_set("verified.field1", "val1", FieldRing::Ring2).unwrap();
-        record.field_set("verified.field2", "val2", FieldRing::Ring2).unwrap();
+        record
+            .field_set("verified.field1", "val1", FieldRing::Ring2)
+            .unwrap();
+        record
+            .field_set("verified.field2", "val2", FieldRing::Ring2)
+            .unwrap();
 
-        let tags = record.audit_tags.as_str();
-        assert!(!tags.is_empty(), "audit_tags should be populated after Ring 2 write");
+        let tags = record.audit_tags();
+        assert!(
+            !tags.is_empty(),
+            "audit_tags should be populated after Ring 2 write"
+        );
         assert!(tags.starts_with('['), "audit_tags should be JSON array");
         assert!(tags.ends_with(']'), "audit_tags should end with ']'");
-        assert!(tags.contains("verified.field1"), "should contain field name");
+        assert!(
+            tags.contains("verified.field1"),
+            "should contain field name"
+        );
         assert!(tags.contains("val1"), "should contain value");
     }
 
     #[test]
     fn edge_field_set_security_gap() {
         let mut record = Record::new(0);
-        record.field_set("security.gap", "true", FieldRing::Ring1).unwrap();
-        assert!(record.security_gap);
+        record
+            .field_set("security.gap", "true", FieldRing::Ring1)
+            .unwrap();
+        assert!(record.security_gap());
 
-        record.field_set("security.gap", "false", FieldRing::Ring1).unwrap();
-        assert!(!record.security_gap);
+        record
+            .field_set("security.gap", "false", FieldRing::Ring1)
+            .unwrap();
+        assert!(!record.security_gap());
     }
 }

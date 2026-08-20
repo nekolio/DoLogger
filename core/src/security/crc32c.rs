@@ -10,12 +10,12 @@
 //! - ARMv8 CRC32 (`__crc32d`): ~0.3 cycles/byte on Apple Silicon / ARM server
 //! - Software (Slicing-by-8): ~3 cycles/byte (compatible everywhere)
 //!
-//! # Ring 3 field protection
+//! # Deterministic field-set checksum helper
 //!
-//! CRC32C is used to integrity-protect Ring 3 (untrusted extension) fields.
-//! The CRC covers all Ring 3 key-value pairs combined. On read, the CRC
-//! is recomputed and compared — a mismatch indicates tampering by an
-//! untrusted plugin.
+//! The Record field API uses canonical KV serialization and SHA-256
+//! `content_hash` coverage for Ring 3 integrity. CRC32C remains available as
+//! a standalone deterministic checksum helper for compatibility and callers
+//! that need a fast non-cryptographic digest.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -284,14 +284,14 @@ fn crc32c_table_entry(crc: u32, word: u64) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// Convenience: compute CRC32C for Ring 3 fields
+// Convenience: compute a deterministic checksum for field pairs
 // ---------------------------------------------------------------------------
 
 /// Compute CRC32C over an iterator of (key, value) byte slices.
 ///
-/// This is the canonical method for Ring 3 integrity protection.
-/// All Ring 3 key-value pairs are sorted by key, then concatenated
-/// with length prefixes, and CRC32C is computed over the result.
+/// This helper preserves the historical deterministic field-pair format.
+/// It is not the Record integrity mechanism; Record Ring 3 data is covered
+/// by canonical KV serialization and SHA-256 `content_hash`.
 pub fn crc32c_ring3<'a>(fields: impl Iterator<Item = (&'a [u8], &'a [u8])>) -> u32 {
     // Collect and sort by key for deterministic ordering
     let mut pairs: Vec<(&[u8], &[u8])> = fields.collect();

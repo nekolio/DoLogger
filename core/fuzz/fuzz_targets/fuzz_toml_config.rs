@@ -8,7 +8,7 @@
 
 #![no_main]
 
-use dologger_core::config::{DologgerConfig, PerformanceProfile, ComplianceProfile};
+use dologger_core::config::{DologgerConfig, PerformanceProfile};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -126,6 +126,7 @@ fn test_structured_parse(data: &[u8]) {
 #[cfg(test)]
 mod edge_case_tests {
     use super::*;
+    use dologger_core::config::ComplianceProfile;
 
     #[test]
     fn edge_empty_string() {
@@ -138,7 +139,8 @@ mod edge_case_tests {
 
     #[test]
     fn edge_empty_table() {
-        let (config, _) = DologgerConfig::parse("[dologger]\n", None).expect("empty table should parse");
+        let (config, _) =
+            DologgerConfig::parse("[dologger]\n", None).expect("empty table should parse");
         // Should have default values
         assert_eq!(config.level, "INFO");
     }
@@ -169,7 +171,10 @@ performance_profile = "super-duper-unknown"
             DologgerConfig::parse(toml, None).expect("should parse with warning");
         assert!(!warnings.is_empty(), "expected warning for unknown profile");
         // Should default to ProdPerformance
-        assert_eq!(config.performance_profile, PerformanceProfile::ProdPerformance);
+        assert_eq!(
+            config.performance_profile,
+            PerformanceProfile::ProdPerformance
+        );
     }
 
     #[test]
@@ -180,7 +185,10 @@ ring_buffer_size = 500
 "#;
         let (config, warnings) =
             DologgerConfig::parse(toml, None).expect("should parse with warning");
-        assert!(!warnings.is_empty(), "expected warning for invalid ring_buffer_size");
+        assert!(
+            !warnings.is_empty(),
+            "expected warning for invalid ring_buffer_size"
+        );
         // Should keep default
         assert_eq!(config.ring_buffer_size, 262144);
     }
@@ -222,8 +230,7 @@ ring_buffer_size = 500
     fn edge_very_long_value() {
         let long_string = "A".repeat(1_000_000);
         let toml = format!("[dologger]\nlevel = \"{}\"\n", long_string);
-        let (config, _) =
-            DologgerConfig::parse(&toml, None).expect("long value should parse");
+        let (config, _) = DologgerConfig::parse(&toml, None).expect("long value should parse");
         assert_eq!(config.level, long_string);
     }
 

@@ -27,6 +27,7 @@ use std::sync::Mutex;
 
 use dologger_core::ffi::DologgerPluginInfo;
 use dologger_core::plugin::vtable::{FormatterVTable, HostInit, OutputBuffer};
+use dologger_core::record::FieldRing;
 use dologger_core::Record;
 use serde_json::Value;
 
@@ -44,11 +45,22 @@ const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
 const PLUGIN_VERSION: u32 = 1; // 0.0.1 (packed major.minor.patch)
 
 // ---------------------------------------------------------------------------
-// Helper: check if a u128 timestamp is populated
+// Helper: check if a u64 timestamp is populated
 // ---------------------------------------------------------------------------
 
-fn is_zero_u128(hi: u64, lo: u64) -> bool {
-    hi == 0 && lo == 0
+fn field_value(record: &Record, name: &str) -> Option<String> {
+    record.field_get(name, FieldRing::Ring1).ok()
+}
+
+fn non_empty_field(record: &Record, name: &str) -> Option<String> {
+    field_value(record, name).filter(|value| !value.is_empty())
+}
+
+fn numeric_field<T>(record: &Record, name: &str) -> Option<T>
+where
+    T: std::str::FromStr,
+{
+    field_value(record, name)?.parse().ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -75,13 +87,13 @@ enum TimestampFormat {
 struct JsonConfig {
     /// Pretty-print the JSON output (multi-line, indented).
     pretty: bool,
-    /// Include Ring-3 extension data (`ext_data`). Default false: Ring-3 is
+    /// Include Ring-3 extension fields (`ext.*`). Default false: Ring-3 is
     /// arbitrary extension data, so it is opt-in for security-conscious sinks.
     include_ring3: bool,
     /// Include Ring-1 source location fields (file/function/line/column).
     /// Default true: source location is core diagnostic information.
     include_source: bool,
-    /// How to render the 128-bit `timestamp` field.
+    /// How to render the 64-bit `timestamp` field.
     timestamp_format: TimestampFormat,
 }
 
@@ -221,15 +233,12 @@ fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
     let mut map = serde_json::Map::new();
 
     // ── Ring 0: Kernel-core fields ──
-    if !is_zero_u128(rec.id_hi(), rec.id_lo()) {
-        map.insert(
-            "id".to_string(),
-            Value::String(format!("{:016x}{:016x}", rec.id_hi(), rec.id_lo())),
-        );
+    if let Some(id) = non_empty_field(rec, "id") {
+        map.insert("id".to_string(), Value::String(id));
     }
-    let ts_secs = rec.timestamp_secs() as u64;
-    let ts_nanos = rec.timestamp_subsec_nanos() as u64;
-    if ts_secs != 0 || ts_nanos != 0 {
+    if let Some(timestamp) = numeric_field::<u64>(rec, "timestamp").filter(|value| *value != 0) {
+        let ts_secs = timestamp / 1_000_000_000;
+        let ts_nanos = timestamp % 1_000_000_000;
         map.insert(
             "timestamp".to_string(),
             Value::String(render_timestamp(ts_secs, ts_nanos, cfg.timestamp_format)),
@@ -240,141 +249,138 @@ fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
     // ── Ring 1: Level + Message ──
     map.insert(
         "level".to_string(),
-        Value::String(rec.level.to_str().to_string()),
+        Value::String(field_value(rec, "level").unwrap_or_default()),
     );
 
-    let msg = rec.message.as_str();
-    if !msg.is_empty() {
-        map.insert("message".to_string(), Value::String(msg.to_string()));
+    if let Some(message) = non_empty_field(rec, "message") {
+        map.insert("message".to_string(), Value::String(message));
     }
 
     // ── Ring 1: Source location (configurable via `source`) ──
     if cfg.include_source {
-        let sf = rec.source_file();
-        if !sf.is_empty() {
-            map.insert("source_file".to_string(), Value::String(sf));
+        if let Some(source_file) = non_empty_field(rec, "source.file") {
+            map.insert("source_file".to_string(), Value::String(source_file));
         }
-        let sfn = rec.source_function();
-        if !sfn.is_empty() {
-            map.insert("source_function".to_string(), Value::String(sfn));
-        }
-        if rec.source_line() != 0 {
-            map.insert("source_line".to_string(), Value::from(rec.source_line()));
-        }
-        if rec.source_column() != 0 {
+        if let Some(source_function) = non_empty_field(rec, "source.function") {
             map.insert(
-                "source_column".to_string(),
-                Value::from(rec.source_column()),
+                "source_function".to_string(),
+                Value::String(source_function),
             );
+        }
+        if let Some(source_line) = numeric_field::<u32>(rec, "source.line") {
+            if source_line != 0 {
+                map.insert("source_line".to_string(), Value::from(source_line));
+            }
+        }
+        if let Some(source_column) = numeric_field::<u32>(rec, "source.column") {
+            if source_column != 0 {
+                map.insert("source_column".to_string(), Value::from(source_column));
+            }
         }
     }
 
     // ── Ring 1: Thread / Process ──
-    if rec.thread_id != 0 {
-        map.insert("thread_id".to_string(), Value::from(rec.thread_id));
+    if let Some(thread_id) = numeric_field::<u32>(rec, "thread.id") {
+        if thread_id != 0 {
+            map.insert("thread_id".to_string(), Value::from(thread_id));
+        }
     }
-    let tn = rec.thread_name();
-    if !tn.is_empty() {
-        map.insert("thread_name".to_string(), Value::String(tn));
+    if let Some(thread_name) = non_empty_field(rec, "thread.name") {
+        map.insert("thread_name".to_string(), Value::String(thread_name));
     }
-    if rec.process_id != 0 {
-        map.insert("process_id".to_string(), Value::from(rec.process_id));
+    if let Some(process_id) = numeric_field::<u32>(rec, "process.id") {
+        if process_id != 0 {
+            map.insert("process_id".to_string(), Value::from(process_id));
+        }
     }
-    let pn = rec.process_name();
-    if !pn.is_empty() {
-        map.insert("process_name".to_string(), Value::String(pn));
+    if let Some(process_name) = non_empty_field(rec, "process.name") {
+        map.insert("process_name".to_string(), Value::String(process_name));
     }
 
     // ── Ring 1: Host / Container ──
-    let hn = rec.host_name();
-    if !hn.is_empty() {
-        map.insert("host_name".to_string(), Value::String(hn));
+    if let Some(host_name) = non_empty_field(rec, "host.name") {
+        map.insert("host_name".to_string(), Value::String(host_name));
     }
-    let ci = rec.container_id();
-    if !ci.is_empty() {
-        map.insert("container_id".to_string(), Value::String(ci));
+    if let Some(container_id) = non_empty_field(rec, "container.id") {
+        map.insert("container_id".to_string(), Value::String(container_id));
     }
 
     // ── Ring 1: Application ──
-    let an = rec.app_name();
-    if !an.is_empty() {
-        map.insert("app_name".to_string(), Value::String(an));
+    if let Some(app_name) = non_empty_field(rec, "app.name") {
+        map.insert("app_name".to_string(), Value::String(app_name));
     }
-    let av = rec.app_version();
-    if !av.is_empty() {
-        map.insert("app_version".to_string(), Value::String(av));
+    if let Some(app_version) = non_empty_field(rec, "app.version") {
+        map.insert("app_version".to_string(), Value::String(app_version));
     }
-    let env = rec.environment();
-    if !env.is_empty() {
-        map.insert("environment".to_string(), Value::String(env));
+    if let Some(environment) = non_empty_field(rec, "environment") {
+        map.insert("environment".to_string(), Value::String(environment));
     }
 
     // ── Ring 1: User / Session ──
-    let uid = rec.user_id();
-    if !uid.is_empty() {
-        map.insert("user_id".to_string(), Value::String(uid));
+    if let Some(user_id) = non_empty_field(rec, "user.id") {
+        map.insert("user_id".to_string(), Value::String(user_id));
     }
-    let sid = rec.session_id();
-    if !sid.is_empty() {
-        map.insert("session_id".to_string(), Value::String(sid));
+    if let Some(session_id) = non_empty_field(rec, "session.id") {
+        map.insert("session_id".to_string(), Value::String(session_id));
     }
 
     // ── Ring 1: Distributed Tracing (W3C / OpenTelemetry) ──
-    let rid = rec.request_id();
-    if !rid.is_empty() {
-        map.insert("request_id".to_string(), Value::String(rid));
+    if let Some(request_id) = non_empty_field(rec, "request.id") {
+        map.insert("request_id".to_string(), Value::String(request_id));
     }
-    let tid = rec.trace_id();
-    if !tid.is_empty() {
-        map.insert("trace_id".to_string(), Value::String(tid));
+    if let Some(trace_id) = non_empty_field(rec, "trace.id") {
+        map.insert("trace_id".to_string(), Value::String(trace_id));
     }
-    let spid = rec.span_id();
-    if !spid.is_empty() {
-        map.insert("span_id".to_string(), Value::String(spid));
+    if let Some(span_id) = non_empty_field(rec, "span.id") {
+        map.insert("span_id".to_string(), Value::String(span_id));
     }
-    if rec.coroutine_id() != 0 {
-        map.insert("coroutine_id".to_string(), Value::from(rec.coroutine_id()));
+    if let Some(coroutine_id) = numeric_field::<u64>(rec, "coroutine.id") {
+        if coroutine_id != 0 {
+            map.insert("coroutine_id".to_string(), Value::from(coroutine_id));
+        }
     }
 
     // ── Ring 1: Exception ──
-    let et = rec.exception_type();
-    if !et.is_empty() {
-        map.insert("exception_type".to_string(), Value::String(et));
+    if let Some(exception_type) = non_empty_field(rec, "exception.type") {
+        map.insert("exception_type".to_string(), Value::String(exception_type));
     }
-    let em = rec.exception_message();
-    if !em.is_empty() {
-        map.insert("exception_message".to_string(), Value::String(em));
-    }
-    let est = rec.exception_stacktrace();
-    if !est.is_empty() {
-        map.insert("exception_stacktrace".to_string(), Value::String(est));
-    }
-    if rec.exception_code() != 0 {
+    if let Some(exception_message) = non_empty_field(rec, "exception.message") {
         map.insert(
-            "exception_code".to_string(),
-            Value::from(rec.exception_code()),
+            "exception_message".to_string(),
+            Value::String(exception_message),
         );
+    }
+    if let Some(exception_stacktrace) = non_empty_field(rec, "exception.stacktrace") {
+        map.insert(
+            "exception_stacktrace".to_string(),
+            Value::String(exception_stacktrace),
+        );
+    }
+    if let Some(exception_code) = numeric_field::<i64>(rec, "exception.code") {
+        if exception_code != 0 {
+            map.insert("exception_code".to_string(), Value::from(exception_code));
+        }
     }
 
     // ── Ring 1: Labels ──
-    let lbl = rec.labels();
-    if !lbl.is_empty() {
-        map.insert("labels".to_string(), Value::String(lbl));
+    if let Some(labels) = non_empty_field(rec, "labels") {
+        map.insert("labels".to_string(), Value::String(labels));
     }
 
     // ── Ring 1: Security ──
-    if rec.lsn != 0 {
-        map.insert("lsn".to_string(), Value::from(rec.lsn));
+    if let Some(lsn) = numeric_field::<u64>(rec, "security.lsn") {
+        if lsn != 0 {
+            map.insert("lsn".to_string(), Value::from(lsn));
+        }
     }
-    if rec.security_gap() {
+    if field_value(rec, "security.gap").as_deref() == Some("1") {
         map.insert("security_gap".to_string(), Value::Bool(true));
     }
-    let at = rec.audit_tags();
-    if !at.is_empty() {
-        map.insert("audit_tags".to_string(), Value::String(at));
+    if let Some(audit_tags) = non_empty_field(rec, "security.audit_tags") {
+        map.insert("audit_tags".to_string(), Value::String(audit_tags));
     }
 
-    // ── Ring 3: Extension data removed in A2.2 (moved to KV vendor) ──
+    // ── Ring 3: vendor fields are KV-backed and intentionally opt-in ──
 
     Ok(Value::Object(map))
 }
@@ -564,7 +570,7 @@ mod tests {
         record.message.set("cfg");
         record.set_source_file("main.rs");
         record.set_source_line(7);
-        // ext_data removed in A2.2; test ext_data assertion removed.
+        // Ring 3 data is KV-backed; no legacy ext_data field is emitted.
 
         let (rc, output) = unsafe { call_format(&record, 8192) };
         assert_eq!(rc, DO_LOG_OK);
@@ -578,7 +584,7 @@ mod tests {
 
         let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
         let obj = parsed.as_object().unwrap();
-        // ext_data removed in A2.2 — no longer present in JSON output.
+        // The legacy ext_data field is no longer present in JSON output.
         assert!(!obj.contains_key("ext_data"));
         // timestamp_format=unix_ms ⇒ integer millis (1700000000.5s → 1700000000500ms).
         assert_eq!(obj["timestamp"], "1700000000500");
