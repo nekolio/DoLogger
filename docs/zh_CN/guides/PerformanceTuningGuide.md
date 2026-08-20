@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](PerformanceTuningGuide.md) | [English: DoLogger Performance Tuning Guide](../../en_US/guides/PerformanceTuningGuide.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: SRE / 运维工程师、性能工程师、系统管理员
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: SRE / 运维工程师、性能工程师、系统管理员
 >
 > **用途**: 本文档为 DoLogger 部署提供系统级性能调优指导。涵盖操作系统内核参数、CPU 和 NUMA 亲和性、环形缓冲区大小计算公式、性能配置文件选择、接收器吞吐量特性、内存预算和实际部署示例。
 >
@@ -331,7 +331,7 @@ export DO_LOG_BUF_SIZE=524288
 ```
 ### 监控缓冲区利用率
 
-（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动，以下为规划用法）：
+（伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动，以下为规划用法）：
 
 ```bash
 # 检查当前利用率
@@ -479,7 +479,7 @@ DoLogger 引擎实例使用的总内存为以下各项之和：
 # 检查进程 RSS
 ps -o pid,rss,comm -p $(pgrep -f dologger)
 
-# 或通过状态端点（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动）
+# 或通过状态端点（伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动）
 # curl -s http://127.0.0.1:9090/status | jq .memory
 ```
 
@@ -530,7 +530,7 @@ performance_profile = "prod-audit"
 ring_buffer_size = 65536         # 64K——低速率，注重持久性
 batch_size = 128
 enable_signature = true           # 不可降级
-# fsync_on_write 是域级项（DomainManager），在 v0.1.0 中不是 [dologger]
+# fsync_on_write 是域级项（DomainManager），在 v0.0.1 中不是 [dologger]
 # 键——仅为完整性列出。WORM 持久性配置在 [sinks.worm_file] 接收器自身上：
 fsync_on_write = true             # 不可降级
 shutdown_policy = "graceful"
@@ -643,7 +643,7 @@ sudo sysctl -w vm.nr_hugepages=272
 
 ### 诊断工作流
 
-（伪代码/示意 — 诊断工作流（控制面在 v0.1.0 尚未启用））：
+（伪代码/示意 — 诊断工作流（控制面在 v0.0.1 尚未启用））：
 
 ```text
 1. 检查整体健康状态
@@ -686,7 +686,7 @@ sudo sysctl -w vm.nr_hugepages=272
 ### 快速诊断命令
 
 ```bash
-# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+# 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
 # curl -s http://127.0.0.1:9090/status | jq .
 
 # CPU 性能分析（60 秒采样）

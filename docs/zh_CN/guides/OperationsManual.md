@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](OperationsManual.md) | [English: Operations Manual](../../en_US/guides/OperationsManual.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: SRE/运维工程师
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: SRE/运维工程师
 
 ## 目录
 
@@ -107,8 +107,8 @@ sudo dnf install dologger-core dologger-cli
 **Linux（手动 tar 包）：**
 ```bash
 # （示意 — 当前请从源码构建：cargo build --release）
-tar xzf dologger-0.1.0-linux-x86_64.tar.gz
-cd dologger-0.1.0-linux-x86_64
+tar xzf dologger-0.0.1-linux-x86_64.tar.gz
+cd dologger-0.0.1-linux-x86_64
 sudo cp libdologger_core.so /usr/lib/dologger/
 sudo cp dologctl /usr/local/bin/
 sudo mkdir -p /etc/dologger /var/log/dologger /var/lib/dologger/audit
@@ -139,7 +139,7 @@ ring_buffer_size = 262144       # 必须是 2 的幂
 batch_size = 256
 enable_signature = false        # 审计部署时设为 true
 # 以下五项域级不可降级项由 DomainManager 强制执行，
-# 在 v0.1.0 中不读取自 [dologger] 段 — 此处仅为完整性列出：
+# 在 v0.0.1 中不读取自 [dologger] 段 — 此处仅为完整性列出：
 escape_html = true              # 防止 CRLF / 日志注入
 fsync_on_write = false          # 崩溃安全持久化设为 true
 require_tls = true              # 强制所有网络 Sink 使用 TLS
@@ -148,7 +148,7 @@ shutdown_policy = "graceful"
 shutdown_timeout_ms = 5000
 
 # --- Sink 定义 ---
-# （示意 — v0.1.0 的配置解析仅覆盖 [dologger] 键；Sink 段在代码中按管线接线，
+# （示意 — v0.0.1 的配置解析仅覆盖 [dologger] 键；Sink 段在代码中按管线接线，
 # 参见 core/src/sink/）
 
 # 旧 schema 中通过 enabled = false 禁用的 Sink 在此省略——某个 Sink 存在与否仅取决于
@@ -200,13 +200,13 @@ path = "/usr/lib/dologger/plugins/libdrop_debug.so"
 # 严格校验（强制不可降级的安全不变量）
 dologctl config validate --config /etc/dologger/default.toml --strict
 
-# （规划中 — v0.1.0 未发布 --compliance 参数）
+# （规划中 — v0.0.1 未发布 --compliance 参数）
 # 按合规 Profile 校验
 dologctl config validate \
     --config /etc/dologger/default.toml \
     --compliance gdpr
 
-# （规划中 — v0.1.0 未发布 config show / config diff 子命令）
+# （规划中 — v0.0.1 未发布 config show / config diff 子命令）
 # 干跑：显示合并后的生效配置
 dologctl config show --effective
 
@@ -277,7 +277,7 @@ dologctl config merge \
 | 环形缓冲区大小 | 65536 | 131072 | 262144 | 262144 |
 
 > [!NOTE]
-> 阻塞超时与丢弃策略的值由 `core/src/pipeline/backpressure.rs` 强制执行。dev / prod-performance / prod-audit 的批大小与环形缓冲区大小和随附的配置模板一致；`balanced` 的值为示意（v0.1.0 未随附 `balanced` 模板）。
+> 阻塞超时与丢弃策略的值由 `core/src/pipeline/backpressure.rs` 强制执行。dev / prod-performance / prod-audit 的批大小与环形缓冲区大小和随附的配置模板一致；`balanced` 的值为示意（v0.0.1 未随附 `balanced` 模板）。
 
 | Escape HTML | 可选 | 开启 | 开启 | **开启** |
 | fsync on write | 关闭 | 关闭 | 可选 | **开启** |
@@ -398,7 +398,7 @@ dologctl shm clear /dologger_default.shm           # 需生产者 DEAD 或 --for
 ### 控制面状态端点
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面尚未随引擎启动；
+# 伪代码/示意 — v0.0.1 中控制面尚未随引擎启动；
 # 下方响应格式与 core/src/sys/control_plane.rs 的 /status 处理器一致
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
@@ -484,19 +484,19 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### HTTP API 端点
 
-**表 5：控制面 API（规划中）** — v0.1.0 中这些端点均未随引擎启动。
+**表 5：控制面 API（规划中）** — v0.0.1 中这些端点均未随引擎启动。
 
 | 方法 | 路径 | 认证 | 说明 |
 |:-:|:-:|:-:|:-:|
 | GET | `/status` | 无 | 引擎状态与指标（见上文） |
-| GET | `/health` | 无 | 存活检查（规划中 — v0.1.0 未实现） |
+| GET | `/health` | 无 | 存活检查（规划中 — v0.0.1 未实现） |
 | POST | `/level` | 无 | 动态设置日志级别 |
 | POST | `/reload` | 无 | 触发配置重载 |
 
 ### 运行时修改日志级别
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面尚未启动
+# 伪代码/示意 — v0.0.1 中控制面尚未启动
 # 调试时临时提高日志详细程度
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
@@ -523,7 +523,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### 安全注意事项
 
-- 控制面默认监听 `127.0.0.1:9090`（规划中 — v0.1.0 中控制面未启动）— 仅同主机进程可达。
+- 控制面默认监听 `127.0.0.1:9090`（规划中 — v0.0.1 中控制面未启动）— 仅同主机进程可达。
 - mTLS + JWT 认证（远程访问）为规划中。
 - 生产部署应使用主机级防火墙规则限制对控制面端口的访问：
   ```bash
@@ -542,7 +542,7 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 文件 Sink 同时支持按大小与按时间滚动：
 
 ```toml
-# （示意 — v0.1.0 的 FileSinkConfig 包含：path、max_size（字节）、
+# （示意 — v0.0.1 的 FileSinkConfig 包含：path、max_size（字节）、
 # fsync_on_write、durability_level、buffer_size；按时间滚动、
 # 压缩与文件数保留均为规划中）
 [sinks.file]
@@ -559,7 +559,7 @@ compression = "zstd"            # 压缩滚动文件（gzip | zstd | none）
 ### 保留策略
 
 ```toml
-# （示意 — 保留策略键为规划中，v0.1.0 未解析）
+# （示意 — 保留策略键为规划中，v0.0.1 未解析）
 [sinks.file]
 retention_days = 90             # 删除超过 90 天的文件
 retention_total_size = "10GB"   # 总量超过 10 GB 时删除最旧文件
@@ -605,7 +605,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 # 或报告目录下所有 *.worm 文件的 LSN 连续性
 dologctl recovery-report /var/lib/dologger/audit/
 
-# （规划中 — v0.1.0 未发布 dologctl audit export）
+# （规划中 — v0.0.1 未发布 dologctl audit export）
 # 导出审计记录为 JSON 以便分析
 dologctl audit export \
     --path /var/lib/dologger/audit/ \
@@ -630,7 +630,7 @@ rsync -avz \
     /var/lib/dologger/audit/ \
     backup-server:/backups/dologger/$(hostname)/audit/
 
-# （规划中 — v0.1.0 未发布 --latest-lsn-only 参数与锚定发布）
+# （规划中 — v0.0.1 未发布 --latest-lsn-only 参数与锚定发布）
 # 记录最后校验通过的 LSN 以便外部锚定
 dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
 # {"latest_lsn": 100042,"root_hash": "a3f8b2c1..."}
@@ -661,7 +661,7 @@ dologger_emergency_<pid>_<spill_id>.buf
 ls -la /tmp/dologger/dologger_emergency_*.buf
 
 # 若引擎正在运行且文件持续存在，检查引擎状态
-# （伪代码/示意 — v0.1.0 中控制面尚未启动；
+# （伪代码/示意 — v0.0.1 中控制面尚未启动；
 # 规划中的 /status 响应尚无 ring_buffer 对象）
 # curl http://127.0.0.1:9090/status
 
@@ -674,7 +674,7 @@ ls -la /tmp/dologger/dologger_emergency_*.buf
 # 备份当前生效配置
 cp /etc/dologger/default.toml /backups/dologger/config-$(date +%Y%m%d).toml
 
-# （规划中 — v0.1.0 未发布 config show 子命令）
+# （规划中 — v0.0.1 未发布 config show 子命令）
 # 使用 dologctl 备份（包含合并后的生效配置）
 dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).toml
 ```
@@ -719,7 +719,7 @@ dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).t
 - **生产**：部署由 HSM（硬件安全模块）、AWS KMS 或 HashiCorp Vault 支撑的外部 `KeyProvider`。这样可保证密钥跨重启持久化，并提供基于硬件的密钥保护。
 
 ```toml
-# （示意 — v0.1.0 未解析插件配置段）
+# （示意 — v0.0.1 未解析插件配置段）
 [plugins.hsm-key-provider]
 type = "key_provider"
 path = "/usr/lib/dologger/plugins/libhsm_keyprovider.so"
@@ -732,34 +732,37 @@ key_label = "dologger-signing-key"
 
 ### 审计链路防篡改检测
 
-LSN（日志序列号）链提供密码学层面的篡改证据（伪代码 — 示意）：
+LSN（日志序列号）+ content_hash 链提供密码学层面的篡改证据（伪代码 — 示意）：
 
 ```
 Record(N):
-  lsn       = N
-  prev_hash = SHA-256( Record(N-1).signature || Record(N-1).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N
+  content_hash = SHA-256( canonical_serialization(Record(N)) )
+  prev_hash    = SHA-256( Record(N-1).content_hash || Record(N-1).lsn )
+  # 侧车 audit.log.sig: sig(N) = Ed25519_Sign(TPM 密钥, SHA-256(lsn || content_hash || prev_hash))
 
 Record(N+1):
-  lsn       = N+1
-  prev_hash = SHA-256( Record(N).signature || Record(N).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N+1
+  content_hash = SHA-256( canonical_serialization(Record(N+1)) )
+  prev_hash    = SHA-256( Record(N).content_hash || Record(N).lsn )
+  # 侧车 audit.log.sig: sig(N+1) = Ed25519_Sign(TPM 密钥, SHA-256(lsn || content_hash || prev_hash))
 ```
 
-若任何记录被修改、插入或删除，`prev_hash` 链将断裂，验证失败。
+若任何记录被修改、插入或删除，`content_hash` / `prev_hash` 链将断裂，验证失败。
 
 **验证命令：**
 
 ```bash
-# （--verbose 为规划中；v0.1.0 的 verify-log 以位置参数接受文件路径）
-dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+# （--verbose 为规划中；v0.0.1 的 verify-log 以位置参数接受文件路径）
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+    --sidecar /var/lib/dologger/audit/audit-000001.sig
 
 # （示意输出示例）
-# [OK]     LSN 000001 — 签名有效
-# [OK]     LSN 000002 — 签名有效
+# [OK]     LSN 000001 — content_hash 有效，签名有效，prev_hash=genesis
+# [OK]     LSN 000002 — content_hash 有效，签名有效，prev_hash 匹配
 # [GAP]    LSN 000003 — 缺失（期望存在，实际发现 LSN 000004）
-# [OK]     LSN 000004 — 签名有效，prev_hash 匹配
-# [FAIL]   LSN 000005 — 签名无效（记录可能被篡改）
+# [OK]     LSN 000004 — content_hash 有效，签名有效，prev_hash 匹配
+# [FAIL]   LSN 000005 — content_hash 无效（记录可能被篡改）
 # ...
 # 汇总：9995 通过、1 处缺口、1 失败 — 完整性校验未通过
 ```
@@ -789,12 +792,12 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
 **响应：**
 
-1. **分诊**：`curl http://127.0.0.1:9090/status | jq .ring_buffer`（伪代码/示意 — v0.1.0 中控制面尚未启动）
+1. **分诊**：`curl http://127.0.0.1:9090/status | jq .ring_buffer`（伪代码/示意 — v0.0.1 中控制面尚未启动）
 2. **检查丢弃情况**：查看 `pct_used`、`drops_total`、`emergency_spills`
 3. **定位瓶颈**：Sink 健康状态 — 是否有 Sink 处于 `circuit_open` 状态？
 4. **缓解措施**：
    ```bash
-   # （规划中 — v0.1.0 未发布 /sink/disable 端点）
+   # （规划中 — v0.0.1 未发布 /sink/disable 端点）
    # 若某 Sink 熔断且非关键，将其禁用
    curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
@@ -861,7 +864,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 1. **基线**：运行 `cargo bench` 确认引擎自身性能符合预期。
 2. **Profile 检查**：核对 `performance_profile` — 是否被改为低吞吐 Profile？
    ```bash
-   # （伪代码/示意 — v0.1.0 中控制面尚未启动）
+   # （伪代码/示意 — v0.0.1 中控制面尚未启动）
    curl http://127.0.0.1:9090/status | jq .profile
    ```
 3. **检查 Sink**：Sink 是否健康？下游变慢会引起背压。

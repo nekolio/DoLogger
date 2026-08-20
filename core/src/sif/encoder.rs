@@ -32,45 +32,66 @@ pub fn encode_record(record: &Record) -> Vec<u8> {
         SIF_INITIAL_BUFFER_SIZE + SIF_MAX_PREAMBLE + record.message.len(),
     );
 
-    let signature = Some(fbb.create_vector(&record.signature));
-    let prev_hash = Some(fbb.create_vector(&record.prev_hash));
+    let signature = Some(fbb.create_vector(&[0u8; 64])); // placeholder; signature is external
+    let prev_hash = Some(fbb.create_vector(&[0u8; 32])); // placeholder; chain is content_hash-based
+    let content_hash = Some(fbb.create_vector(&record.content_hash));
+
+    // Build owned strings for KV-accessed fields (KV accessors return String)
+    let source_file_str = record.source_file();
+    let source_function_str = record.source_function();
+    let thread_name_str = record.thread_name();
+    let process_name_str = record.process_name();
+    let host_name_str = record.host_name();
+    let container_id_str = record.container_id();
+    let app_name_str = record.app_name();
+    let app_version_str = record.app_version();
+    let environment_str = record.environment();
+    let user_id_str = record.user_id();
+    let session_id_str = record.session_id();
+    let request_id_str = record.request_id();
+    let trace_id_str = record.trace_id();
+    let span_id_str = record.span_id();
+    let exception_type_str = record.exception_type();
+    let exception_message_str = record.exception_message();
+    let exception_stacktrace_str = record.exception_stacktrace();
+    let labels_str = record.labels();
+    let audit_tags_str = record.audit_tags();
 
     let message = opt_string(&mut fbb, record.message.as_str());
-    let source_file = opt_string(&mut fbb, record.source_file.as_str());
-    let source_function = opt_string(&mut fbb, record.source_function.as_str());
-    let thread_name = opt_string(&mut fbb, record.thread_name.as_str());
-    let process_name = opt_string(&mut fbb, record.process_name.as_str());
-    let host_name = opt_string(&mut fbb, record.host_name.as_str());
-    let container_id = opt_string(&mut fbb, record.container_id.as_str());
-    let app_name = opt_string(&mut fbb, record.app_name.as_str());
-    let app_version = opt_string(&mut fbb, record.app_version.as_str());
-    let environment = opt_string(&mut fbb, record.environment.as_str());
-    let user_id = opt_string(&mut fbb, record.user_id.as_str());
-    let session_id = opt_string(&mut fbb, record.session_id.as_str());
-    let request_id = opt_string(&mut fbb, record.request_id.as_str());
-    let trace_id = opt_string(&mut fbb, record.trace_id.as_str());
-    let span_id = opt_string(&mut fbb, record.span_id.as_str());
-    let exception_type = opt_string(&mut fbb, record.exception_type.as_str());
-    let exception_message = opt_string(&mut fbb, record.exception_message.as_str());
-    let exception_stacktrace = opt_string(&mut fbb, record.exception_stacktrace.as_str());
-    let labels = opt_string(&mut fbb, record.labels.as_str());
-    let audit_tags = opt_string(&mut fbb, record.audit_tags.as_str());
-    let ext_data = opt_string(&mut fbb, record.ext_data.as_str());
+    let source_file = opt_string(&mut fbb, &source_file_str);
+    let source_function = opt_string(&mut fbb, &source_function_str);
+    let thread_name = opt_string(&mut fbb, &thread_name_str);
+    let process_name = opt_string(&mut fbb, &process_name_str);
+    let host_name = opt_string(&mut fbb, &host_name_str);
+    let container_id = opt_string(&mut fbb, &container_id_str);
+    let app_name = opt_string(&mut fbb, &app_name_str);
+    let app_version = opt_string(&mut fbb, &app_version_str);
+    let environment = opt_string(&mut fbb, &environment_str);
+    let user_id = opt_string(&mut fbb, &user_id_str);
+    let session_id = opt_string(&mut fbb, &session_id_str);
+    let request_id = opt_string(&mut fbb, &request_id_str);
+    let trace_id = opt_string(&mut fbb, &trace_id_str);
+    let span_id = opt_string(&mut fbb, &span_id_str);
+    let exception_type = opt_string(&mut fbb, &exception_type_str);
+    let exception_message = opt_string(&mut fbb, &exception_message_str);
+    let exception_stacktrace = opt_string(&mut fbb, &exception_stacktrace_str);
+    let labels = opt_string(&mut fbb, &labels_str);
+    let audit_tags = opt_string(&mut fbb, &audit_tags_str);
 
     let args = RecordArgs {
-        id_hi: record.id.hi,
-        id_lo: record.id.lo,
-        timestamp_hi: record.timestamp.hi,
-        timestamp_lo: record.timestamp.lo,
+        id_hi: record.id_hi(),
+        id_lo: record.id_lo(),
+        timestamp_hi: record.timestamp_secs() as u64,
+        timestamp_lo: record.timestamp_subsec_nanos() as u64,
         signature,
-        origin_lsn: record.origin_lsn,
+        origin_lsn: 0, // removed; no longer stored on Record
         level: record.level as u8,
         message,
         source_file,
         source_function,
-        source_line: record.source_line,
-        source_column: record.source_column,
-        thread_id: record.thread_id,
+        source_line: record.source_line(),
+        source_column: record.source_column(),
+        thread_id: record.thread_id as u64,
         thread_name,
         process_id: record.process_id,
         process_name,
@@ -84,20 +105,21 @@ pub fn encode_record(record: &Record) -> Vec<u8> {
         request_id,
         trace_id,
         span_id,
-        coroutine_id: record.coroutine_id,
+        coroutine_id: record.coroutine_id(),
         exception_type,
         exception_message,
         exception_stacktrace,
-        exception_code: record.exception_code,
+        exception_code: record.exception_code() as i32,
         labels,
         lsn: record.lsn,
         prev_hash,
-        security_gap: record.security_gap,
+        security_gap: record.security_gap(),
         audit_tags,
-        ext_data,
-        ext_crc32c: record.ext_crc32c,
+        ext_data: None, // removed; moved to KV vendor
+        ext_crc32c: 0,  // removed
         pool_index: record.pool_index,
-        flags: record.flags,
+        flags: record.flags as u32,
+        content_hash,
     };
 
     let root = SifRecord::create(&mut fbb, &args);

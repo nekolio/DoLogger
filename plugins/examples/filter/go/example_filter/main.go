@@ -80,8 +80,8 @@ const (
 	levelAudit uint32 = 6
 
 	phaseFilter    uint32 = 0x0002   // DO_LOG_PHASE_FILTER
-	pluginVersion  uint32 = 0x000100 // 0.1.0 packed as major.minor.patch
-	coreAbiVersion uint32 = 0x000100 // 0.1.0
+	pluginVersion  uint32 = 0x000001 // 0.0.1 packed as major.minor.patch
+	coreAbiVersion uint32 = 0x000001 // 0.0.1
 )
 
 // ---------------------------------------------------------------------------

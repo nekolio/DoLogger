@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](OperationsManual.md) | [中文：运维手册](../../zh_CN/guides/OperationsManual.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE / Operations Engineers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE / Operations Engineers
 >
 > **Purpose**: This document covers the day-to-day operation of DoLogger in production environments — deployment, configuration management, performance tuning, monitoring, log lifecycle management, backup and disaster recovery, security operations, and incident response procedures.
 >
@@ -111,8 +111,8 @@ sudo dnf install dologger-core dologger-cli
 **Linux (manual tarball):**
 ```bash
 # (illustrative — build from source today: cargo build --release)
-tar xzf dologger-0.1.0-linux-x86_64.tar.gz
-cd dologger-0.1.0-linux-x86_64
+tar xzf dologger-0.0.1-linux-x86_64.tar.gz
+cd dologger-0.0.1-linux-x86_64
 sudo cp libdologger_core.so /usr/lib/dologger/
 sudo cp dologctl /usr/local/bin/
 sudo mkdir -p /etc/dologger /var/log/dologger /var/lib/dologger/audit
@@ -143,7 +143,7 @@ ring_buffer_size = 262144       # MUST be a power of two
 batch_size = 256
 enable_signature = false        # Set true for audit deployments
 # The five domain-level non-downgradable items below are enforced by
-# DomainManager, not read from [dologger] in v0.1.0 — listed for completeness:
+# DomainManager, not read from [dologger] in v0.0.1 — listed for completeness:
 escape_html = true              # Prevent CRLF / log injection
 fsync_on_write = false          # Set true for crash-safe durability
 require_tls = true              # Enforce TLS on all network sinks
@@ -152,7 +152,7 @@ shutdown_policy = "graceful"
 shutdown_timeout_ms = 5000
 
 # ── Sink definitions ──────────────────────────────────────────────
-# (illustrative — v0.1.0 config parsing covers [dologger] keys only; sink
+# (illustrative — v0.0.1 config parsing covers [dologger] keys only; sink
 # sections are wired per-pipeline in code, see core/src/sink/)
 
 # Sinks disabled in the old schema (enabled = false) are omitted — a sink is
@@ -204,13 +204,13 @@ Use `dologctl` to validate configuration before applying it:
 # Strict validation (enforces non-downgradable security invariants)
 dologctl config validate --config /etc/dologger/default.toml --strict
 
-# (planned — the --compliance flag is not shipped in v0.1.0)
+# (planned — the --compliance flag is not shipped in v0.0.1)
 # Validate with compliance profile
 dologctl config validate \
     --config /etc/dologger/default.toml \
     --compliance gdpr
 
-# (planned — no `config show` / `config diff` subcommands ship in v0.1.0)
+# (planned — no `config show` / `config diff` subcommands ship in v0.0.1)
 # Dry-run showing effective configuration after merge
 dologctl config show --effective
 
@@ -294,7 +294,7 @@ dologctl config merge \
 | Ring buffer size      | 65536         | 131072        | 262144             | 262144        |
 
 > [!NOTE]
-> Block timeout and drop strategy values are enforced by `core/src/pipeline/backpressure.rs`. Dev / prod-performance / prod-audit batch and ring sizes match the shipped config templates; the `balanced` values are illustrative (no shipped `balanced` template in v0.1.0).
+> Block timeout and drop strategy values are enforced by `core/src/pipeline/backpressure.rs`. Dev / prod-performance / prod-audit batch and ring sizes match the shipped config templates; the `balanced` values are illustrative (no shipped `balanced` template in v0.0.1).
 | Escape HTML           | Optional      | On            | On                 | **On**        |
 | fsync on write        | Off           | Off           | Optional           | **On**        |
 | Require TLS           | Off           | Warn-only     | On                 | **On**        |
@@ -429,7 +429,7 @@ The System Monitor (`sysmon`) emits structured events to `stderr` by default. Ea
 
 ```bash
 # pseudocode/illustrative — the control plane is not started with the engine
-# in v0.1.0; the response format below matches the /status handler in
+# in v0.0.1; the response format below matches the /status handler in
 # core/src/sys/control_plane.rs
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
@@ -515,19 +515,19 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 
 ### HTTP API Endpoints
 
-**Table 5: Control Plane API (planned)** — none of these endpoints are started with the engine in v0.1.0.
+**Table 5: Control Plane API (planned)** — none of these endpoints are started with the engine in v0.0.1.
 
 | Method | Path       | Auth | Description |
 |:-:|:-:|:-:|:-:|
 | GET    | `/status`  | None | Engine status and metrics (see above) |
-| GET    | `/health`  | None | Liveness check (planned — not implemented in v0.1.0) |
+| GET    | `/health`  | None | Liveness check (planned — not implemented in v0.0.1) |
 | POST   | `/level`   | None | Dynamically set the log level |
 | POST   | `/reload`  | None | Trigger configuration reload |
 
 ### Changing Log Level at Runtime
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0
+# pseudocode/illustrative — the control plane is not started in v0.0.1
 # Temporarily increase verbosity for debugging
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
@@ -555,7 +555,7 @@ Hot Reload section above). A control-plane reload endpoint remains planned:
 
 ### Security Considerations
 
-- The control plane listens on `127.0.0.1:9090` by default (planned — the control plane is not started in v0.1.0) — only processes on the same host can reach it.
+- The control plane listens on `127.0.0.1:9090` by default (planned — the control plane is not started in v0.0.1) — only processes on the same host can reach it.
 - mTLS + JWT authentication for remote access is planned.
 - Production deployments should use host-level firewall rules to restrict access to the control plane port:
   ```bash
@@ -574,7 +574,7 @@ Hot Reload section above). A control-plane reload endpoint remains planned:
 File Sink supports both size-based and time-based rotation:
 
 ```toml
-# (illustrative — v0.1.0 FileSinkConfig has: path, max_size (bytes),
+# (illustrative — v0.0.1 FileSinkConfig has: path, max_size (bytes),
 # fsync_on_write, durability_level, buffer_size; time-based rotation,
 # compression, and file-count retention are planned)
 [sinks.file]
@@ -591,7 +591,7 @@ Rotation does not block log submission. A new file is opened while the old file 
 ### Retention Policies
 
 ```toml
-# (illustrative — retention policy keys are planned, not parsed in v0.1.0)
+# (illustrative — retention policy keys are planned, not parsed in v0.0.1)
 [sinks.file]
 retention_days = 90             # Delete files older than 90 days
 retention_total_size = "10GB"   # Delete oldest files when total exceeds 10 GB
@@ -637,7 +637,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 # Or report LSN continuity across all *.worm files in a directory
 dologctl recovery-report /var/lib/dologger/audit/
 
-# (planned — no `dologctl audit export` ships in v0.1.0)
+# (planned — no `dologctl audit export` ships in v0.0.1)
 # Export audit records to JSON for analysis
 dologctl audit export \
     --path /var/lib/dologger/audit/ \
@@ -662,7 +662,7 @@ rsync -avz \
     /var/lib/dologger/audit/ \
     backup-server:/backups/dologger/$(hostname)/audit/
 
-# (planned — the --latest-lsn-only flag and anchor publish do not ship in v0.1.0)
+# (planned — the --latest-lsn-only flag and anchor publish do not ship in v0.0.1)
 # Record the last verified LSN for external anchoring
 dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --latest-lsn-only
 # {"latest_lsn": 100042,"root_hash": "a3f8b2c1..."}
@@ -693,7 +693,7 @@ On recovery (when the ring buffer has free space):
 ls -la /tmp/dologger/dologger_emergency_*.buf
 
 # If the engine is running and the file persists, check engine status
-# (pseudocode/illustrative — the control plane is not started in v0.1.0;
+# (pseudocode/illustrative — the control plane is not started in v0.0.1;
 # the planned /status response has no ring_buffer object yet)
 # curl http://127.0.0.1:9090/status
 
@@ -706,7 +706,7 @@ ls -la /tmp/dologger/dologger_emergency_*.buf
 # Backup the active configuration
 cp /etc/dologger/default.toml /backups/dologger/config-$(date +%Y%m%d).toml
 
-# (planned — no `config show` subcommand ships in v0.1.0)
+# (planned — no `config show` subcommand ships in v0.0.1)
 # Backup with dologctl (includes merged effective config)
 dologctl config show --effective > /backups/dologger/effective-$(date +%Y%m%d).toml
 ```
@@ -751,7 +751,7 @@ Ed25519 key pairs for log signing are managed by the `KeyProvider` plugin:
 - **Production**: Deploy an external `KeyProvider` backed by HSM (Hardware Security Module), AWS KMS, or HashiCorp Vault. This ensures key persistence across restarts and hardware-backed key protection.
 
 ```toml
-# (illustrative — plugin config sections are not parsed in v0.1.0)
+# (illustrative — plugin config sections are not parsed in v0.0.1)
 [plugins.hsm-key-provider]
 type = "key_provider"
 path = "/usr/lib/dologger/plugins/libhsm_keyprovider.so"
@@ -764,34 +764,39 @@ key_label = "dologger-signing-key"
 
 ### Audit Trail Tamper Detection
 
-The LSN (Log Sequence Number) chain provides cryptographic tamper evidence (pseudocode — illustrative):
+The LSN (Log Sequence Number) + content_hash chain provides cryptographic tamper
+evidence (pseudocode — illustrative):
 
 ```
 Record(N):
-  lsn       = N
-  prev_hash = SHA-256( Record(N-1).signature || Record(N-1).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N
+  content_hash = SHA-256( canonical_serialization(Record(N)) )
+  prev_hash    = SHA-256( Record(N-1).content_hash || Record(N-1).lsn )
+  # sidecar audit.log.sig: sig(N) = Ed25519_Sign(TPM key, SHA-256(lsn || content_hash || prev_hash))
 
 Record(N+1):
-  lsn       = N+1
-  prev_hash = SHA-256( Record(N).signature || Record(N).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N+1
+  content_hash = SHA-256( canonical_serialization(Record(N+1)) )
+  prev_hash    = SHA-256( Record(N).content_hash || Record(N).lsn )
+  # sidecar audit.log.sig: sig(N+1) = Ed25519_Sign(TPM key, SHA-256(lsn || content_hash || prev_hash))
 ```
 
-If any record is modified, inserted, or deleted, the `prev_hash` chain breaks and verification fails.
+If any record is modified, inserted, or deleted, the `content_hash` / `prev_hash`
+chain breaks and verification fails.
 
 **Verification command:**
 
 ```bash
-# (--verbose is planned; v0.1.0 verify-log takes the file path positionally)
-dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+# (--verbose is planned; v0.0.1 verify-log takes the file path positionally)
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+    --sidecar /var/lib/dologger/audit/audit-000001.sig
 
 # (illustrative example output)
-# [OK]     LSN 000001 — signature valid
-# [OK]     LSN 000002 — signature valid
+# [OK]     LSN 000001 — content_hash valid, signature valid, prev_hash=genesis
+# [OK]     LSN 000002 — content_hash valid, signature valid, prev_hash matches
 # [GAP]    LSN 000003 — missing (expected, found LSN 000004)
-# [OK]     LSN 000004 — signature valid, prev_hash matches
-# [FAIL]   LSN 000005 — signature INVALID (record may be tampered)
+# [OK]     LSN 000004 — content_hash valid, signature valid, prev_hash matches
+# [FAIL]   LSN 000005 — content_hash INVALID (record may be tampered)
 # ...
 # Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 ```
@@ -820,12 +825,12 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 
 **Response:**
 
-1. **Triage**: `curl http://127.0.0.1:9090/status | jq .ring_buffer` (pseudocode/illustrative — the control plane is not started in v0.1.0)
+1. **Triage**: `curl http://127.0.0.1:9090/status | jq .ring_buffer` (pseudocode/illustrative — the control plane is not started in v0.0.1)
 2. **Check drops**: Look at `pct_used`, `drops_total`, `emergency_spills`
 3. **Identify bottleneck**: Sink health status — is a sink in `circuit_open` state?
 4. **Mitigation**:
    ```bash
-   # (planned — no /sink/disable endpoint ships in v0.1.0)
+   # (planned — no /sink/disable endpoint ships in v0.0.1)
    # If a sink is circuit-open and non-critical, disable it
    curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
@@ -889,7 +894,7 @@ dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
 1. **Baseline**: Run `cargo bench` to confirm the engine itself is performing as expected.
 2. **Profile**: Verify `performance_profile` — has it been changed to a lower-throughput profile?
    ```bash
-   # (pseudocode/illustrative — the control plane is not started in v0.1.0)
+   # (pseudocode/illustrative — the control plane is not started in v0.0.1)
    curl http://127.0.0.1:9090/status | jq .profile
    ```
 3. **Check sinks**: Are sinks healthy? A slow downstream can cause backpressure.

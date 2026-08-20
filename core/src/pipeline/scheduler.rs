@@ -13,8 +13,9 @@
 //!
 //! Statistics are collected per stage and reported to sysmon/diag periodically.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::io::{BufWriter, Write};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -78,6 +79,26 @@ impl Pipeline {
         let batch_size = config.batch_size;
         let enable_signature = config.enable_signature;
 
+        // Open the optional audit-signature sidecar (ADR-002 A.6). Failure is
+        // non-fatal: the pipeline keeps running and signatures are simply not
+        // persisted to the sidecar (a diagnostic is emitted instead).
+        let sig_sidecar = config.sig_sidecar_path.as_ref().and_then(|p| {
+            match std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(p)
+            {
+                Ok(f) => Some(BufWriter::new(f)),
+                Err(e) => {
+                    crate::sys::diagnostics::error(
+                        "pipeline",
+                        &format!("Failed to open signature sidecar {}: {e}", p.display()),
+                    );
+                    None
+                }
+            }
+        });
+
         // When io_pool is Some, set up a channel-based dispatch.
         // The sink is moved into a worker running on the io_pool; the
         // consumer thread sends formatted records through the channel.
@@ -122,6 +143,16 @@ impl Pipeline {
             None => (None, None, Some(sink)),
         };
 
+        // Persistent audit-chain state is owned by the consumer-thread closure
+        // (not by ConsumerCtx) so each PipelineContext can borrow it without
+        // tying the borrow to the context — the loop mutates the context (sink
+        // dispatch) while a pipeline context is alive. LSN starts at 1 (0 is
+        // reserved for uninitialized records); chain genesis is
+        // prev_content_hash = 0^32 with prev_lsn = 0.
+        let lsn_counter = AtomicU64::new(1);
+        let prev_content_hash = Mutex::new([0u8; 32]);
+        let prev_lsn = Mutex::new(0);
+
         let consumer_thread = thread::Builder::new()
             .name("dologger-pipeline".into())
             .spawn(move || {
@@ -139,8 +170,12 @@ impl Pipeline {
                     io_pool,
                     sink_tx,
                     shm_sink: shm_sink.as_ref(),
+                    // References to closure-owned chain state (see above).
+                    lsn_counter: &lsn_counter,
+                    prev_content_hash: &prev_content_hash,
+                    prev_lsn: &prev_lsn,
                 };
-                consumer_loop(&mut ctx);
+                consumer_loop(&mut ctx, sig_sidecar);
             })
             .map_err(|e| format!("Failed to spawn pipeline consumer thread: {e}"))?;
 
@@ -211,6 +246,16 @@ struct ConsumerCtx<'a> {
     /// Optional shared-memory sink. Written per accepted record (SIF) on the
     /// consumer thread, parallel to the configured sink.
     shm_sink: Option<&'a Arc<ShmSink>>,
+    /// Monotonically increasing LSN counter for the audit chain. Borrowed from the
+    /// consumer-thread closure (which owns it) so the sequence survives batch
+    /// boundaries without tying the PipelineContext borrow to `ConsumerCtx`.
+    lsn_counter: &'a AtomicU64,
+    /// A.6 chain predecessor content_hash, owned by the consumer-thread closure
+    /// and borrowed by each PipelineContext across batch boundaries.
+    prev_content_hash: &'a Mutex<[u8; 32]>,
+    /// A.6 chain predecessor LSN, owned by the consumer-thread closure and
+    /// borrowed by each PipelineContext across batch boundaries.
+    prev_lsn: &'a Mutex<u64>,
 }
 
 impl ConsumerCtx<'_> {
@@ -288,8 +333,54 @@ fn format_record(record: &Record, dispatch: &PluginDispatch) -> String {
     }
 }
 
+/// Append one audit signature line to the sidecar writer.
+///
+/// Format: `<lsn>:<content_hash_hex>:<signature_hex>\n` — decimal LSN, lowercase
+/// hex for the 32/64-byte blobs. Parsed by `dologctl verify-log --sidecar`.
+///
+/// The writer is passed as `&mut Option<...>` so callers can hand it through a
+/// `take()`/restore around the ring-buffer drain (the drain closure cannot
+/// borrow the consumer context mutably while `drain` holds a shared borrow).
+fn write_sidecar_line(
+    w: &mut Option<BufWriter<std::fs::File>>,
+    lsn: u64,
+    content_hash: &[u8; 32],
+    sig: &[u8; 64],
+) {
+    let Some(w) = w.as_mut() else {
+        return;
+    };
+    use std::fmt::Write as _;
+    let mut line = String::with_capacity(2 + 64 + 1 + 128 + 1);
+    let _ = write!(line, "{lsn}:");
+    for b in content_hash {
+        let _ = write!(line, "{b:02x}");
+    }
+    line.push(':');
+    for b in sig {
+        let _ = write!(line, "{b:02x}");
+    }
+    line.push('\n');
+    if let Err(e) = w.write_all(line.as_bytes()) {
+        crate::sys::diagnostics::error("pipeline", &format!("Sidecar write error: {e}"));
+    }
+}
+
+/// Flush the signature sidecar writer (idle cycles and shutdown).
+fn flush_sidecar_writer(w: &mut Option<BufWriter<std::fs::File>>) {
+    if let Some(w) = w.as_mut() {
+        if let Err(e) = w.flush() {
+            crate::sys::diagnostics::error("pipeline", &format!("Sidecar flush error: {e}"));
+        }
+    }
+}
+
 /// Main consumer loop — drains ring buffer, runs multi-stage pipeline.
-fn consumer_loop(c: &mut ConsumerCtx<'_>) {
+///
+/// `sig_sidecar` is passed separately (not stored on `ConsumerCtx`) so the
+/// drain closures can write it without borrowing the context mutably while
+/// `RingBuffer::drain` holds a shared borrow of it.
+fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std::fs::File>>) {
     let empty_sleep = Duration::from_micros(100);
     let stats_interval = Duration::from_secs(5);
     let mut last_stats_report = std::time::Instant::now();
@@ -306,6 +397,9 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
             c.drop_level_policy,
             c.enable_signature,
             c.dispatch,
+            c.lsn_counter,
+            c.prev_content_hash,
+            c.prev_lsn,
         );
 
         // Collect formatted records for batch dispatch
@@ -316,6 +410,14 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
             let record = unsafe { &mut *record_ptr };
 
             if run_pipeline(record, &mut pctx) {
+                // Persist the audit signature to the sidecar when the produced
+                // LSN matches this record — guards against a stale signature
+                // left behind by a record dropped at a later stage.
+                if let Some((lsn, ch, sig)) = pctx.take_last_signature() {
+                    if lsn == record.lsn {
+                        write_sidecar_line(&mut sig_sidecar, lsn, &ch, &sig);
+                    }
+                }
                 pending_writes.push(format_record(record, c.dispatch));
                 batch_processed += 1;
             } else {
@@ -347,6 +449,8 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         total_dropped += batch_dropped;
 
         if drained == 0 {
+            // Idle — flush buffered sidecar lines before sleeping.
+            flush_sidecar_writer(&mut sig_sidecar);
             thread::sleep(empty_sleep);
         }
 
@@ -371,6 +475,9 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         c.drop_level_policy,
         c.enable_signature,
         c.dispatch,
+        c.lsn_counter,
+        c.prev_content_hash,
+        c.prev_lsn,
     );
 
     let mut final_writes: Vec<String> = Vec::new();
@@ -378,6 +485,11 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
         // SAFETY: final drain on shutdown — record_ptr has exclusive ownership.
         let record = unsafe { &mut *record_ptr };
         if run_pipeline(record, &mut pctx) {
+            if let Some((lsn, ch, sig)) = pctx.take_last_signature() {
+                if lsn == record.lsn {
+                    write_sidecar_line(&mut sig_sidecar, lsn, &ch, &sig);
+                }
+            }
             final_writes.push(format_record(record, c.dispatch));
         }
 
@@ -409,6 +521,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>) {
     report_stats(&pctx, remaining);
 
     // Final flush and close — dispatched through the same path.
+    flush_sidecar_writer(&mut sig_sidecar);
     c.dispatch_flush();
     c.dispatch_close();
 }
@@ -515,15 +628,16 @@ mod tests {
             // reference to this record until it is pushed to the ring buffer.
             unsafe {
                 let record = &mut *record_ptr;
-                record.id = time_source.next_id();
-                record.timestamp = time_source.now_utc();
+                let id = time_source.next_id();
+                record.set_id(id.hi, id.lo);
+                record.timestamp = time_source.now_nanos();
                 record.level = LogLevel::Info;
                 record.message.set(&format!("test record {i}"));
-                record.thread_id = tid;
+                record.thread_id = tid as u32;
                 record.process_id = pid;
-                record.process_name.set("test");
-                record.host_name.set("localhost");
-                record.environment.set("test");
+                record.set_process_name("test");
+                record.set_host_name("localhost");
+                record.set_environment("test");
             }
             ring_buffer
                 .try_push(record_ptr)
@@ -585,15 +699,16 @@ mod tests {
             // reference to this record until it is pushed to the ring buffer.
             unsafe {
                 let record = &mut *record_ptr;
-                record.id = time_source.next_id();
-                record.timestamp = time_source.now_utc();
+                let id = time_source.next_id();
+                record.set_id(id.hi, id.lo);
+                record.timestamp = time_source.now_nanos();
                 record.level = LogLevel::Info;
                 record.message.set(&format!("test record {i}"));
-                record.thread_id = tid;
+                record.thread_id = tid as u32;
                 record.process_id = pid;
-                record.process_name.set("test");
-                record.host_name.set("localhost");
-                record.environment.set("test");
+                record.set_process_name("test");
+                record.set_host_name("localhost");
+                record.set_environment("test");
             }
             ring_buffer
                 .try_push(record_ptr)

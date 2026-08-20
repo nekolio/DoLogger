@@ -1027,7 +1027,7 @@ mod tests {
         rec.thread_id = 12345;
         rec.process_id = 6789;
         rec.message.set("test message");
-        rec.host_name.set("test-host");
+        rec.set_host_name("test-host");
         rec
     }
 

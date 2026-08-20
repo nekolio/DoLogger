@@ -25,9 +25,9 @@
 //! loops share the same debounce + reload + history machinery so behaviour is
 //! uniform regardless of backend.
 //!
-//! # Wiring status — v0.1.0
+//! # Wiring status — v0.0.1
 //!
-//! **NOT wired into [`crate::Engine`] at v0.1.0** — this isolation is
+//! **NOT wired into [`crate::Engine`] at v0.0.1** — this isolation is
 //! deliberate. The engine does not reload its configuration automatically,
 //! and nothing calls [`ConfigWatcher::start`] outside this module's tests.
 //! The watcher is complete and tested, ready to wire behind an explicit,

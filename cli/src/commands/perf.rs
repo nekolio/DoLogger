@@ -256,15 +256,16 @@ fn push_one(
     let ptr = pool.alloc().expect("Pool exhausted during benchmark");
     unsafe {
         let record = &mut *ptr;
-        record.id = ts.next_id();
-        record.timestamp = ts.now_utc();
+        let id = ts.next_id();
+        record.set_id(id.hi, id.lo);
+        record.timestamp = ts.now_nanos();
         record.level = LogLevel::Info;
         record.message.set(msg);
-        record.thread_id = tid;
+        record.thread_id = tid as u32;
         record.process_id = pid;
-        record.process_name.set("dologctl-perf");
-        record.host_name.set("localhost");
-        record.environment.set("bench");
+        record.set_process_name("dologctl-perf");
+        record.set_host_name("localhost");
+        record.set_environment("bench");
     }
 
     let _ = rb.try_push(ptr);

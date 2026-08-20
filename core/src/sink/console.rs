@@ -136,8 +136,8 @@ impl ConsoleSink {
 
     /// Format a record as a plain text line.
     pub fn format_record(record: &Record) -> String {
-        // Convert 128-bit timestamp to total milliseconds since epoch
-        let total_ms = record.timestamp.hi * 1000 + record.timestamp.lo / 1_000_000;
+        // timestamp is u64 nanos since epoch
+        let total_ms = record.timestamp / 1_000_000;
         let secs = total_ms / 1000;
         let millis = total_ms % 1000;
 

@@ -81,10 +81,10 @@ jobs:
           # all building libdologger_core.so would otherwise overwrite each
           # other (only the last one would survive in the release).
           #
-          # Asset names embed the tag (`dologctl-v0.1.0-linux-x86_64`):
+          # Asset names embed the tag (`dologctl-v0.0.1-linux-x86_64`):
           # github.ref_name is the pushed tag, so every version's assets
           # carry its version and the site can match them by suffix.
-          # (Pre-v0.1.0 published assets were unversioned — the site's
+          # (Pre-v0.0.1 published assets were unversioned — the site's
           # matcher accepts both schemes.)
           #
           # Official plugins ship as ONE bundle library per platform
@@ -549,7 +549,7 @@ jobs:
   # ── Smoke (every release — the user-facing guarantee) ────────────
   # Drives freshly-built release artifacts through the real C ABI before the
   # publish. Builds its own target/release rather than consuming the uploaded
-  # artifacts: release assets carry versioned names (dologctl-v0.1.0-...),
+  # artifacts: release assets carry versioned names (dologctl-v0.0.1-...),
   # while the smoke runner resolves plain names — so this job builds natively
   # (default features are empty → no system deps) and check-smoke.sh finds
   # everything in target/release via its default resolution.

@@ -37,11 +37,12 @@ fn bench_single_record_latency(c: &mut Criterion) {
                 let record_ptr = pool.alloc().expect("Pool exhausted");
                 unsafe {
                     let record = &mut *record_ptr;
-                    record.id = time_source.next_id();
-                    record.timestamp = time_source.now_utc();
+                    let id = time_source.next_id();
+                    record.set_id(id.hi, id.lo);
+                    record.timestamp = time_source.now_nanos();
                     record.level = LogLevel::Info;
                     record.message.set("latency test");
-                    record.thread_id = tid;
+                    record.thread_id = tid as u32;
                     record.process_id = pid;
                 }
                 let _ = ring_buffer.try_push(record_ptr);
@@ -67,17 +68,15 @@ fn bench_single_record_latency(c: &mut Criterion) {
                 let record_ptr = pool.alloc().expect("Pool exhausted");
                 unsafe {
                     let record = &mut *record_ptr;
-                    record.id = time_source.next_id();
-                    record.timestamp = time_source.now_utc();
+                    let id = time_source.next_id();
+                    record.set_id(id.hi, id.lo);
+                    record.timestamp = time_source.now_nanos();
                     record.level = LogLevel::Audit;
                     record.message.set("signed audit record");
-                    record.thread_id = tid;
+                    record.thread_id = tid as u32;
                     record.process_id = pid;
                 }
-                let sig = sig_engine.sign_record(unsafe { &mut *record_ptr });
-                unsafe {
-                    (*record_ptr).signature = sig;
-                }
+                let _sig = sig_engine.sign_record(unsafe { &mut *record_ptr }, &[0u8; 32]);
                 let _ = ring_buffer.try_push(record_ptr);
             },
             BatchSize::PerIteration,

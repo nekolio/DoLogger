@@ -15,6 +15,10 @@ pub struct DologgerConfig {
     pub batch_size: usize,
     /// Enable Ed25519 signatures
     pub enable_signature: bool,
+    /// Path to the `.sig` sidecar file where the pipeline appends audit-record
+    /// signatures (`lsn:content_hash_hex:signature_hex` per line, ADR-002 A.6).
+    /// None disables sidecar writing even when `enable_signature` is set.
+    pub sig_sidecar_path: Option<PathBuf>,
     /// Path to the active config file (for diagnostics)
     pub config_path: Option<PathBuf>,
     /// Shutdown policy: "graceful" (drain all) or "immediate" (drop pending)
@@ -239,6 +243,7 @@ impl Default for DologgerConfig {
             ring_buffer_size: 262144, // 256K records
             batch_size: 256,
             enable_signature: false,
+            sig_sidecar_path: None,
             config_path: None,
             shutdown_policy: "graceful".into(),
             shutdown_timeout_ms: 5000,
@@ -272,6 +277,7 @@ impl DologgerConfig {
             ring_buffer_size: 65536, // 64K
             batch_size: 32,
             enable_signature: false,
+            sig_sidecar_path: None,
             config_path: None,
             shutdown_policy: "graceful".into(),
             shutdown_timeout_ms: 5000,
@@ -838,6 +844,9 @@ impl DologgerConfig {
             if let Some(sig) = dologger.get("enable_signature").and_then(|v| v.as_bool()) {
                 config.enable_signature = sig;
             }
+            if let Some(path) = dologger.get("sig_sidecar").and_then(|v| v.as_str()) {
+                config.sig_sidecar_path = Some(PathBuf::from(path));
+            }
             if let Some(policy) = dologger.get("shutdown_policy").and_then(|v| v.as_str()) {
                 if policy == "graceful" || policy == "immediate" {
                     config.shutdown_policy = policy.to_string();
@@ -1023,6 +1032,7 @@ mod tests {
             ring_buffer_size: 262144,
             batch_size: 128,
             enable_signature: true,
+            sig_sidecar_path: None,
             config_path: None,
             shutdown_policy: "graceful".into(),
             shutdown_timeout_ms: 10000,

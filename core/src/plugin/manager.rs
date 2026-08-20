@@ -17,7 +17,7 @@
 //! Runtime sandbox enforcement (seccomp-bpf / AppContainer / Sandbox) and
 //! per-plugin quotas are not wired here yet: the sandbox modules and quota
 //! types exist as dead code in the tree, and no plugin is actually confined
-//! at v0.1.0. The trust gate above is the only load-time security boundary
+//! at v0.0.1. The trust gate above is the only load-time security boundary
 //! that is enforced today.
 
 use std::collections::{HashMap, HashSet};
@@ -208,7 +208,7 @@ unsafe impl Sync for PluginManager {}
 
 /// Current core ABI version (major.minor.patch → 32-bit).
 /// Packed as `(major << 16) | (minor << 8) | patch`.
-pub const CORE_ABI_VERSION: u32 = 0x000100; // 0.1.0
+pub const CORE_ABI_VERSION: u32 = 0x000001; // 0.0.1
 
 /// Default plugin search paths resolved at runtime.
 ///
@@ -748,7 +748,7 @@ impl PluginManager {
             // SAFETY: plugin_init is provided by the plugin and expected to be
             // safe. We pass a pointer to a HostInit (host-accessor bridge +
             // plugin JSON config), which the plugin copies the accessor table
-            // from and parses the config string from. For v0.1.0 no per-plugin
+            // from and parses the config string from. For v0.0.1 no per-plugin
             // config is wired, so config_json is NULL (plugins use defaults).
             let init = crate::plugin::vtable::HostInit::default();
             // SAFETY: `init` lives for the duration of the call; the plugin is
@@ -857,7 +857,7 @@ impl PluginManager {
     /// A plugin's `vtable` must point to a struct whose layout matches the C
     /// ABI (`dologger_core.h`). We trust the plugin's declared phase to select
     /// the corresponding vtable type; a malicious or ABI-mismatched plugin is
-    /// out of scope for the v0.1.0 trust model (Ed25519 gating is the boundary).
+    /// out of scope for the v0.0.1 trust model (Ed25519 gating is the boundary).
     pub fn resolve_dispatch(&self) -> crate::plugin::vtable::PluginDispatch {
         use crate::plugin::phase::{PHASE_FIELD_PROVIDER, PHASE_FORMATTING, PHASE_HOSTINFO};
         use crate::plugin::vtable::{FieldProviderVTable, FormatterVTable, PluginDispatch};
@@ -935,12 +935,12 @@ mod tests {
     fn error_display_exposes_key_facts() {
         let abi = PluginError::IncompatibleAbi {
             plugin: "formatter-json".into(),
-            core_abi: 0x000100,
+            core_abi: 0x000001,
             plugin_abi: 1,
         };
         let s = abi.to_string();
         assert!(
-            s.contains("formatter-json") && s.contains("0x100"),
+            s.contains("formatter-json") && s.contains("0x1"),
             "got: {s}"
         );
 

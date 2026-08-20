@@ -87,8 +87,8 @@ static const char g_plugin_name[] = "c-example-filter";
 
 static dologger_plugin_info_t g_plugin_info = {
     .name        = g_plugin_name,
-    .version     = 0x000100,    /* 0.1.0  (major.minor.patch packed) */
-    .abi_version = 0x000100,    /* 0.1.0  (core ABI this plugin targets) */
+    .version     = 0x000001,    /* 0.0.1  (major.minor.patch packed) */
+    .abi_version = 0x000001,    /* 0.0.1  (core ABI this plugin targets) */
     .phase       = DO_LOG_PHASE_FILTER,   /* 0x0002 */
     .vtable      = &g_vtable
 };

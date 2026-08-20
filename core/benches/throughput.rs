@@ -34,11 +34,12 @@ fn bench_ring_buffer_push(c: &mut Criterion) {
                     let record_ptr = pool.alloc().expect("Pool exhausted");
                     unsafe {
                         let record = &mut *record_ptr;
-                        record.id = time_source.next_id();
-                        record.timestamp = time_source.now_utc();
+                        let id = time_source.next_id();
+                        record.set_id(id.hi, id.lo);
+                        record.timestamp = time_source.now_nanos();
                         record.level = LogLevel::Info;
                         record.message.set(&format!("bench message #{i}"));
-                        record.thread_id = tid;
+                        record.thread_id = tid as u32;
                         record.process_id = pid;
                     }
                     let _ = ring_buffer.try_push(record_ptr);
@@ -65,11 +66,12 @@ fn bench_ring_buffer_push(c: &mut Criterion) {
                         let record_ptr = pool.alloc().expect("Pool exhausted");
                         unsafe {
                             let record = &mut *record_ptr;
-                            record.id = time_source.next_id();
-                            record.timestamp = time_source.now_utc();
+                            let id = time_source.next_id();
+                            record.set_id(id.hi, id.lo);
+                            record.timestamp = time_source.now_nanos();
                             record.level = LogLevel::Info;
                             record.message.set("batch message");
-                            record.thread_id = tid;
+                            record.thread_id = tid as u32;
                             record.process_id = pid;
                         }
                         record_ptr

@@ -8,7 +8,7 @@
 
 - `src/App.vue` — 页面装配（三页 + 顶部功能栏 + 右侧导航 + 鼠标效果层）。
 - `src/data.ts` — 数据层：GitHub API → localStorage 缓存 → 构建期烘焙 JSON →
-  内置 v0.1.0 回退。释放资产按「前缀 + OS-arch 后缀」匹配（不依赖确切命名）。
+  内置 v0.0.1 回退。释放资产按「前缀 + OS-arch 后缀」匹配（不依赖确切命名）。
 - `src/composables/usePageNav.ts` — 轮播导航：一页一屏、一次手势一页、
   仅看方向（滚轮与触摸一致）；内层滚动容器优先原生滚动，硬锁定区吸收滚轮。
 - `src/components/PageHero.vue` — 第一页：hero.svg + 徽章 + 标签 + 操作区

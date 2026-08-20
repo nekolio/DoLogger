@@ -17,7 +17,7 @@ cmake_minimum_required(VERSION 3.20)
 
 # Project definition
 project(DoLogger
-    VERSION 0.1.0
+    VERSION 0.0.1
     DESCRIPTION "Cross-platform, high-security, plugin-based logging engine"
     LANGUAGES C CXX
 )

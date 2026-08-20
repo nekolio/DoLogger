@@ -1,6 +1,6 @@
 [package]
 name = "dologger-plugin-formatter-json"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license.workspace = true
 description = "DoLogger official plugin: structured JSON formatter with configurable field inclusion"

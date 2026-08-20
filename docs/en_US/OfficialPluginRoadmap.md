@@ -1,6 +1,6 @@
 # DoLogger Official Plugins
 
-> **Version**: v0.1.0
+> **Version**: v0.0.1
 
 > 🌐 **语言 / Language**: [English](OfficialPluginRoadmap.md) | [中文：官方插件](../zh_CN/OfficialPluginRoadmap.md)
 
@@ -21,7 +21,7 @@ updated in the release that adds or changes plugins.
 PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4) → Formatting(5) → Sink(6)
 ```
 
-| Stage | Plugin Type | Status in v0.1.0 |
+| Stage | Plugin Type | Status in v0.0.1 |
 |:-:|:-:|:-:|
 | 0 | PolicyProvider | Built into the core: `rate_limiter`, `drop_level` |
 | 1 | Filter | Official plugin: `filter_level` |
@@ -117,7 +117,7 @@ cargo test -p dologger-plugin-field-container
 
 ## Not Implemented Yet
 
-These are deliberately absent from v0.1.0 and have no target version:
+These are deliberately absent from v0.0.1 and have no target version:
 
 - Remote plugin registry (`dologctl plugin search` / `plugin update`) — the
   CLI ships `list`, `install <path>`, `remove`, `verify`, and `scan` only.

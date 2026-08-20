@@ -2,14 +2,14 @@
 
 > 🌐 **语言 / Language**: [English](ExtendedPluginTypeGuide.md) | [中文：高级插件类型开发指南](../../zh_CN/guides/ExtendedPluginTypeGuide.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Advanced Plugin Developers, Core Contributors
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Advanced Plugin Developers, Core Contributors
 >
 > **Purpose**: This document provides advanced guidance for implementing all 9 VTable plugin types in DoLogger. It covers design decisions for selecting plugin types, sandbox-aware SyscallBroker implementation, custom PolicyProvider patterns, plugin dependency management, state serialization for hot reload, and multi-phase plugin registration.
 >
 > **Reading Path**: Plugin developers who have completed the [Plugin Development Guide](PluginDevelopmentGuide.md) should start with [Choosing the Right Plugin Type](#choosing-the-right-plugin-type). Developers implementing security-critical plugins should read [SyscallBroker Implementation](#syscallbroker-implementation) and [Multi-Phase Plugins](#multi-phase-plugins). Plugin ecosystem maintainers should review [Plugin Dependency Management](#plugin-dependency-management).
 
 > [!NOTE]
-> All C, TOML, and text blocks in this guide are **illustrative pseudocode for the planned v1.0 plugin ABI** (not compiled / not run against v0.1.0). The shipped v0.1.0 ABI lives in `core/include/dologger_core.h` (e.g. `dologger_config_provider_vtable_t`, `dologger_key_provider_vtable_t`, and a single-callback Filter VTable); see the note in the [Plugin Development Guide](PluginDevelopmentGuide.md#c-abi-interface-specification).
+> All C, TOML, and text blocks in this guide are **illustrative pseudocode for the planned v1.0 plugin ABI** (not compiled / not run against v0.0.1). The shipped v0.0.1 ABI lives in `core/include/dologger_core.h` (e.g. `dologger_config_provider_vtable_t`, `dologger_key_provider_vtable_t`, and a single-callback Filter VTable); see the note in the [Plugin Development Guide](PluginDevelopmentGuide.md#c-abi-interface-specification).
 
 ## Table of Contents
 
@@ -83,7 +83,7 @@ A `ConfigProvider` extends where the engine loads its configuration from. The en
 
 ### ConfigProvider VTable
 
-(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_config_provider_vtable_t`: `open`/`read_config`/`close`)):
+(pseudocode — illustrative VTable sketch; the v0.0.1 actual definition is in `core/include/dologger_core.h` (`dologger_config_provider_vtable_t`: `open`/`read_config`/`close`)):
 
 ```c
 typedef struct {
@@ -144,7 +144,7 @@ A `KeyProvider` manages the Ed25519 key pair used for signing audit records. By 
 
 ### KeyProvider VTable
 
-(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_key_provider_vtable_t`: `open`/`get_public_key`/`sign_detached`/`close`)):
+(pseudocode — illustrative VTable sketch; the v0.0.1 actual definition is in `core/include/dologger_core.h` (`dologger_key_provider_vtable_t`: `open`/`get_public_key`/`sign_detached`/`close`)):
 
 ```c
 typedef struct {
@@ -178,7 +178,7 @@ typedef dologger_error_t (*dologger_key_rotate_fn_t)(
 Some backends serve both purposes. For example, HashiCorp Vault can store both configuration and signing keys:
 
 ```toml
-# (illustrative — the v0.1.0 engine does not read a [plugins] section from
+# (illustrative — the v0.0.1 engine does not read a [plugins] section from
 # dologger.toml)
 [plugins.vault-config]
 type = "config_provider"
@@ -222,7 +222,7 @@ sequenceDiagram
 
 ### SyscallBroker VTable
 
-(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_syscall_broker_vtable_t`: `syscall_io`)):
+(pseudocode — illustrative VTable sketch; the v0.0.1 actual definition is in `core/include/dologger_core.h` (`dologger_syscall_broker_vtable_t`: `syscall_io`)):
 
 ```c
 typedef struct {
@@ -242,7 +242,7 @@ typedef dologger_error_t (*dologger_broker_dispatch_fn_t)(
 
 A production `SyscallBroker` must enforce policy. The broker is Blue-trust -- it can do anything. Its job is to decide what the calling Yellow/Red plugin is allowed to do.
 
-(pseudocode — only illustrates the policy enforcement flow; `DO_LOG_TRUST_*`, `dologger_emit_sysmon` and similar symbols do not exist in v0.1.0):
+(pseudocode — only illustrates the policy enforcement flow; `DO_LOG_TRUST_*`, `dologger_emit_sysmon` and similar symbols do not exist in v0.0.1):
 
 ```c
 dologger_error_t my_broker_dispatch(
@@ -329,7 +329,7 @@ The engine includes built-in rate limiting and level-gating in the PreFilter sta
 
 ### PolicyProvider VTable
 
-(pseudocode — illustrative VTable sketch; the v0.1.0 actual definition is in `core/include/dologger_core.h` (`dologger_policy_provider_vtable_t`: only `evaluate`)):
+(pseudocode — illustrative VTable sketch; the v0.0.1 actual definition is in `core/include/dologger_core.h` (`dologger_policy_provider_vtable_t`: only `evaluate`)):
 
 ```c
 typedef struct {
@@ -354,7 +354,7 @@ typedef dologger_error_t (*dologger_policy_evaluate_fn_t)(
 
 The classic rate limiting pattern. Maintains a token bucket per logging level.
 
-(pseudocode — token bucket rate limiter example, illustrative only; `dologger_policy_result_t` and similar types do not exist in v0.1.0):
+(pseudocode — token bucket rate limiter example, illustrative only; `dologger_policy_result_t` and similar types do not exist in v0.0.1):
 
 ```c
 typedef struct {
@@ -488,7 +488,7 @@ dologger_error_t quota_evaluate(
 Plugins that depend on other plugins declare this in `manifest.toml`:
 
 ```toml
-# (illustrative — planned schema; v0.1.0 parses [plugin]/[plugin.trust]/[capabilities]/[licenses] only)
+# (illustrative — planned schema; v0.0.1 parses [plugin]/[plugin.trust]/[capabilities]/[licenses] only)
 [dependencies]
 requires_fields = ["verified.user_id", "host.name"]
 requires_plugins = [
@@ -525,7 +525,7 @@ The engine resolves dependencies as a Directed Acyclic Graph (DAG) at startup (p
 
 ### Circular Dependency Detection
 
-(pseudocode — dependency validator sketch (`for each` is pseudo-syntax, not compilable C); the v0.1.0 actual implementation is in `core/src/plugin/dependency.rs`):
+(pseudocode — dependency validator sketch (`for each` is pseudo-syntax, not compilable C); the v0.0.1 actual implementation is in `core/src/plugin/dependency.rs`):
 
 ```c
 // Engine's dependency validator (simplified)
@@ -597,7 +597,7 @@ Skip it if:
 
 ### State Serialization VTable Functions
 
-(pseudocode — planned optional exports; v0.1.0 has no `dologger_state_buf_t` and hot-reload serialization is not implemented):
+(pseudocode — planned optional exports; v0.0.1 has no `dologger_state_buf_t` and hot-reload serialization is not implemented):
 
 ```c
 // Optional exports -- if not present, the plugin reinitializes on hot reload
@@ -719,7 +719,7 @@ A single plugin binary can register in multiple pipeline phases by exporting mul
 
 ```toml
 # (illustrative — the manifest keys are real, but multi-phase mounting is not
-# yet supported by the v0.1.0 engine)
+# yet supported by the v0.0.1 engine)
 [plugin]
 name = "pii-guardian"
 version = "1.0.0"
@@ -729,7 +729,7 @@ mount_phase = ["process", "filter"]  # Multiple phases
 
 ### Exporting Multiple VTables
 
-(pseudocode — multi-phase plugin export sketch; the v0.1.0 actual VTable definitions are in `core/include/dologger_core.h` (no `process_batch`/`filter_batch` members, and no `dologger_vtable` symbol convention)):
+(pseudocode — multi-phase plugin export sketch; the v0.0.1 actual VTable definitions are in `core/include/dologger_core.h` (no `process_batch`/`filter_batch` members, and no `dologger_vtable` symbol convention)):
 
 ```c
 // The plugin exports one VTable per phase:
@@ -813,7 +813,7 @@ dologger_error_t pii_detect_filter(dologger_record_t *record,
 
 Plugins in the same pipeline phase can cooperate by reading each other's output:
 
-(pseudocode — field cooperation example; the v0.1.0 actual field API is `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`, returning `dologger_error_t` (int32_t)):
+(pseudocode — field cooperation example; the v0.0.1 actual field API is `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`, returning `dologger_error_t` (int32_t)):
 
 ```c
 // Plugin A (FieldProvider) writes a field
@@ -840,7 +840,7 @@ requires_fields = ["verified.user_id"]    # Plugin A provides this
 
 A plugin delegates work to another plugin via the plugin registry:
 
-(pseudocode — plugin delegation pattern example; `dologger_get_plugin()` and the registry lookup API do not exist in v0.1.0):
+(pseudocode — plugin delegation pattern example; `dologger_get_plugin()` and the registry lookup API do not exist in v0.0.1):
 
 ```c
 // A Formatter that delegates to another Formatter for specific record types
@@ -907,7 +907,7 @@ The cache persists across hot reload via state serialization, avoiding a cold-st
 
 Plugins can emit their own diagnostics into the sysmon event stream:
 
-(pseudocode — custom sysmon event example; `dologger_emit_sysmon` does not exist in v0.1.0):
+(pseudocode — custom sysmon event example; `dologger_emit_sysmon` does not exist in v0.0.1):
 
 ```c
 // Emit a custom metric from within a plugin
@@ -923,7 +923,7 @@ Custom sysmon events must follow the naming convention `PLUGIN_<EVENT_NAME>` (fo
 
 Plugins should degrade gracefully when their dependencies or external resources are unavailable:
 
-(pseudocode — graceful degradation example; the v0.1.0 actual signature is `int plugin_init(const void *config)`, and `dologger_plugin_config_t` does not exist):
+(pseudocode — graceful degradation example; the v0.0.1 actual signature is `int plugin_init(const void *config)`, and `dologger_plugin_config_t` does not exist):
 
 ```c
 dologger_error_t my_plugin_init(const dologger_plugin_config_t *config) {

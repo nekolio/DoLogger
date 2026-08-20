@@ -286,7 +286,7 @@ mod tests {
         let mgr = HotReloadManager::new();
         let epoch = mgr.current_epoch();
 
-        mgr.serialize_state("test_plugin", 0x000100, b"state_blob".to_vec(), 1);
+        mgr.serialize_state("test_plugin", 0x000001, b"state_blob".to_vec(), 1);
 
         let state = mgr.get_state_for_reload("test_plugin", epoch + 1);
         assert!(state.is_some());

@@ -6,11 +6,11 @@
 
 [plugin]
 name = "field-container"
-version = "0.1.0"
+version = "0.0.1"
 plugin_type = "field_provider"
 mount_phase = ["field"]
 abi_version = 1
-min_core_abi = "0.1.0"
+min_core_abi = "0.0.1"
 description = "Inject container orchestration metadata (container ID, pod/namespace/node) for Docker, Kubernetes, and podman."
 
 [plugin.trust]

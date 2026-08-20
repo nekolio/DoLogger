@@ -39,9 +39,9 @@ const DO_LOG_ERR_BUFFER_TOO_SMALL: i32 = -0x0106;
 const PHASE_FORMATTING: u32 = dologger_core::plugin::phase::PHASE_FORMATTING;
 
 // Plugin info versioning — abi_version MUST match the core's declared ABI
-// (0.1.0); the host validates it when the bundle is loaded.
+// (0.0.1); the host validates it when the bundle is loaded.
 const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
-const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
+const PLUGIN_VERSION: u32 = 1; // 0.0.1 (packed major.minor.patch)
 
 // ---------------------------------------------------------------------------
 // Helper: check if a u128 timestamp is populated
@@ -221,25 +221,21 @@ fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
     let mut map = serde_json::Map::new();
 
     // ── Ring 0: Kernel-core fields ──
-    if !is_zero_u128(rec.id.hi, rec.id.lo) {
+    if !is_zero_u128(rec.id_hi(), rec.id_lo()) {
         map.insert(
             "id".to_string(),
-            Value::String(format!("{:016x}{:016x}", rec.id.hi, rec.id.lo)),
+            Value::String(format!("{:016x}{:016x}", rec.id_hi(), rec.id_lo())),
         );
     }
-    if !is_zero_u128(rec.timestamp.hi, rec.timestamp.lo) {
+    let ts_secs = rec.timestamp_secs() as u64;
+    let ts_nanos = rec.timestamp_subsec_nanos() as u64;
+    if ts_secs != 0 || ts_nanos != 0 {
         map.insert(
             "timestamp".to_string(),
-            Value::String(render_timestamp(
-                rec.timestamp.hi,
-                rec.timestamp.lo,
-                cfg.timestamp_format,
-            )),
+            Value::String(render_timestamp(ts_secs, ts_nanos, cfg.timestamp_format)),
         );
     }
-    if rec.origin_lsn != 0 {
-        map.insert("origin_lsn".to_string(), Value::from(rec.origin_lsn));
-    }
+    // origin_lsn removed in A2.2 — no longer stored on Record.
 
     // ── Ring 1: Level + Message ──
     map.insert(
@@ -254,22 +250,22 @@ fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
 
     // ── Ring 1: Source location (configurable via `source`) ──
     if cfg.include_source {
-        let sf = rec.source_file.as_str();
+        let sf = rec.source_file();
         if !sf.is_empty() {
-            map.insert("source_file".to_string(), Value::String(sf.to_string()));
+            map.insert("source_file".to_string(), Value::String(sf));
         }
-        let sfn = rec.source_function.as_str();
+        let sfn = rec.source_function();
         if !sfn.is_empty() {
+            map.insert("source_function".to_string(), Value::String(sfn));
+        }
+        if rec.source_line() != 0 {
+            map.insert("source_line".to_string(), Value::from(rec.source_line()));
+        }
+        if rec.source_column() != 0 {
             map.insert(
-                "source_function".to_string(),
-                Value::String(sfn.to_string()),
+                "source_column".to_string(),
+                Value::from(rec.source_column()),
             );
-        }
-        if rec.source_line != 0 {
-            map.insert("source_line".to_string(), Value::from(rec.source_line));
-        }
-        if rec.source_column != 0 {
-            map.insert("source_column".to_string(), Value::from(rec.source_column));
         }
     }
 
@@ -277,120 +273,108 @@ fn record_to_json(rec: &Record, cfg: &JsonConfig) -> Result<Value, ()> {
     if rec.thread_id != 0 {
         map.insert("thread_id".to_string(), Value::from(rec.thread_id));
     }
-    let tn = rec.thread_name.as_str();
+    let tn = rec.thread_name();
     if !tn.is_empty() {
-        map.insert("thread_name".to_string(), Value::String(tn.to_string()));
+        map.insert("thread_name".to_string(), Value::String(tn));
     }
     if rec.process_id != 0 {
         map.insert("process_id".to_string(), Value::from(rec.process_id));
     }
-    let pn = rec.process_name.as_str();
+    let pn = rec.process_name();
     if !pn.is_empty() {
-        map.insert("process_name".to_string(), Value::String(pn.to_string()));
+        map.insert("process_name".to_string(), Value::String(pn));
     }
 
     // ── Ring 1: Host / Container ──
-    let hn = rec.host_name.as_str();
+    let hn = rec.host_name();
     if !hn.is_empty() {
-        map.insert("host_name".to_string(), Value::String(hn.to_string()));
+        map.insert("host_name".to_string(), Value::String(hn));
     }
-    let ci = rec.container_id.as_str();
+    let ci = rec.container_id();
     if !ci.is_empty() {
-        map.insert("container_id".to_string(), Value::String(ci.to_string()));
+        map.insert("container_id".to_string(), Value::String(ci));
     }
 
     // ── Ring 1: Application ──
-    let an = rec.app_name.as_str();
+    let an = rec.app_name();
     if !an.is_empty() {
-        map.insert("app_name".to_string(), Value::String(an.to_string()));
+        map.insert("app_name".to_string(), Value::String(an));
     }
-    let av = rec.app_version.as_str();
+    let av = rec.app_version();
     if !av.is_empty() {
-        map.insert("app_version".to_string(), Value::String(av.to_string()));
+        map.insert("app_version".to_string(), Value::String(av));
     }
-    let env = rec.environment.as_str();
+    let env = rec.environment();
     if !env.is_empty() {
-        map.insert("environment".to_string(), Value::String(env.to_string()));
+        map.insert("environment".to_string(), Value::String(env));
     }
 
     // ── Ring 1: User / Session ──
-    let uid = rec.user_id.as_str();
+    let uid = rec.user_id();
     if !uid.is_empty() {
-        map.insert("user_id".to_string(), Value::String(uid.to_string()));
+        map.insert("user_id".to_string(), Value::String(uid));
     }
-    let sid = rec.session_id.as_str();
+    let sid = rec.session_id();
     if !sid.is_empty() {
-        map.insert("session_id".to_string(), Value::String(sid.to_string()));
+        map.insert("session_id".to_string(), Value::String(sid));
     }
 
     // ── Ring 1: Distributed Tracing (W3C / OpenTelemetry) ──
-    let rid = rec.request_id.as_str();
+    let rid = rec.request_id();
     if !rid.is_empty() {
-        map.insert("request_id".to_string(), Value::String(rid.to_string()));
+        map.insert("request_id".to_string(), Value::String(rid));
     }
-    let tid = rec.trace_id.as_str();
+    let tid = rec.trace_id();
     if !tid.is_empty() {
-        map.insert("trace_id".to_string(), Value::String(tid.to_string()));
+        map.insert("trace_id".to_string(), Value::String(tid));
     }
-    let spid = rec.span_id.as_str();
+    let spid = rec.span_id();
     if !spid.is_empty() {
-        map.insert("span_id".to_string(), Value::String(spid.to_string()));
+        map.insert("span_id".to_string(), Value::String(spid));
     }
-    if rec.coroutine_id != 0 {
-        map.insert("coroutine_id".to_string(), Value::from(rec.coroutine_id));
+    if rec.coroutine_id() != 0 {
+        map.insert("coroutine_id".to_string(), Value::from(rec.coroutine_id()));
     }
 
     // ── Ring 1: Exception ──
-    let et = rec.exception_type.as_str();
+    let et = rec.exception_type();
     if !et.is_empty() {
-        map.insert("exception_type".to_string(), Value::String(et.to_string()));
+        map.insert("exception_type".to_string(), Value::String(et));
     }
-    let em = rec.exception_message.as_str();
+    let em = rec.exception_message();
     if !em.is_empty() {
-        map.insert(
-            "exception_message".to_string(),
-            Value::String(em.to_string()),
-        );
+        map.insert("exception_message".to_string(), Value::String(em));
     }
-    let est = rec.exception_stacktrace.as_str();
+    let est = rec.exception_stacktrace();
     if !est.is_empty() {
-        map.insert(
-            "exception_stacktrace".to_string(),
-            Value::String(est.to_string()),
-        );
+        map.insert("exception_stacktrace".to_string(), Value::String(est));
     }
-    if rec.exception_code != 0 {
+    if rec.exception_code() != 0 {
         map.insert(
             "exception_code".to_string(),
-            Value::from(rec.exception_code),
+            Value::from(rec.exception_code()),
         );
     }
 
     // ── Ring 1: Labels ──
-    let lbl = rec.labels.as_str();
+    let lbl = rec.labels();
     if !lbl.is_empty() {
-        map.insert("labels".to_string(), Value::String(lbl.to_string()));
+        map.insert("labels".to_string(), Value::String(lbl));
     }
 
     // ── Ring 1: Security ──
     if rec.lsn != 0 {
         map.insert("lsn".to_string(), Value::from(rec.lsn));
     }
-    if rec.security_gap {
+    if rec.security_gap() {
         map.insert("security_gap".to_string(), Value::Bool(true));
     }
-    let at = rec.audit_tags.as_str();
+    let at = rec.audit_tags();
     if !at.is_empty() {
-        map.insert("audit_tags".to_string(), Value::String(at.to_string()));
+        map.insert("audit_tags".to_string(), Value::String(at));
     }
 
-    // ── Ring 3: Extension data (configurable via `include_ring3`) ──
-    if cfg.include_ring3 {
-        let ed = rec.ext_data.as_str();
-        if !ed.is_empty() {
-            map.insert("ext_data".to_string(), Value::String(ed.to_string()));
-        }
-    }
+    // ── Ring 3: Extension data removed in A2.2 (moved to KV vendor) ──
 
     Ok(Value::Object(map))
 }
@@ -575,15 +559,12 @@ mod tests {
         );
 
         let mut record = Record::new(0);
-        record.timestamp = dologger_core::ffi::dologger_uint128_t {
-            hi: 1_700_000_000,
-            lo: 500_000_000,
-        };
+        record.timestamp = 1_700_000_000 * 1_000_000_000 + 500_000_000;
         record.level = dologger_core::LogLevel::Warn;
         record.message.set("cfg");
-        record.source_file.set("main.rs");
-        record.source_line = 7;
-        record.ext_data.set(r#"{"tenant":"acme"}"#);
+        record.set_source_file("main.rs");
+        record.set_source_line(7);
+        // ext_data removed in A2.2; test ext_data assertion removed.
 
         let (rc, output) = unsafe { call_format(&record, 8192) };
         assert_eq!(rc, DO_LOG_OK);
@@ -597,8 +578,8 @@ mod tests {
 
         let parsed: serde_json::Value = serde_json::from_str(json_str).expect("valid JSON");
         let obj = parsed.as_object().unwrap();
-        // include_ring3=true ⇒ ext_data present.
-        assert_eq!(obj["ext_data"], r#"{"tenant":"acme"}"#);
+        // ext_data removed in A2.2 — no longer present in JSON output.
+        assert!(!obj.contains_key("ext_data"));
         // timestamp_format=unix_ms ⇒ integer millis (1700000000.5s → 1700000000500ms).
         assert_eq!(obj["timestamp"], "1700000000500");
         // source=false ⇒ source fields absent.
@@ -713,23 +694,20 @@ mod tests {
         let mut record = Record::new(0);
 
         // Set some fields
-        record.id = dologger_core::ffi::dologger_uint128_t { hi: 1, lo: 2 };
-        record.timestamp = dologger_core::ffi::dologger_uint128_t {
-            hi: 1700000000,
-            lo: 123456789,
-        };
+        record.set_id(1, 2);
+        record.timestamp = 1_700_000_000 * 1_000_000_000 + 123_456_789;
         record.level = dologger_core::LogLevel::Warn;
         record.message.set("Test message");
-        record.source_file.set("main.rs");
-        record.source_line = 42;
+        record.set_source_file("main.rs");
+        record.set_source_line(42);
         record.thread_id = 12345;
         record.process_id = 999;
-        record.host_name.set("test-host");
-        record.app_name.set("dologger-test");
-        record.environment.set("test");
-        record.user_id.set("user-001");
+        record.set_host_name("test-host");
+        record.set_app_name("dologger-test");
+        record.set_environment("test");
+        record.set_user_id("user-001");
         record.lsn = 100;
-        record.labels.set(r#"{"key":"value"}"#);
+        record.set_labels(r#"{"key":"value"}"#);
 
         let (rc, output) = unsafe { call_format(&record, 4096) };
         assert_eq!(rc, DO_LOG_OK);

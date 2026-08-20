@@ -1,6 +1,6 @@
 [package]
 name = "dologger-plugin-field-container"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license.workspace = true
 description = "DoLogger official plugin: inject container orchestration metadata (Docker, Kubernetes, podman)"

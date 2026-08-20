@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](SecurityDevelopmentSpec.md) | [中文：安全开发规范](../../zh_CN/guides/SecurityDevelopmentSpec.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers, Core Contributors, Security Auditors
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers, Core Contributors, Security Auditors
 >
 > **Purpose**: This document defines mandatory security coding standards for DoLogger plugin development. It covers memory safety, input validation, the sandbox model, secret handling, cryptographic guidance, fuzzing requirements, and static analysis tooling. Compliance with this specification is required for all plugins, regardless of trust color.
 >
@@ -199,7 +199,7 @@ The sandbox restricts which operating system operations a plugin can perform. It
 ### Developing Within Sandbox Constraints
 
 ```c
-// (illustrative pseudocode — not compiled; the v0.1.0 actual plugin entry is
+// (illustrative pseudocode — not compiled; the v0.0.1 actual plugin entry is
 // `int plugin_init(const void *config)` and `dologger_plugin_config_t` does
 // not exist)
 // YELLOW PLUGIN: Do NOT do this -- network is denied

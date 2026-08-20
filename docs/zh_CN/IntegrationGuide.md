@@ -1,6 +1,6 @@
 # DoLogger 集成指南
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 应用程序开发者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 应用程序开发者
 >
 > **用途**: 了解如何将 DoLogger 嵌入到您的应用程序中。涵盖 C API、配置、域继承、插件选择和语言适配器。如果您是全新用户，请先阅读[快速开始指南](QuickStart.md)。
 >
@@ -86,7 +86,7 @@ int main(void) {
 
 ### 便捷宏
 
-(伪代码 — 规划中的便捷宏，v0.1.0 的 `dologger_core.h` 尚未提供。当前需手动填充 `dologger_record_params_t` 的 `source_file`/`source_function`/`source_line` 字段)：
+(伪代码 — 规划中的便捷宏，v0.0.1 的 `dologger_core.h` 尚未提供。当前需手动填充 `dologger_record_params_t` 的 `source_file`/`source_function`/`source_line` 字段)：
 
 ```c
 DO_LOG_TRACE(h, "Frame-level detail: variable x = %d", x);
@@ -125,7 +125,7 @@ cl /Fe:myapp.exe myapp.c dologger_core.lib
 ### 验证 ABI
 
 ```c
-// v0.1.0 没有 dologger_get_abi_version()；
+// v0.0.1 没有 dologger_get_abi_version()；
 // 通过 dologger_version() 查询引擎版本
 printf("DoLogger core: %s\n", dologger_version());
 ```
@@ -191,7 +191,7 @@ key_rotation_grace_period_days = 7      # 轮换后旧密钥有效天数
 启用任意组合的接收器。所有启用的接收器接收每条记录：
 
 ```toml
-# （示意 — v0.1.0 的 FileSinkConfig 仅含：path、max_size（字节）、fsync_on_write、
+# （示意 — v0.0.1 的 FileSinkConfig 仅含：path、max_size（字节）、fsync_on_write、
 # durability_level、buffer_size；按时间滚动、压缩与保留均为规划中）
 # 只要定义了 [sinks.*] 表即视为启用该接收器，没有 "enabled" 标志。
 # 禁用的接收器直接不定义即可。
@@ -210,7 +210,7 @@ durability_level = "os_cache"
 # 严格验证
 dologctl config validate --config dologger.toml --strict
 
-# 伪代码 — 规划中的功能，v0.1.0 尚无 --compliance 选项与 config show 子命令
+# 伪代码 — 规划中的功能，v0.0.1 尚无 --compliance 选项与 config show 子命令
 # dologctl config validate --config dologger.toml --compliance gdpr
 # dologctl config show --effective
 ```
@@ -223,7 +223,7 @@ dologctl config validate --config dologger.toml --strict
 
 域允许您为应用程序的不同子系统定义独立的日志配置。子域从父域继承，且只能收紧安全设置。
 
-> **v0.1.0 注记**：下文 `[domains]` TOML 语法是**规划中**的配置面。v0.1.0 的配置加载器仅解析 `[dologger]` 键——域通过 `DomainManager::add_domain` 以编程方式注册（见 `core/src/config/domain.rs`）。由 TOML 驱动的域将在后续版本提供。此处描述的运行时行为（继承、不可降级收紧）对任何注册方式的域均适用。
+> **v0.0.1 注记**：下文 `[domains]` TOML 语法是**规划中**的配置面。v0.0.1 的配置加载器仅解析 `[dologger]` 键——域通过 `DomainManager::add_domain` 以编程方式注册（见 `core/src/config/domain.rs`）。由 TOML 驱动的域将在后续版本提供。此处描述的运行时行为（继承、不可降级收紧）对任何注册方式的域均适用。
 
 ### 图示
 
@@ -545,7 +545,7 @@ lib.dologger_log(h, ctypes.byref(p))
 lib.dologger_shutdown(h)
 ```
 
-（上面的包装模式已通过 `tests/smoke/c_abi_smoke.py` 验证；仓库自带更友好的封装见 `adapters/python/dologger.py`——其中的 `DoLogger` 类可直接 `from dologger import DoLogger` 使用，已随 v0.1.0 实测运行）
+（上面的包装模式已通过 `tests/smoke/c_abi_smoke.py` 验证；仓库自带更友好的封装见 `adapters/python/dologger.py`——其中的 `DoLogger` 类可直接 `from dologger import DoLogger` 使用，已随 v0.0.1 实测运行）
 
 ### Go
 
@@ -602,11 +602,11 @@ dologger_record_params_t params = {
 dologger_log(logger, &params);
 ```
 
-（注：v0.1.0 的 FFI 实现尚未把 `request_id` 等扩展字段透传到输出记录）
+（注：v0.0.1 的 FFI 实现尚未把 `request_id` 等扩展字段透传到输出记录）
 
 ### 模式 3：条件日志
 
-（伪代码 — v0.1.0 尚无 `dologger_would_log()` 守卫 API，此模式为规划中的接口）：
+（伪代码 — v0.0.1 尚无 `dologger_would_log()` 守卫 API，此模式为规划中的接口）：
 
 ```c
 if (dologger_would_log(logger, DO_LOG_DEBUG)) {
@@ -652,7 +652,7 @@ int main(void) {
 
 ### 模式 5：回调接收器用于进程内处理
 
-（伪代码 — v0.1.0 的 C ABI 尚未提供 `dologger_register_callback_sink()` 回调注册接口，规划中）：
+（伪代码 — v0.0.1 的 C ABI 尚未提供 `dologger_register_callback_sink()` 回调注册接口，规划中）：
 
 ```c
 static void my_callback(const uint8_t *data, size_t len, void *user) {
@@ -680,7 +680,7 @@ int main(void) {
 在运行时更改日志级别以调试生产中的问题：
 
 ```bash
-# 伪代码/示意 — 控制平面端点（POST /level）在 v0.1.0 尚未随引擎启动
+# 伪代码/示意 — 控制平面端点（POST /level）在 v0.0.1 尚未随引擎启动
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -722,7 +722,7 @@ int main(void) {
 **检查清单：**
 1. 验证 `performance_profile`——`dev` 配置文件使用小缓冲区和批次
 2. 检查 `enable_signature = true`——Ed25519 签名每条记录增加约 17 us
-3. 运行 `curl http://127.0.0.1:9090/status | jq .pipeline` 检查丢弃率（伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动）
+3. 运行 `curl http://127.0.0.1:9090/status | jq .pipeline` 检查丢弃率（伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动）
 4. 运行 `cargo bench` 在您的硬件上建立引擎基准
 5. 检查 `fsync_on_write = true`——强制每条记录 I/O 刷新
 
@@ -741,7 +741,7 @@ int main(void) {
 **症状：** 诊断日志显示 `[PLUGIN] load failed`。
 
 **检查清单：**
-1. ABI 版本不匹配：比较 `plugin_query()` 返回的 `abi_version` 字段与核心 ABI 版本（v0.1.0 头文件中没有全局 `DO_LOG_ABI_VERSION` 宏——引擎将 `core_abi_version` 传给 `plugin_query()`）
+1. ABI 版本不匹配：比较 `plugin_query()` 返回的 `abi_version` 字段与核心 ABI 版本（v0.0.1 头文件中没有全局 `DO_LOG_ABI_VERSION` 宏——引擎将 `core_abi_version` 传给 `plugin_query()`）
 2. 缺少依赖：检查 `manifest.toml` `[dependencies]` 节
 3. Blue 插件签名：验证 `.sig` 文件存在且有效
 4. 许可证不兼容：插件的 SPDX 标识符可能在拒绝类别中
@@ -752,7 +752,7 @@ int main(void) {
 Windows 在轮换后持有文件句柄。配置文件接收器使用 `FILE_SHARE_DELETE` 并在轮换前关闭句柄。如果文件被锁定，短暂停止引擎：
 
 ```bash
-# 伪代码 — v0.1.0 的 dologctl 尚无 stop/start 子命令
+# 伪代码 — v0.0.1 的 dologctl 尚无 stop/start 子命令
 # dologctl stop
 # 删除或轮换文件
 # dologctl start
@@ -761,7 +761,7 @@ Windows 在轮换后持有文件句柄。配置文件接收器使用 `FILE_SHARE
 ### 收集调试报告
 
 ```bash
-# 伪代码 — v0.1.0 尚无 diag 子命令
+# 伪代码 — v0.0.1 尚无 diag 子命令
 # dologctl diag collect --output diag-report.tar.gz
 ```
 

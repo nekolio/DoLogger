@@ -127,15 +127,16 @@ pub fn cmd_run_trace(config_path: Option<&str>, shm_path: Option<&str>) {
 
         unsafe {
             let record = &mut *record_ptr;
-            record.id = ts.next_id();
-            record.timestamp = ts.now_utc();
+            let id = ts.next_id();
+            record.set_id(id.hi, id.lo);
+            record.timestamp = ts.now_nanos();
             record.level = LogLevel::Info;
             record.message.set(msg);
-            record.thread_id = tid;
+            record.thread_id = tid as u32;
             record.process_id = pid;
-            record.process_name.set("dologctl-trace");
-            record.host_name.set("localhost");
-            record.environment.set("trace");
+            record.set_process_name("dologctl-trace");
+            record.set_host_name("localhost");
+            record.set_environment("trace");
         }
 
         // Push to ring buffer — measure submit latency

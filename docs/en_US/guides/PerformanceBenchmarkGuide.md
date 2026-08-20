@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](PerformanceBenchmarkGuide.md) | [中文：性能基准测试指南](../../zh_CN/guides/PerformanceBenchmarkGuide.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Core Developers, Performance Engineers, Plugin Authors
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Core Developers, Performance Engineers, Plugin Authors
 >
 > **Purpose**: This document describes how to run, interpret, and extend the DoLogger benchmark suite. It covers the benchmark harness, reference hardware, result interpretation (P50/P99/P99.9 percentiles and throughput), CI integration for regression detection, and conventions for adding new benchmarks.
 >
@@ -120,7 +120,7 @@ Measures the time from `dologger_log()` call to return — the **most critical m
 
 ### Planned: Per-Stage Latency Breakdown
 
-A per-pipeline-stage breakdown is planned but not implemented in v0.1.0 (the shipped `latency` bench measures whole-submission latency):
+A per-pipeline-stage breakdown is planned but not implemented in v0.0.1 (the shipped `latency` bench measures whole-submission latency):
 
 | Stage | What is Timed |
 |:-:|:-:|
@@ -433,7 +433,7 @@ CI benchmarks require dedicated, isolated hardware. The self-hosted runner must:
 ### File Structure
 
 ```text
-(actual v0.1.0 layout — the benchmarks live in core/benches/)
+(actual v0.0.1 layout — the benchmarks live in core/benches/)
 benches/
   latency.rs               ← Single-record submission latency (P50/P99)
   throughput.rs            ← Ring buffer push throughput
@@ -448,7 +448,7 @@ benches/
 
 ```rust
 // (illustrative template — not compiled; `engine.log` / `dologger_bench_common`
-// are placeholders. The v0.1.0 benchmarks actually use the
+// are placeholders. The v0.0.1 benchmarks actually use the
 // `ring_buffer.try_push` + `engine.pool.alloc` pattern — see
 // core/benches/latency.rs for the real, compiling pattern)
 // benches/latency.rs — example structure

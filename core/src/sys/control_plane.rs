@@ -12,9 +12,9 @@
 //! | POST | /level | Set log level for a domain |
 //! | POST | /reload | Trigger config reload |
 //!
-//! # Wiring status — v0.1.0
+//! # Wiring status — v0.0.1
 //!
-//! **NOT started by [`crate::Engine`] at v0.1.0** — this isolation is
+//! **NOT started by [`crate::Engine`] at v0.0.1** — this isolation is
 //! deliberate. The control plane is a listening HTTP surface (a security
 //! boundary), so it is disabled by default: nothing binds its port and it is
 //! not wired into `Engine::init`. A later milestone must gate it behind an

@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](VersioningAndDeprecation.md) | [中文：版本管理与弃用策略](../../zh_CN/guides/VersioningAndDeprecation.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers, Core Contributors, Integrators
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers, Core Contributors, Integrators
 >
 > **Purpose**: This document defines the versioning scheme, ABI compatibility guarantees, deprecation process, and migration expectations for the DoLogger project. It is the authoritative reference for what changes are permitted in each release type and how users should plan upgrades.
 >
@@ -78,7 +78,7 @@ flowchart TD
 
 ### The ABI Contract
 
-The ABI gate ensures plugins and hosts are compiled against a compatible ABI. The engine **refuses to load** a plugin whose `abi_version` does not match the running engine's version. In the current implementation this is the `abi_version` field of `dologger_plugin_info_t` (checked against `CORE_ABI_VERSION`, `0x000100` in v0.1.0); `plugin_query` receives `uint32_t core_abi_version` as its parameter.
+The ABI gate ensures plugins and hosts are compiled against a compatible ABI. The engine **refuses to load** a plugin whose `abi_version` does not match the running engine's version. In the current implementation this is the `abi_version` field of `dologger_plugin_info_t` (checked against `CORE_ABI_VERSION`, `0x000001` in v0.0.1); `plugin_query` receives `uint32_t core_abi_version` as its parameter.
 
 ```c
 // (pseudocode — illustrative, not compiled; the real gate is the abi_version
@@ -230,18 +230,18 @@ Compatibility is determined solely by `abi_version` matching — not by any comp
 
 ### Compatibility in `PluginManifest.toml`
 
-Plugins declare their ABI/version compatibility in the manifest. The schema shipped in v0.1.0 uses `[plugin]` keys (`abi_version`, `min_core_abi` — see `plugins/official/*/PluginManifest.toml`); a range-based `[compatibility]` section is the intended policy for later releases:
+Plugins declare their ABI/version compatibility in the manifest. The schema shipped in v0.0.1 uses `[plugin]` keys (`abi_version`, `min_core_abi` — see `plugins/official/*/PluginManifest.toml`); a range-based `[compatibility]` section is the intended policy for later releases:
 
 ```toml
 # (illustrative — proposed schema, not yet parsed by the current engine;
-# v0.1.0 manifests declare `abi_version = 1` and `min_core_abi = "0.1.0"`
+# v0.0.1 manifests declare `abi_version = 1` and `min_core_abi = "0.0.1"`
 # under [plugin] instead)
 [compatibility]
 min_engine_version = "1.0.0"     # Minimum MAJOR.MINOR.PATCH required
 max_engine_version = "2.0.0"     # Exclusive upper bound (this MAJOR series)
 ```
 
-The engine validates at load time (v0.1.0 enforces `abi_version` equality; the range checks below are the intended policy):
+The engine validates at load time (v0.0.1 enforces `abi_version` equality; the range checks below are the intended policy):
 
 | Condition | Result |
 |:-:|:-:|
@@ -255,7 +255,7 @@ Plugins that depend on other plugins (e.g., a `Sink` depending on a `Formatter`)
 
 ```toml
 # (illustrative — proposed schema, not yet parsed by the current engine;
-# v0.1.0 implements field-level dependencies via `requires_fields` instead)
+# v0.0.1 implements field-level dependencies via `requires_fields` instead)
 [dependencies]
 requires_plugins = [
     { name = "json-formatter", version = ">=1.0, <2.0" }
@@ -400,7 +400,7 @@ flowchart TD
 
 Before the 1.0.0 release, the project is in a **development phase**. The following modified rules apply:
 
-- MINOR bumps (0.1.0 to 0.2.0) **may** include breaking changes — treat them like MAJOR bumps
+- MINOR bumps (0.0.1 to 0.2.0) **may** include breaking changes — treat them like MAJOR bumps
 - The ABI version may change on any MINOR
 - Deprecation may be shortened or skipped
 - All users should pin to an exact version in this phase

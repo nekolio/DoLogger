@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](SecurityWhitepaper.md) | [English: Security Whitepaper](../../en_US/guides/SecurityWhitepaper.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 安全/合规工程师
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 安全/合规工程师
 
 ## 目录
 
@@ -191,52 +191,71 @@ Red 插件写入 `ext.*` 命名空间。这些字段：
 
 Ed25519 签名覆盖：
 
-1. **始终**：所有 Ring 0 字段
-2. **始终**：所有 Ring 1 字段（包括 LSN 和 `prev_hash`）
-3. **可配置**（`sign_ring2 = true`）：所有 Ring 2 字段
-4. **从不**：Ring 3 字段（由 CRC32C 保护）
+1. **始终**：所有固定热字段（timestamp、level、message、pid、tid、LSN）
+2. **始终**：所有 KV 字段（确定性序列化——与 KV 编码规范相同的规范顺序，与记录编码路径共用）
+3. **从不**：溢出落堆状态（由 CRC32C 保护）
 
 签名过程（伪代码/示意 — 算法描述说明）：
 
 ```
-1. 按规范顺序序列化被覆盖的字段（按字段名字典序排序）。
-2. 计算 Ed25519 签名：sig = Ed25519_Sign(secret_key, serialized_fields)。
-3. 将 sig 存入 record.signature（Ring 0，不可变）。
+1. 按规范 KV 顺序序列化被覆盖字段（tag+len+value）。
+2. 计算内容哈希：content_hash = SHA-256(serialized_fields)。
+3. 逐条模式（默认）：
+     sig = Ed25519_Sign(key, SHA-256(LSN ‖ content_hash ‖ prev_hash))
+     将 sig 存入伴随文件 audit.log.sig
+   块模式（可选，audit_block_size > 1）：
+     收集块内 content_hash[i]，构建 Merkle 根，
+     sig_block = Ed25519_Sign(key, SHA-256(block_seq ‖ block_root))
 ```
 
-### LSN 区块链式审计链
+### LSN 内容哈希审计链
 
-每条日志记录与其前驱密码学链接（伪代码/示意，非可执行代码）：
+每条 AUDIT 记录在 Record 内携带 32B `content_hash`，链链接由它派生（伪代码/示意，非可执行代码）：
 
 ```
 Record(N):
-  lsn       = N
-  prev_hash = SHA-256( Record(N-1).signature || Record(N-1).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256( Record(N-1).content_hash ‖ Record(N-1).lsn )
 
 Record(N+1):
-  lsn       = N+1
-  prev_hash = SHA-256( Record(N).signature || Record(N).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N+1
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256( Record(N).content_hash ‖ Record(N).lsn )
 ```
+
+64B Ed25519 签名**不驻留** Record——写入伴随侧车文件 `audit.log.sig`
+（逐条模式：每个 LSN 一条 64B 签名；块模式：每块一条签名）。这让热路径
+256B 结构保持无冷路径密码学数据，同时保留逐条非否认。
+
+**威胁覆盖**（作者裁决 2026-08-18）：
+
+| 威胁 | 防护层 | 机制 |
+|:-:|:-:|:-:|
+| 内存篡改（运行时） | content_hash 链 | 对已签名记录的任何修改都会破坏 `prev_hash` 连续性——验证时检出 |
+| 伪造（重新签名） | Ed25519 签名 | 密钥在 TPM 内不可导出；攻击者无法铸造有效签名 |
+| 磁盘篡改 | WORM + 链 | fsync + 只读权限 + 链重验证 |
 
 **验证算法**（伪代码/示意，非可执行代码）：
 
 ```
-verify_chain(records):
+verify_chain(records, sidecar):
   for i = 0 to len(records) - 1:
-    1. 验证 records[i] 的 Ed25519 签名：
-       pubkey.verify(records[i].signature, serialize(records[i].Ring0+Ring1))
-       → 无效则 FAIL。
+    1. 从规范序列化重算 content_hash[i]；
+       → 与 records[i].content_hash 不符则 FAIL。
 
     2. 若 i > 0：
-       expected_prev_hash = SHA-256(records[i-1].signature || records[i-1].lsn)
+       expected_prev_hash = SHA-256(records[i-1].content_hash ‖ records[i-1].lsn)
        → 若 records[i].prev_hash != expected_prev_hash 则 FAIL。
 
     3. 验证 LSN 单调性：
        → 若 records[i].lsn <= records[i-1].lsn 则 FAIL。
 
-    4. 若 records[i].lsn > records[i-1].lsn + 1：
+    4. 从侧车文件验证 Ed25519 签名：
+       逐条模式：  verify(sig[i], SHA-256(lsn ‖ content_hash ‖ prev_hash))
+       块模式：    重算块内 content_hash 的 Merkle 根，验证单条块签名。
+
+    5. 若 records[i].lsn > records[i-1].lsn + 1：
        → 标记为 GAP（records[i-1].lsn+1 至 records[i].lsn-1 缺失）。
 ```
 
@@ -245,6 +264,24 @@ verify_chain(records):
 以下两种场景中的间隙是预期且非恶意的：
 - 不携带 LSN 的非 AUDIT 记录。
 - 紧急缓冲区溢出事件中，部分记录绕过了正常的 LSN 分配。
+
+### TPM 后端密钥（阶段 1）
+
+审计签名密钥在硬件 TPM 内供给：
+
+| 平台 | 后端 | 状态 |
+|:-:|:-:|:-:|
+| Windows | CNG（TPM 密钥，零新增依赖） | 阶段 1 |
+| Linux | `tpm2-tss` | 阶段 1 |
+| macOS | Secure Enclave（等效硬件边界） | 阶段 1 |
+
+策略：`enable_signature = true` 但无可用 TPM → **显式报错拒绝启动**——绝不静默降级为软件密钥。阶段 2+（PCR 度量、attestation 协议、单调回滚计数器）留桩，推迟至 v1.0 后评审。
+
+### 签名粒度与块大小门禁
+
+- **默认：逐条签名** —— audit 场景安全优先于吞吐。
+- **可选：块签名** —— `audit_block_size > 1` 启用 Merkle 根块签名，面向高吞吐 audit 部署。
+- **门禁**：块大小只有在真实 TPM 后端上通过权威 Criterion 扫描（`sign_block_sweep`）后，才可提升为文档化默认值。理论曲线（有效成本 = TPM_time/N + SHA-256）表明吞吐渐近饱和而延迟/内存线性上升，因此甜区必须实测而非假设。
 
 ### WORM 文件保护
 
@@ -258,13 +295,15 @@ verify_chain(records):
 4. 归档：            移至冷存储。只读权限持续保持。
 ```
 
+伴随签名文件 `audit.log.sig` 遵循相同生命周期，必须与其 WORM 文件一同归档——缺少它，离线验证无法检查非否认。
+
 **持久性保证**：每次写入后跟随 `fsync()`（当 `fsync_on_write = true`），提供 MEDIA 级持久性。`fsync` 返回后系统崩溃也不会丢失已提交的记录。
 
 **不可变性保证**：封存后，文件权限阻止任何进程修改，包括 root（尽管 root 可以把文件再 `chmod` 回来——这可通过 inode 变更时间审计检测到）。
 
 ### 密码学性能
 
-在 AMD Ryzen 9 7950X 单核、Ed25519-dalek 2.0 上测得：
+在 AMD Ryzen 9 7950X 单核、Ed25519-dalek 2.0 上测得（软件路径；TPM 硬件延迟随后端而异，须在目标平台实测）：
 
 | 操作 | 延迟 | 吞吐量 |
 |:-:|:-:|:-:|
@@ -273,6 +312,8 @@ verify_chain(records):
 | Ed25519 验签 | ~48 us | ~20,800 验签/s |
 | SHA-256（64 字节） | ~120 ns | ~8.3M 哈希/s |
 | CRC32C（64 字节） | ~3 ns | ~330M 校验/s |
+
+AUDIT 记录额外支付 TPM 签名成本。逐条模式受 TPM ops/s 限制（离散 TPM2：每次数十 ms 量级——须在目标后端实测）；块模式将成本均摊到块大小。content_hash 链本身每条 ~120 ns–1 us（SHA-256），是 audit 记录在引擎内的主导开销。
 
 ---
 
@@ -402,7 +443,7 @@ if lower.enable_signature == true AND higher.enable_signature == false:
 
 每个合规模板将全部不可降级项设置为 `true`，并附带监管依据注释。模板还强制 `level = "AUDIT"` 与 `performance_profile = "prod-audit"`。
 
-**应用合规模板**（示意 — `config merge` 子命令与 `--compliance` 选项为规划中，v0.1.0 未提供；今天需手动合并 TOML 文件，例如保留 `compliance/gdpr.toml` 中的 `[dologger]` 节，然后运行 `dologctl config validate --strict`）：
+**应用合规模板**（示意 — `config merge` 子命令与 `--compliance` 选项为规划中，v0.0.1 未提供；今天需手动合并 TOML 文件，例如保留 `compliance/gdpr.toml` 中的 `[dologger]` 节，然后运行 `dologctl config validate --strict`）：
 
 ```bash
 # 将合规模板合并到基础配置中
@@ -428,34 +469,38 @@ dologctl config validate \
 
 | 层 | 机制 | 性能开销 | 保护范围 |
 |:-:|:-:|:-:|:-:|
-| Ring 3 字段 | CRC32C（SSE 4.2 硬件：约 0.5 cycles/B） | 可忽略 | 意外损坏检测 |
-| Ring 0/1 字段 | Ed25519 签名（每条记录约 16.96 us） | 中等 | 密码学篡改证据 |
-| 审计链 | SHA-256 prev\_hash | 低（约 120 ns） | 保管链证明 |
+| KV 溢出字段 | CRC32C（SSE 4.2 硬件：约 0.5 cycles/B） | 可忽略 | 意外损坏检测 |
+| 固定 + KV 字段 | content_hash 链（SHA-256，约 120 ns–1 us） | 低 | 内存/运行时篡改检测 |
+| 非否认 | Ed25519 签名（侧车 `audit.log.sig`；TPM 密钥） | 逐条：受 TPM ops/s 限制；块模式：均摊 | 防伪造 |
+| 审计链 | SHA-256 prev_hash（约 120 ns） | 低（约 120 ns） | 保管链证明 |
 | WORM 文件 | `fsync` + 只读锁（I/O 绑定） | 中等 | 提交后不可变性 |
 | 外部锚定 | 定期根哈希发布（规划中） | N/A（离线） | 长期防篡改 |
 
 ### 篡改检测工作流
 
 ```text
-（示例输出示意 — 汇总数字为虚构；verify-log 接受单个文件路径）
-1. 运维执行：dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+（示例输出示意 — 汇总数字为虚构；verify-log 接受单个文件路径加签名侧车）
+1. 运维执行：dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+              --sidecar /var/lib/dologger/audit/audit-000001.sig
 
 2. 对 WORM 文件中的每条记录：
    a. 解析记录二进制格式
-   b. 验证 Ed25519 签名 → PASS / FAIL
+   b. 重算 content_hash → 与存储值不符则 FAIL
    c. 验证 prev_hash 链 → PASS / FAIL / GAP
    d. 验证 LSN 单调性 → PASS / FAIL
+   e. 从侧车验证 Ed25519 签名 → PASS / FAIL
 
 3. 汇总报告：
    Records: 100,000
-   Signatures valid:   99,998
-   Signatures INVALID:      2  ← 安全事件
-   LSN gaps detected:       1  ← 缺失记录
-   Chain intact:        99,997
+   Content hashes valid:  99,998
+   Signatures valid:      99,998
+   Signatures INVALID:         2  ← 安全事件
+   LSN gaps detected:           1  ← 缺失记录
+   Chain intact:            99,997
 
 4. 外部锚定验证（规划中）：
    - 从 S3 锚点获取同一 LSN 范围的根哈希
-   - 计算本地根哈希（基于所有签名的 Merkle 树）
+   - 计算本地根哈希（基于所有内容哈希的 Merkle 树）
    - 比较 → PASS / FAIL
 ```
 
@@ -600,7 +645,7 @@ tls_min_version = "1.2"
 
 ```bash
 # （示意 — `--compliance` 选项与 `compliance report` 子命令为
-# 规划中，v0.1.0 未提供；请改为使用包含模板 [dologger] 设置的配置
+# 规划中，v0.0.1 未提供；请改为使用包含模板 [dologger] 设置的配置
 # 运行 `dologctl config validate --strict`）
 # 依据 GDPR 要求验证配置
 dologctl config validate --config /etc/dologger/default.toml --compliance gdpr

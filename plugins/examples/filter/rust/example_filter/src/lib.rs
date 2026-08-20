@@ -42,9 +42,9 @@ const LEVEL_AUDIT: u8 = 6;
 const PHASE_FILTER: u32 = 0x0002;
 
 // Plugin info versioning — abi_version MUST match the core's declared ABI
-// (0.1.0); the host validates it on load.
+// (0.0.1); the host validates it on load.
 const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
-const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
+const PLUGIN_VERSION: u32 = 1; // 0.0.1 (packed major.minor.patch)
 
 // ---------------------------------------------------------------------------
 // Plugin state

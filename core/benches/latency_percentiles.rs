@@ -105,11 +105,12 @@ fn push_record(
     let ptr = pool.alloc().expect("Pool exhausted");
     unsafe {
         let record = &mut *ptr;
-        record.id = ts.next_id();
-        record.timestamp = ts.now_utc();
+        let id = ts.next_id();
+        record.set_id(id.hi, id.lo);
+        record.timestamp = ts.now_nanos();
         record.level = LogLevel::Info;
         record.message.set(msg);
-        record.thread_id = tid;
+        record.thread_id = tid as u32;
         record.process_id = pid;
     }
     let _ = rb.try_push(ptr);
@@ -130,17 +131,15 @@ fn push_signed(
     let ptr = pool.alloc().expect("Pool exhausted");
     unsafe {
         let record = &mut *ptr;
-        record.id = ts.next_id();
-        record.timestamp = ts.now_utc();
+        let id = ts.next_id();
+        record.set_id(id.hi, id.lo);
+        record.timestamp = ts.now_nanos();
         record.level = LogLevel::Audit;
         record.message.set(msg);
-        record.thread_id = tid;
+        record.thread_id = tid as u32;
         record.process_id = pid;
     }
-    let signature = sig.sign_record(unsafe { &mut *ptr });
-    unsafe {
-        (*ptr).signature = signature;
-    }
+    let _signature = sig.sign_record(unsafe { &mut *ptr }, &[0u8; 32]);
     let _ = rb.try_push(ptr);
     start.elapsed().as_nanos() as f64
 }

@@ -24,7 +24,7 @@
 
 DoLogger is a cross-platform, high-security logging engine for applications that
 need signed, tamper-evident audit logs. It combines nanosecond-latency lock-free
-record submission with Ed25519-signed audit chains, plugin sandboxing, and
+record submission with TPM-backed Ed25519 audit chains, plugin sandboxing, and
 11 built-in output sinks — all driven by TOML configuration with domain
 inheritance and non-downgradable security guarantees.
 
@@ -32,7 +32,7 @@ inheritance and non-downgradable security guarantees.
 |:-:|:-:|:-:|
 | **Submit latency (P50)** | 102 ns | 500–2000 ns |
 | **Batch throughput** | 13.3M rec/s | 1–5M rec/s |
-| **Audit chain** | Ed25519 + LSN + prev_hash blockchain | Rare / bolt-on |
+| **Audit chain** | content_hash + LSN chain, TPM-backed Ed25519 sidecar sigs | Rare / bolt-on |
 | **Plugin sandbox** | seccomp-bpf / AppContainer / Sandbox | None |
 | **Performance profiles** | 4 profiles (Dev/Prod/ProdAudit/Balanced) | Manual tuning |
 | **Output sinks** | 11 built-in (Console, File, Callback, Kafka, Syslog, Webhook, SQLite, WORM, Security, Shared Memory, OTel) | 1–3 typical |
@@ -43,7 +43,7 @@ inheritance and non-downgradable security guarantees.
 ## Features
 
 - `[PERF]` **Lock-free hot path** — CAS-based ring buffer with a Treiber object pool; record submission does no heap allocation (P50 ≈ 102 ns locally).
-- `[SIGN]` **Ed25519 audit chain** — every audit record is signed at assembly time and chained by LSN + prev_hash; verify offline with `dologctl verify-log`.
+- `[SIGN]` **TPM-backed Ed25519 audit chain** — every audit record carries a content_hash linked by LSN; non-exportable TPM keys sign each record (per-record default) into the `audit.log.sig` sidecar; verify offline with `dologctl verify-log --sidecar`.
 - `[SINK]` **11 sinks + sandboxed plugins** — Console, File, Kafka, Syslog, Webhook, SQLite, WORM, Security, Shared Memory, OTel, Callback; plugins run under seccomp-bpf / AppContainer / Sandbox isolation with color-coded trust levels.
 - `[OBSV]` **Observability built in** — per-record pipeline timing (`--trace`), SIF recording/replay, `dologctl perf` benchmarks, crash recovery reports.
 
@@ -57,7 +57,7 @@ from the GitHub Actions runner in its release notes.
 
 | Environment | Submit P50 | Throughput | Signed submit (Ed25519) |
 |:-:|:-:|:-:|:-:|
-| GitHub runner — AMD EPYC 7763, v0.1.0 release | **120 ns** | 5.06M rec/s | 19.8 µs |
+| GitHub runner — AMD EPYC 7763, v0.0.1 release | **120 ns** | 5.06M rec/s | 19.8 µs |
 | Local — Windows 11 LTSC, Intel i5-12400F | **102 ns** | 9.78M rec/s | 16.96 µs |
 
 Criterion (same local machine):
@@ -86,7 +86,7 @@ field-container). Verify each download against the attached
 `checksums-sha256.txt`:
 
 ```bash
-curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/dologctl-linux-x86_64
+curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.0.1/dologctl-linux-x86_64
 chmod +x dologctl-linux-x86_64
 ./dologctl-linux-x86_64 init --template dev
 ./dologctl-linux-x86_64 run --config dologger.toml
@@ -119,10 +119,10 @@ fn main() {
 }
 ```
 
-Audit records are Ed25519-signed; verify the log offline:
+Audit records are Ed25519-signed (TPM-held key, signatures in the `audit.log.sig` sidecar); verify the log offline:
 
 ```shell
-dologctl verify-log audit.log
+dologctl verify-log audit.log --sidecar audit.log.sig
 ```
 
 ### Shell Completions
@@ -249,7 +249,7 @@ output.
 
 ## Security
 
-- **Ed25519 audit chain**: Every audit record is signed; LSN + prev_hash forms a blockchain-like tamper-proof chain
+- **Ed25519 audit chain**: Every audit record carries a content_hash; LSN + prev_hash forms a tamper-evident chain. Signatures are TPM-provisioned (non-exportable keys, hardware signing) and stored in the `audit.log.sig` sidecar — audit mode refuses startup without a TPM
 - **WORM storage**: Write-Once-Read-Many with fsync + read-only permission enforcement
 - **Plugin sandbox**: seccomp-bpf (Linux), AppContainer (Windows), Sandbox (macOS) with trust-colored capability matrices
 - **Secret detection**: 14 prefix-matching rules across Critical/High/Medium severity (AWS, GCP, GitHub tokens, private keys)

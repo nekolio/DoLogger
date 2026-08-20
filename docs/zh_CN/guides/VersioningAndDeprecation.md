@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](VersioningAndDeprecation.md) | [English: DoLogger Versioning & Deprecation Policy](../../en_US/guides/VersioningAndDeprecation.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 插件开发者、核心贡献者、集成者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 插件开发者、核心贡献者、集成者
 >
 > **用途**: 本文档定义 DoLogger 项目的版本方案、ABI 兼容性保证、废弃流程及迁移预期。本文档是确定每个发布类型允许哪些变更以及用户应如何规划升级的权威参考。
 >
@@ -78,16 +78,16 @@ flowchart TD
 
 ### ABI 契约
 
-ABI 门禁确保插件和宿主基于兼容的 ABI 编译。引擎**拒绝加载**其 `abi_version` 与运行中引擎版本不匹配的插件。在 v0.1.0 的当前实现中，这是 `dologger_plugin_info_t` 的 `abi_version` 字段（对照 `CORE_ABI_VERSION`，v0.1.0 为 `0x000100`）；`plugin_query` 接收 `uint32_t core_abi_version` 作为参数。
+ABI 门禁确保插件和宿主基于兼容的 ABI 编译。引擎**拒绝加载**其 `abi_version` 与运行中引擎版本不匹配的插件。在 v0.0.1 的当前实现中，这是 `dologger_plugin_info_t` 的 `abi_version` 字段（对照 `CORE_ABI_VERSION`，v0.0.1 为 `0x000001`）；`plugin_query` 接收 `uint32_t core_abi_version` 作为参数。
 
 ```c
-// 注：v0.1.0 的 dologger_core.h 中没有全局 DO_LOG_ABI_VERSION 宏；
+// 注：v0.0.1 的 dologger_core.h 中没有全局 DO_LOG_ABI_VERSION 宏；
 // 每个插件在 PluginInfo.abi_version 字段声明其编译所基于的 ABI 版本
-//（packed uint32，如 0x000100 = 0.1.0），并在 plugin_query() 中校验核心传入的版本。
+//（packed uint32，如 0x000001 = 0.0.1），并在 plugin_query() 中校验核心传入的版本。
 
 dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
     static dologger_plugin_info_t info = {
-        .abi_version = 0x000100,   // 本插件面向的 ABI 版本
+        .abi_version = 0x000001,   // 本插件面向的 ABI 版本
         // ...
     };
     // 生产插件应校验：if (core_abi_version > info.abi_version) return NULL;
@@ -143,7 +143,7 @@ flowchart TD
 
 ### 废弃宏
 
-（伪代码 — 示意废弃标注的写法；v0.1.0 头文件尚无 `DO_LOG_DEPRECATED` 宏，`dologger_record_set_field`/`dologger_tags_t` 也不存在。`__attribute__` 为 GCC/Clang 语法，MSVC 需 `__declspec(deprecated(msg))`）：
+（伪代码 — 示意废弃标注的写法；v0.0.1 头文件尚无 `DO_LOG_DEPRECATED` 宏，`dologger_record_set_field`/`dologger_tags_t` 也不存在。`__attribute__` 为 GCC/Clang 语法，MSVC 需 `__declspec(deprecated(msg))`）：
 
 ```c
 // 在 C 头文件中将函数标记为废弃
@@ -392,7 +392,7 @@ flowchart TD
 
 在 1.0.0 发布之前，项目处于**开发阶段**。适用以下修改后的规则：
 
-- MINOR 版本提升（0.1.0 到 0.2.0）**可能**包含破坏性变更——将其视为 MAJOR 提升
+- MINOR 版本提升（0.0.1 到 0.2.0）**可能**包含破坏性变更——将其视为 MAJOR 提升
 - ABI 版本可能在任一 MINOR 发布中变更
 - 废弃流程可能缩短或跳过
 - 在此阶段所有用户应锁定到确切的版本

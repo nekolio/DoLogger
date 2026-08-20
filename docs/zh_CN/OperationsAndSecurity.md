@@ -1,6 +1,6 @@
 # DoLogger 运维与安全指南
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: SRE、运维工程师、安全工程师、合规官
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: SRE、运维工程师、安全工程师、合规官
 >
 > **用途**: DoLogger 的生产部署、监控、密钥管理、审计验证、事件响应和合规配置。本文档是在生产环境中运行 DoLogger 的运维手册。
 >
@@ -115,7 +115,7 @@ DO_LOG_CONFIG_FILE=./dologger.toml ./myapp
 ### Sidecar 部署
 
 ```bash
-# 伪代码 — v0.1.0 的 dologctl run 无 --mode 选项（长驻 sidecar 模式尚未实现）
+# 伪代码 — v0.0.1 的 dologctl run 无 --mode 选项（长驻 sidecar 模式尚未实现）
 # dologctl run --config /etc/dologger/sidecar.toml --mode sidecar &
 ```
 
@@ -140,7 +140,7 @@ full_policy = "drop_oldest" # SHM 满时的行为
 
 **Linux（systemd）：**
 
-（伪代码/示意 — daemon 模式与长驻 `dologctl run` 尚未实现；v0.1.0 的 `dologctl run` 仅支持 `--dry-run`/`--trace` 后即退出）：
+（伪代码/示意 — daemon 模式与长驻 `dologctl run` 尚未实现；v0.0.1 的 `dologctl run` 仅支持 `--dry-run`/`--trace` 后即退出）：
 
 ```ini
 # /etc/systemd/system/dologger.service
@@ -177,7 +177,7 @@ sudo systemctl status dologger
 
 系统监控器发出结构化的 JSON 事件到 `stderr`（或可配置输出）：
 
-（伪代码/示意 — v0.1.0 实际 sysmon 事件格式为 `{"sysmon_version":"1.0","error_code":...,"category":...,"description":...,"timestamp_ms":...,"severity":...}`，以下为规划的字段）：
+（伪代码/示意 — v0.0.1 实际 sysmon 事件格式为 `{"sysmon_version":"1.0","error_code":...,"category":...,"description":...,"timestamp_ms":...,"severity":...}`，以下为规划的字段）：
 
 ```json
 {"ts":"2026-08-12T14:30:00.123Z","level":"WARN","event":"PIPELINE_BACKLOG","pct":72,"buf_name":"main"}
@@ -215,7 +215,7 @@ sudo systemctl status dologger
 ### 健康检查
 
 ```bash
-# 伪代码/示意 — v0.1.0 控制面尚未随引擎启动；当前控制面实现（core/src/sys/control_plane.rs）
+# 伪代码/示意 — v0.0.1 控制面尚未随引擎启动；当前控制面实现（core/src/sys/control_plane.rs）
 # 只有 GET /status、POST /level、POST /reload，没有 /health 端点
 # curl -s http://127.0.0.1:9090/health
 ```
@@ -223,11 +223,11 @@ sudo systemctl status dologger
 ### 状态端点
 
 ```bash
-# 伪代码/示意 — 控制面（GET /status）在 v0.1.0 尚未随引擎启动
+# 伪代码/示意 — 控制面（GET /status）在 v0.0.1 尚未随引擎启动
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
 
-（伪代码/示意 — 规划的 /status 响应；v0.1.0 的实际响应为 `{"status":"ok","level":"...","profile":"prod-performance","plugins":0,"signature_enabled":false}`）：
+（伪代码/示意 — 规划的 /status 响应；v0.0.1 的实际响应为 `{"status":"ok","level":"...","profile":"prod-performance","plugins":0,"signature_enabled":false}`）：
 
 ```json
 {
@@ -272,7 +272,7 @@ sudo systemctl status dologger
 ### 动态日志级别调整
 
 ```bash
-# 伪代码/示意 — POST /level 在 v0.1.0 尚未随引擎启动
+# 伪代码/示意 — POST /level 在 v0.0.1 尚未随引擎启动
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -287,13 +287,13 @@ export DO_LOG_CONFIG_LOCK=1
 # 编辑配置文件
 vim /etc/dologger/default.toml
 
-# 伪代码/示意 — POST /reload 在 v0.1.0 尚未随引擎启动
+# 伪代码/示意 — POST /reload 在 v0.0.1 尚未随引擎启动
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
 ### 控制面安全
 
-- 默认绑定到 `127.0.0.1:9090`（仅本地主机；规划中 — v0.1.0 未随引擎启动）
+- 默认绑定到 `127.0.0.1:9090`（仅本地主机；规划中 — v0.0.1 未随引擎启动）
 - mTLS + JWT 认证（远程访问）为规划中
 - 生产环境：使用主机防火墙限制访问
 
@@ -311,10 +311,10 @@ DoLogger 有两个相互独立的签名域，各自使用独立的密钥：
 
 | 密钥域 | 用途 | 密钥材料 | 管理方 |
 |:-:|:-:|:-:|:-:|
-| 日志记录签名 | 审计域上对每条记录做 Ed25519 签名 | 启动时在内存中生成的临时密钥对 | 内置 `DefaultKeyProvider`（规划中 — v0.1.0 未随附任何 `KeyProvider` 插件） |
+| 日志记录签名 | 审计域上对每条记录做 Ed25519 签名 | 启动时在内存中生成的临时密钥对 | 内置 `DefaultKeyProvider`（规划中 — v0.0.1 未随附任何 `KeyProvider` 插件） |
 | 插件签名 | 对官方插件包的 Ed25519 签名（Blue 信任） | 私钥种子**仅**存放于 `DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions 密钥；公钥锚点与 CRL 已提交 | `dologctl plugin` 命令 + 已提交的 `plugins/official/trust-anchors/` |
 
-### 插件签名密钥（v0.1.0 — 已启用）
+### 插件签名密钥（v0.0.1 — 已启用）
 
 官方插件包使用项目 Ed25519 种子签名。私钥永不进入仓库：
 
@@ -383,20 +383,32 @@ DoLogger 有两个相互独立的签名域，各自使用独立的密钥：
 
 未来的硬性保证（路线图）：**OIDC → 云 KMS**。GitHub 的 OIDC 令牌可让工作流按需从云 KMS
 （如 AWS KMS 签名或 Azure Key Vault）获取签名密钥，授予短时、按运行发放的权限，从而从 CI 中
-消除任何长期密钥。这需要云账号并会破坏离线签名，因此 v0.1.0 有意不接入。
+消除任何长期密钥。这需要云账号并会破坏离线签名，因此 v0.0.1 有意不接入。
 
-### 日志记录签名密钥（规划中）
+### 日志记录签名密钥（TPM 后端，阶段 1）
 
-引擎使用内置的 `DefaultKeyProvider` 对审计记录签名：启动时在内存中生成随机 Ed25519 密钥对。
-私钥永不落盘，公钥通过 API 提供以便离线验证。持久化密钥存储（文件或 HSM 后端）在
-v0.1.0 中**尚未实现**：`KeyProvider` 插件接口已定义，但本次发布未随附任何实现。下面
-记录签名的轮换生命周期与 CRL 是插件将实现的设计。
+引擎使用 **TPM 供给**的 Ed25519 密钥对审计记录签名（作者裁决 2026-08-18）：
+私钥在 TPM 内创建、**不可导出**，所有签名在硬件中完成。
+
+| 平台 | 后端 | 状态 |
+|:-:|:-:|:-:|
+| Windows | CNG（TPM 密钥，零新增依赖） | 阶段 1 |
+| Linux | `tpm2-tss` | 阶段 1 |
+| macOS | Secure Enclave（等效硬件边界） | 阶段 1 |
+
+策略：`enable_signature = true` 但无可用 TPM → **显式报错拒绝启动**——绝不静默
+降级为软件密钥。`KeyProvider` 插件接口是现有扩展洞，用于外部 HSM/KMS 后端。
+阶段 2+（PCR 度量、attestation、单调回滚计数器）留桩，推迟至 v1.0 后评审。
+
+默认签名粒度是**逐条**（audit 场景安全优先于吞吐）；块级 Merkle 签名
+（`audit_block_size > 1`）是可选优化。块大小只有在真实 TPM 后端通过权威
+Criterion 扫描后才可提升为文档化默认值。
 
 #### 密钥轮换生命周期
 
 ```mermaid
 flowchart TD
-    P1["阶段 1：启动轮换<br/>生成新密钥对<br/>旧密钥进入宽限期"] --> P2["阶段 2：宽限期（默认 7 天）<br/>两个密钥同时活跃<br/>旧密钥签名进行中的记录<br/>新密钥签名新提交的记录<br/>验证器接受由任一密钥签名的记录"]
+    P1["阶段 1：启动轮换<br/>创建新 TPM 密钥对<br/>旧密钥进入宽限期"] --> P2["阶段 2：宽限期（默认 7 天）<br/>两个密钥同时活跃<br/>旧密钥签名进行中的记录<br/>新密钥签名新提交的记录<br/>验证器接受由任一密钥签名的记录"]
     P2 --> P3["阶段 3：轮换完成<br/>旧密钥被吊销（添加到 CRL）<br/>所有新记录使用新密钥签名<br/>旧密钥记录仍可用旧公钥验证"]
     P3 --> P4["阶段 4：紧急吊销（可选）<br/>密钥指纹立即添加到 CRL<br/>所有由被吊销密钥签名的记录验证失败"]
 ```
@@ -420,7 +432,7 @@ pub enum CrlReason {
 
 插件签名的吊销列表（`plugins/official/trust-anchors/revoked.txt`）使用相同的
 `CrlReason` 词汇（`compromised`、`superseded`、`deactivated`），但由插件加载器强制
-执行，而加载器在 v0.1.0 中已启用。
+执行，而加载器在 v0.0.1 中已启用。
 
 
 ---
@@ -429,21 +441,22 @@ pub enum CrlReason {
 
 ### `dologctl verify-log`
 
-验证 WORM 审计日志的完整性：
+验证 WORM 审计日志的完整性。64B Ed25519 签名存于伴随侧车文件 `audit.log.sig`；逐条模式下用 `--sidecar` 传入以检查非否认：
 
 ```bash
 # verify-log 接受单个 SIF/WORM 文件路径（无 --path/--verbose 选项）
-dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+    --sidecar /var/lib/dologger/audit/audit-000001.sig
 ```
 
-输出（伪代码/示意 — v0.1.0 实际输出为 "Verification Results" 摘要格式，见下文 [dologctl 命令参考](guides/DologctlCommandReference.md)）：
+输出（伪代码/示意 — v0.0.1 实际输出为 "Verification Results" 摘要格式，见下文 [dologctl 命令参考](guides/DologctlCommandReference.md)）：
 
 ```
-[OK]     LSN 000001 — signature valid, prev_hash=genesis
-[OK]     LSN 000002 — signature valid, prev_hash matches
+[OK]     LSN 000001 — content_hash valid, signature valid, prev_hash=genesis
+[OK]     LSN 000002 — content_hash valid, signature valid, prev_hash matches
 [GAP]    LSN 000003 — missing (expected, found LSN 000004)
-[OK]     LSN 000004 — signature valid, prev_hash matches
-[FAIL]   LSN 000005 — signature INVALID (record may be tampered)
+[OK]     LSN 000004 — content_hash valid, signature valid, prev_hash matches
+[FAIL]   LSN 000005 — content_hash INVALID (record may be tampered)
 
 Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 ```
@@ -452,7 +465,8 @@ Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 
 | 检查 | 含义 |
 |:-:|:-:|
-| Ed25519 签名 | 自签名以来记录内容未被修改 |
+| content_hash | 记录内容与重算的 SHA-256 匹配（内存/运行时篡改证据） |
+| Ed25519 签名（侧车） | 记录由 TPM 持有密钥签发（非否认） |
 | prev_hash 链 | 记录在序列中处于其原始位置 |
 | LSN 单调性 | 记录按正确的时序顺序排列 |
 | 间隙检测 | 识别并报告缺失的记录 |
@@ -462,7 +476,7 @@ Summary: 9995 OK, 1 GAP, 1 FAIL — INTEGRITY CHECK FAILED
 验证外部锚定哈希（规划中）：
 
 ```bash
-# verify-anchor 接受锚定 JSON 文件路径 + --pubkey；v0.1.0 无 --anchor-file/--worm-path 选项
+# verify-anchor 接受锚定 JSON 文件路径 + --pubkey；v0.0.1 无 --anchor-file/--worm-path 选项
 dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 
 # 将本地计算的 Merkle 根与外部发布的锚定哈希进行比较
@@ -475,7 +489,8 @@ dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 ```bash
 # /etc/cron.daily/dologger-audit-verify
 #!/bin/bash
-REPORT=$(dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --output json)
+REPORT=$(dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+         --sidecar /var/lib/dologger/audit/audit-000001.sig --output json)
 if echo "$REPORT" | jq -e '.status == "failed"' > /dev/null; then
     echo "AUDIT INTEGRITY FAILURE: $REPORT" | \
         mail -s "CRITICAL: DoLogger audit chain broken" security@example.com
@@ -489,18 +504,23 @@ fi
 | 操作 | 命令 |
 |:-:|:-:|
 | 列出 WORM 段 | `ls -la /var/lib/dologger/audit/` |
-| 验证链 | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm` |
+| 验证链 | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --sidecar /var/lib/dologger/audit/audit-000001.sig` |
 | 导出审计记录 | （伪代码 — `dologctl audit export` 为规划中功能） |
 | 检查最新 LSN | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm -o json` |
 
+伴随签名文件与审计文件遵循相同 WORM 生命周期，**必须一同归档**——缺少它，
+离线验证无法检查非否认。
+
 ### 篡改检测
 
-LSN + prev_hash 链提供自验证的篡改证据：
+LSN + content_hash 链提供自验证的篡改证据（作者裁决 2026-08-18：主战场是
+**内存/运行时**篡改；磁盘篡改由 WORM 语义额外覆盖）：
 
-- **记录修改**：Ed25519 签名无法验证——自签名以来记录内容已更改。
+- **记录修改**：content_hash 与重算值不匹配，且 Ed25519 签名无法验证——自签名以来记录内容已更改。
 - **记录删除**：下一条记录的 prev_hash 与预期值不匹配——链已断裂。
 - **记录插入**：prev_hash 不匹配，且 LSN 不会是单调的。
 - **记录重排**：prev_hash 和 LSN 检查均失败。
+- **伪造（重新签名）**：没有 TPM 持有密钥就无法完成——即使拥有完整内存访问权限，攻击者也无法铸造有效签名。
 
 ---
 
@@ -586,20 +606,20 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **分类：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .ring_buffer
    # 检查 pct_used、drops_total、emergency_spills
    ```
 
 2. **识别瓶颈：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **缓解：**
    ```bash
-   # 伪代码/示意 — /sink/disable 端点规划中；v0.1.0 控制面仅有 /status、/level、/reload
+   # 伪代码/示意 — /sink/disable 端点规划中；v0.0.1 控制面仅有 /status、/level、/reload
    # curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
 
@@ -627,19 +647,19 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 1. **检查当前配置文件：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **检查接收器健康状态：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **检查签名是否意外启用：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    # Ed25519 签名每条记录增加约 17 us
    ```
@@ -652,7 +672,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 
 5. **缓解：**
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
    ```
 
@@ -661,7 +681,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 任何事件后，捕获诊断快照：
 
 ```bash
-# 伪代码 — v0.1.0 尚无 diag 子命令
+# 伪代码 — v0.0.1 尚无 diag 子命令
 # dologctl diag collect --output post-incident-$(date +%Y%m%d-%H%M%S).tar.gz
 ```
 
@@ -700,7 +720,7 @@ LSN + prev_hash 链提供自验证的篡改证据：
 ### 应用合规模板
 
 ```bash
-# 伪代码 — config merge 子命令与 --compliance 选项为规划中功能（v0.1.0 未提供）
+# 伪代码 — config merge 子命令与 --compliance 选项为规划中功能（v0.0.1 未提供）
 # dologctl config merge \
 #     --base /etc/dologger/default.toml \
 #     --overlay compliance/gdpr.toml \
@@ -762,7 +782,7 @@ shutdown_timeout_ms = 10000
 **这些合规模板仅是技术起点。** 它们不保证法规合规。您必须在部署到生产环境前咨询您的法律顾问并进行完整评估。模板：
 - 将所有安全相关配置设置为其最严格的值
 - 不能被较低优先级配置层放松（不可降级）
-- 必须使用以下命令验证：`dologctl config validate --config compliance/<framework>.toml --strict`（v0.1.0 无 `--compliance` 选项）
+- 必须使用以下命令验证：`dologctl config validate --config compliance/<framework>.toml --strict`（v0.0.1 无 `--compliance` 选项）
 
 ---
 
@@ -832,7 +852,7 @@ allow_red_plugins = true
 实时监控沙箱违规：
 
 ```bash
-# 伪代码/示意 — v0.1.0 诊断日志行不含 .event 字段，此 jq 过滤依赖规划中的事件格式
+# 伪代码/示意 — v0.0.1 诊断日志行不含 .event 字段，此 jq 过滤依赖规划中的事件格式
 # tail -f dologger_internal.log | jq 'select(.event == "SANDBOX_VIOLATION")'
 ```
 
@@ -845,7 +865,7 @@ allow_red_plugins = true
 在您的生产硬件上建立基线：
 
 ```bash
-# 运行所有基准测试并保存结果（v0.1.0 仓库实际提供 latency、throughput、latency_percentiles）
+# 运行所有基准测试并保存结果（v0.0.1 仓库实际提供 latency、throughput、latency_percentiles）
 cargo bench --bench latency -- --save-baseline prod-baseline
 cargo bench --bench throughput -- --save-baseline prod-baseline
 cargo bench --bench latency_percentiles -- --save-baseline prod-baseline
@@ -867,7 +887,7 @@ cargo bench --bench latency -- --baseline prod-baseline
 ### 运行时性能监控
 
 ```bash
-# 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+# 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
 # watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 ```
 
@@ -877,19 +897,19 @@ cargo bench --bench latency -- --baseline prod-baseline
 
 1. **比较配置文件**：`performance_profile` 是否已更改？
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **检查签名开销**：Ed25519 签名是否意外启用？
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    ```
 
 3. **检查接收器健康状态**：慢速下游导致背压。
    ```bash
-   # 伪代码/示意 — 控制面在 v0.1.0 尚未随引擎启动
+   # 伪代码/示意 — 控制面在 v0.0.1 尚未随引擎启动
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 

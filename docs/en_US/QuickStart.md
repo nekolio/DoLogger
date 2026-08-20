@@ -1,6 +1,6 @@
 # DoLogger Quick Start Guide
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: New Users
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: New Users
 >
 > **Purpose**: Get DoLogger running in 5 minutes. No prior knowledge assumed.
 >
@@ -220,14 +220,14 @@ dologctl config validate --config dologger.toml --strict
 # List loaded plugins
 dologctl plugin list
 
-# Check engine health (requires a running engine; the v0.1.0 control plane
+# Check engine health (requires a running engine; the v0.0.1 control plane
 # is not started yet — illustrative)
 # curl http://127.0.0.1:9090/status
 
 # Verify the audit chain (takes a single SIF/WORM file)
 dologctl verify-log audit-000001.worm
 
-# Collect diagnostic report (pseudocode — this subcommand does not ship in v0.1.0)
+# Collect diagnostic report (pseudocode — this subcommand does not ship in v0.0.1)
 # dologctl diag collect --output diag-report.tar.gz
 ```
 
@@ -236,7 +236,7 @@ dologctl verify-log audit-000001.worm
 | Symptom | Solution |
 |:-:|:-:|
 | Build fails with "CMake not found" | Install CMake 3.20+: `apt install cmake` / `brew install cmake` |
-| `dologctl run` exits immediately | Engine startup is not implemented in v0.1.0; use `dologctl run --trace` to exercise the pipeline, or `dologctl run --dry-run` to validate configuration |
+| `dologctl run` exits immediately | Engine startup is not implemented in v0.0.1; use `dologctl run --trace` to exercise the pipeline, or `dologctl run --dry-run` to validate configuration |
 | No output appears | Verify at least one sink is defined in the `[sinks.*]` section |
 | Plugin fails to load | Check `dologger_internal.log` for ABI mismatch details |
 

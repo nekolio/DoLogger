@@ -45,7 +45,7 @@ export const BEFORE_LOGS: DemoLog[] = [
 ]
 
 export const AFTER_LOGS: DemoLog[] = [
-  { side: 'after', cls: 'info',   text: '[INFO]  [core]     DoLogger v0.1.0 — ring buffer + Treiber pool, zero heap on submit' },
+  { side: 'after', cls: 'info',   text: '[INFO]  [core]     DoLogger v0.0.1 — ring buffer + Treiber pool, zero heap on submit' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   trust gate: Ed25519 signatures verified · Blue/Yellow/Red' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   4 plugins loaded · trust BLUE · api v3' },
   { side: 'after', cls: 'plugin', text: '[INFO]  [plugin]   formatter_text: attached — human-readable text format' },

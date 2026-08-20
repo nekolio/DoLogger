@@ -304,7 +304,7 @@ impl Engine {
         // (which hands each its host-accessor bridge), and resolve their
         // formatter/field-provider vtables. Default off: the engine loads no
         // plugins at runtime, so the dispatch is empty and the pipeline uses
-        // its built-in plain-text formatting — unchanged from v0.1.0.
+        // its built-in plain-text formatting — unchanged from v0.0.1.
         let dispatch = if config.plugin_enable_pipeline {
             for (name, e) in plugin_manager.discover() {
                 crate::sys::diagnostics::warn(

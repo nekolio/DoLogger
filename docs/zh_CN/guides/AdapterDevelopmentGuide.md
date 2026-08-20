@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](AdapterDevelopmentGuide.md) | [English: DoLogger Adapter Development Guide](../../en_US/guides/AdapterDevelopmentGuide.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 语言适配器开发者、SDK 维护者、集成者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 语言适配器开发者、SDK 维护者、集成者
 >
 > **用途**: 本文档描述如何为 DoLogger C ABI 创建语言适配器（Python、Go、C/C++ 及其他语言）。涵盖薄包装模式、各语言特定的绑定方法、错误处理约定、线程安全保证以及跨平台测试策略。
 >
@@ -126,7 +126,7 @@ my-dologger-adapter/
 
 ```python
 # dologger/ffi.py -- 通过 ctypes 的原始 C ABI 绑定
-# （本文件已用 v0.1.0 的 dologger_core.dll 实测运行）
+# （本文件已用 v0.0.1 的 dologger_core.dll 实测运行）
 
 import ctypes
 import platform
@@ -222,7 +222,7 @@ _lib.dologger_get_last_error.restype = ctypes.c_int32
 
 ```python
 # dologger/engine.py -- 惯用的 Python 接口
-# （与下方 ffi.py 配套，已用 v0.1.0 的 dologger_core.dll 实测运行）
+# （与下方 ffi.py 配套，已用 v0.0.1 的 dologger_core.dll 实测运行）
 
 import ctypes
 import atexit
@@ -247,7 +247,7 @@ class Engine:
         self._handle = None
         self._closed = False
 
-        # 版本检查（v0.1.0 无 dologger_get_abi_version，用 dologger_version）
+        # 版本检查（v0.0.1 无 dologger_get_abi_version，用 dologger_version）
         version_c = _lib.dologger_version()
         self._version = version_c.decode("utf-8") if version_c else "unknown"
 
@@ -421,7 +421,7 @@ class DoLoggerHandler(logging.Handler):
 
 ```python
 # dologger/ffi_cffi.py -- 使用 cffi 的替代方案（需要 cffi 包）
-# （伪代码/示意 — 需要安装 cffi 才能运行；cdef 签名按 v0.1.0 真实 ABI 给出）
+# （伪代码/示意 — 需要安装 cffi 才能运行；cdef 签名按 v0.0.1 真实 ABI 给出）
 
 from cffi import FFI
 
@@ -922,7 +922,7 @@ func (e *Engine) Shutdown() error {
 
 ### 集成测试示例（Python）
 
-（以下测试文件针对上方 ffi.py + engine.py 组成的包；其全部行为——初始化/关闭、全级别日志、8 线程并发提交、双重关闭、关闭后拒绝、上下文管理器——已用 v0.1.0 的 dologger_core.dll 以等价的纯 Python 脚本逐一验证通过。运行需要 `pytest`）：
+（以下测试文件针对上方 ffi.py + engine.py 组成的包；其全部行为——初始化/关闭、全级别日志、8 线程并发提交、双重关闭、关闭后拒绝、上下文管理器——已用 v0.0.1 的 dologger_core.dll 以等价的纯 Python 脚本逐一验证通过。运行需要 `pytest`）：
 
 ```python
 # tests/test_engine.py
@@ -984,7 +984,7 @@ class TestEngine:
 
 ### 跨平台 CI 配置
 
-（示例 CI 配置 — YAML 语法有效，但该 workflow 文件在 v0.1.0 仓库中尚不存在；`pip install -e adapters/python/` 需要为 Python 适配器补充打包元数据）：
+（示例 CI 配置 — YAML 语法有效，但该 workflow 文件在 v0.0.1 仓库中尚不存在；`pip install -e adapters/python/` 需要为 Python 适配器补充打包元数据）：
 
 ```yaml
 # .github/workflows/adapter-tests.yml
@@ -1029,7 +1029,7 @@ jobs:
 # pyproject.toml
 [project]
 name = "dologger"
-version = "0.1.0"
+version = "0.0.1"
 description = "DoLogger 日志引擎的 Python 适配器"
 requires-python = ">=3.8"
 
@@ -1059,7 +1059,7 @@ go 1.21
 # Cargo.toml（与仓库 adapters/rust/Cargo.toml 一致）
 [package]
 name = "dologger-sdk"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [dependencies]

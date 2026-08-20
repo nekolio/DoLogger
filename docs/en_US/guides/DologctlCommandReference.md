@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](DologctlCommandReference.md) | [中文：dologctl 命令参考](../../zh_CN/guides/DologctlCommandReference.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-13 | **Target Audience**: Operators, Integrators, Plugin Developers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-13 | **Target Audience**: Operators, Integrators, Plugin Developers
 >
 > **Purpose**: The complete reference for the `dologctl` command-line tool. Every subcommand, option, exit code, and representative example, with output-format guidance for both human and machine consumers.
 
@@ -142,7 +142,7 @@ dologctl plugin install <source>
 
 ```bash
 dologctl plugin install ./target/release/formatter_json.dll
-# pseudocode/illustrative — v0.1.0 install only accepts local file paths (fs::copy), not URLs
+# pseudocode/illustrative — v0.0.1 install only accepts local file paths (fs::copy), not URLs
 # dologctl plugin install https://plugins.example.com/formatter_json-v1.2.0.zip
 ```
 
@@ -276,18 +276,21 @@ dologctl plugin totp                     # current 6-digit code
 
 ### dologctl verify-log
 
-Verify a log file's audit chain offline: Ed25519 signatures, LSN continuity, and `prev_hash` linkage.
+Verify a log file's audit chain offline: Ed25519 signatures (read from the
+`audit.log.sig` sidecar), LSN continuity, `content_hash` integrity, and
+`prev_hash` linkage.
 
 ```text
-dologctl verify-log <path> [--pubkey <hex>]
+dologctl verify-log <path> [--sidecar <path>] [--pubkey <hex>]
 ```
 
 | Option | Description |
 |:-:|:-:|
+| `--sidecar <path>` | Path to the signature sidecar (`audit.log.sig`). Per-record signatures are verified only when provided; WORM files must be archived alongside their sidecar. |
 | `--pubkey <hex>` | Public key (64 hex chars) for signature verification. Omitted = structural verification only. |
 
 ```bash
-dologctl verify-log audit.worm --pubkey "$(cat pubkey.hex)"
+dologctl verify-log audit.worm --sidecar audit.sig --pubkey "$(cat pubkey.hex)"
 dologctl verify-log audit.worm --output json    # machine-readable verdict
 ```
 

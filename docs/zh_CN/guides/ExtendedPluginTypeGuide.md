@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](ExtendedPluginTypeGuide.md) | [English: DoLogger Extended Plugin Type Development Guide](../../en_US/guides/ExtendedPluginTypeGuide.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 高级插件开发者、核心贡献者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 高级插件开发者、核心贡献者
 >
 > **用途**: 本文档为 DoLogger 中全部 9 种 VTable 插件类型的实现提供高级指导。涵盖选择插件类型的设计决策、沙箱感知的 SyscallBroker 实现、自定义 PolicyProvider 模式、插件依赖管理、用于热重载的状态序列化以及多阶段插件注册。
 >
@@ -80,7 +80,7 @@ flowchart TD
 
 ### ConfigProvider VTable
 
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_config_provider_vtable_t`：`open`/`read_config`/`close`）)：
+(伪代码 — 示意性 VTable 草图；v0.0.1 实际定义见 `core/include/dologger_core.h`（`dologger_config_provider_vtable_t`：`open`/`read_config`/`close`）)：
 
 ```c
 typedef struct {
@@ -141,7 +141,7 @@ dologger_error_t etcd_config_load(void *state, dologger_config_buf_t *out) {
 
 ### KeyProvider VTable
 
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_key_provider_vtable_t`：`open`/`get_public_key`/`sign_detached`/`close`）)：
+(伪代码 — 示意性 VTable 草图；v0.0.1 实际定义见 `core/include/dologger_core.h`（`dologger_key_provider_vtable_t`：`open`/`get_public_key`/`sign_detached`/`close`）)：
 
 ```c
 typedef struct {
@@ -175,7 +175,7 @@ typedef dologger_error_t (*dologger_key_rotate_fn_t)(
 某些后端同时服务于两个目的。例如 HashiCorp Vault 可以存储配置和签名密钥：
 
 ```toml
-# （示意 — v0.1.0 引擎不会从 dologger.toml 读取 [plugins] 节）
+# （示意 — v0.0.1 引擎不会从 dologger.toml 读取 [plugins] 节）
 [plugins.vault-config]
 type = "config_provider"
 path = "/usr/lib/dologger/plugins/libvault_config.so"
@@ -218,7 +218,7 @@ sequenceDiagram
 
 ### SyscallBroker VTable
 
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_syscall_broker_vtable_t`：`syscall_io`）)：
+(伪代码 — 示意性 VTable 草图；v0.0.1 实际定义见 `core/include/dologger_core.h`（`dologger_syscall_broker_vtable_t`：`syscall_io`）)：
 
 ```c
 typedef struct {
@@ -238,7 +238,7 @@ typedef dologger_error_t (*dologger_broker_dispatch_fn_t)(
 
 生产 `SyscallBroker` 必须强制执行策略。代理具有 Blue 信任——它可以做任何事情。其工作是决定允许调用 Yellow/Red 插件做什么。
 
-(伪代码 — 仅示意策略执行流程；`DO_LOG_TRUST_*`、`dologger_emit_sysmon` 等符号在 v0.1.0 中不存在)：
+(伪代码 — 仅示意策略执行流程；`DO_LOG_TRUST_*`、`dologger_emit_sysmon` 等符号在 v0.0.1 中不存在)：
 
 ```c
 dologger_error_t my_broker_dispatch(
@@ -325,7 +325,7 @@ dologger_error_t my_broker_dispatch(
 
 ### PolicyProvider VTable
 
-(伪代码 — 示意性 VTable 草图；v0.1.0 实际定义见 `core/include/dologger_core.h`（`dologger_policy_provider_vtable_t`：仅 `evaluate`）)：
+(伪代码 — 示意性 VTable 草图；v0.0.1 实际定义见 `core/include/dologger_core.h`（`dologger_policy_provider_vtable_t`：仅 `evaluate`）)：
 
 ```c
 typedef struct {
@@ -350,7 +350,7 @@ typedef dologger_error_t (*dologger_policy_evaluate_fn_t)(
 
 经典的速率限制模式。为每个日志级别维护一个令牌桶。
 
-(伪代码 — 令牌桶速率限制器示例，仅示意；`dologger_policy_result_t` 等在 v0.1.0 中不存在)：
+(伪代码 — 令牌桶速率限制器示例，仅示意；`dologger_policy_result_t` 等在 v0.0.1 中不存在)：
 
 ```c
 typedef struct {
@@ -522,7 +522,7 @@ requires_plugins = [
 
 ### 循环依赖检测
 
-(伪代码 — 依赖验证器示意（`for each` 为伪语法，非可编译 C）；v0.1.0 实际实现见 `core/src/plugin/dependency.rs`）：
+(伪代码 — 依赖验证器示意（`for each` 为伪语法，非可编译 C）；v0.0.1 实际实现见 `core/src/plugin/dependency.rs`）：
 
 ```c
 // 引擎的依赖验证器（简化）
@@ -597,7 +597,7 @@ requires_plugins = [
 
 ### 状态序列化 VTable 函数
 
-(伪代码 — 规划中的可选导出；v0.1.0 尚无 `dologger_state_buf_t`，热重载序列化未实现)：
+(伪代码 — 规划中的可选导出；v0.0.1 尚无 `dologger_state_buf_t`，热重载序列化未实现)：
 
 ```c
 // 可选导出——如果不存在，插件在热重载时重新初始化
@@ -727,7 +727,7 @@ mount_phase = ["process", "filter"]  # 多个阶段
 
 ### 导出多个 VTable
 
-(伪代码 — 多阶段插件导出示意；v0.1.0 实际 VTable 定义见 `core/include/dologger_core.h`（无 `process_batch`/`filter_batch` 成员，且无 `dologger_vtable` 符号约定）)：
+(伪代码 — 多阶段插件导出示意；v0.0.1 实际 VTable 定义见 `core/include/dologger_core.h`（无 `process_batch`/`filter_batch` 成员，且无 `dologger_vtable` 符号约定）)：
 
 ```c
 // 插件为每个阶段导出一个 VTable：
@@ -811,7 +811,7 @@ dologger_error_t pii_detect_filter(dologger_record_t *record,
 
 同一管道阶段的插件可以通过读取彼此的输出进行协作：
 
-(伪代码 — 插件协作示意；v0.1.0 实际字段 API 为 `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`，返回错误码而非指针)：
+(伪代码 — 插件协作示意；v0.0.1 实际字段 API 为 `dologger_field_set(record, field, value, &err)` / `dologger_field_get(...)`，返回错误码而非指针)：
 
 ```c
 // 插件 A（FieldProvider）写入一个字段
@@ -837,7 +837,7 @@ requires_fields = ["verified.user_id"]    # 插件 A 提供此字段
 
 插件通过插件注册表将工作委托给另一个插件：
 
-(伪代码 — 插件委托模式示意；`dologger_get_plugin()` 等注册表 API 在 v0.1.0 中不存在)：
+(伪代码 — 插件委托模式示意；`dologger_get_plugin()` 等注册表 API 在 v0.0.1 中不存在)：
 
 ```c
 // 一个 Formatter，将特定记录类型委托给另一个 Formatter
@@ -904,7 +904,7 @@ dologger_error_t user_resolver_provide_fields(
 
 插件可以将自己的诊断信息发送到 sysmon 事件流：
 
-(伪代码 — 插件内 sysmon 集成示意；`dologger_emit_sysmon` 在 v0.1.0 中不存在)：
+(伪代码 — 插件内 sysmon 集成示意；`dologger_emit_sysmon` 在 v0.0.1 中不存在)：
 
 ```c
 // 从插件内发出自定义指标
@@ -920,7 +920,7 @@ dologger_emit_sysmon("PLUGIN_METRIC",
 
 当插件的依赖项或外部资源不可用时，插件应优雅降级：
 
-(伪代码 — 优雅降级示例，仅示意；v0.1.0 实际签名 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
+(伪代码 — 优雅降级示例，仅示意；v0.0.1 实际签名 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 
 ```c
 dologger_error_t my_plugin_init(const dologger_plugin_config_t *config) {

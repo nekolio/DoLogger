@@ -94,7 +94,7 @@ hand-written `mod.rs` exposes the public frame API:
 The FlatBuffers internals stay crate-private; `encode_record` /
 `decode_record` / `validate_frame` are the stable public API.
 
-## Status — v0.1.0
+## Status — v0.0.1
 
 The wire format and the `encode_record` / `decode_record` /
 `validate_frame` API are delivered and already used by the shared-memory
@@ -107,12 +107,12 @@ path above describes the target design rather than today's wiring.
 
 ```
 ┌──────────┬──────────┬─────────────────────────────────────┐
-│  Magic   │  Header  │  FlatBuffer (Record table)           │
-│  4 bytes │ 12 bytes │  variable length                     │
+│  Magic   │  Header  │  FlatBuffer (Record table)          │
+│  4 bytes │ 12 bytes │  variable length                    │
 ├──────────┼──────────┼─────────────────────────────────────┤
 │ "SIF1"   │ version  │  ┌──────────────────────────────┐   │
 │          │ total_len│  │ root table offset (u32)      │   │
-│          │ count    │  │ vtable + data                 │   │
+│          │ count    │  │ vtable + data                │   │
 │          │          │  └──────────────────────────────┘   │
 └──────────┴──────────┴─────────────────────────────────────┘
 ```

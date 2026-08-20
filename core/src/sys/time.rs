@@ -136,6 +136,20 @@ impl TimeSource {
         }
     }
 
+    /// Get the current UTC timestamp as nanoseconds since Unix epoch (u64).
+    ///
+    /// Returns `secs * 1_000_000_000 + nanos` as a single `u64`. This is the
+    /// *true* wall clock (follows NTP corrections). Suitable for storing in
+    /// `Record::timestamp` which uses a compact u64 layout.
+    pub fn now_nanos(&self) -> u64 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        now.as_secs()
+            .saturating_mul(1_000_000_000)
+            .saturating_add(now.subsec_nanos() as u64)
+    }
+
     /// Get the current time as milliseconds since Unix epoch.
     ///
     /// This is the *hybrid* clock: `wall_base + monotonic-elapsed`. It always

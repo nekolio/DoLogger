@@ -35,6 +35,7 @@ use crate::security::SignatureEngine;
 use crate::sink::SecuritySink;
 use crate::sink::Sink;
 use crate::sink::WormSink;
+use sha2::{Digest, Sha256};
 
 /// Default ratio of ring buffer capacity reserved for AUDIT records.
 pub const DEFAULT_AUDIT_BUFFER_RATIO: f64 = 0.10; // 10%
@@ -177,6 +178,10 @@ fn audit_consumer_loop(
     external_anchor: Option<Arc<Mutex<ExternalAnchor>>>,
 ) {
     let empty_sleep = Duration::from_micros(50);
+    // A.6 chain state: predecessor (content_hash, lsn) for the derived
+    // prev_hash. Owned here — this loop is the only signer in the audit domain.
+    let mut prev_content_hash = [0u8; 32];
+    let mut prev_lsn = 0u64;
 
     while !shutdown.load(Ordering::Acquire) {
         let drained = ring_buffer.drain(128, |record_ptr| {
@@ -185,13 +190,21 @@ fn audit_consumer_loop(
 
             // Mandatory signing for AUDIT
             if record.level == crate::record::LogLevel::Audit {
-                let sig = signature_engine.sign_record(record);
-                record.signature = sig;
+                // Compute content_hash before signing (excluded from hash input)
+                record.compute_content_hash();
+                // A.6: prev_hash = SHA-256(prev.content_hash || prev.lsn),
+                // derived at sign time, never stored.
+                let mut hasher = Sha256::new();
+                hasher.update(prev_content_hash);
+                hasher.update(prev_lsn.to_le_bytes());
+                let prev_hash: [u8; 32] = hasher.finalize().into();
+                let sig = signature_engine.sign_record(record, &prev_hash);
+                prev_content_hash = record.content_hash;
+                prev_lsn = record.lsn;
 
                 // Accumulate chain hash for external anchoring
                 if let Some(ref anchor) = external_anchor {
-                    let chain_hash =
-                        SignatureEngine::record_chain_hash(record.lsn, &record.signature);
+                    let chain_hash = SignatureEngine::record_chain_hash(record.lsn, &sig);
                     if let Ok(mut guard) = anchor.lock() {
                         guard.accumulate_hash(&chain_hash);
                         let _ = guard.maybe_anchor(&signature_engine);

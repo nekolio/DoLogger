@@ -1,6 +1,6 @@
 # DoLogger Operations & Security Guide
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE, Operations Engineers, Security Engineers, Compliance Officers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE, Operations Engineers, Security Engineers, Compliance Officers
 >
 > **Purpose**: Production deployment, monitoring, key management, audit verification, incident response, and compliance configuration for DoLogger. This is the operations manual for running DoLogger in production environments.
 >
@@ -204,7 +204,7 @@ The System Monitor emits structured JSON events to `stderr` (or configurable out
 
 ### Control Plane API
 
-The control plane provides a lightweight HTTP API for runtime management — planned: none of these endpoints are started with the engine in v0.1.0.
+The control plane provides a lightweight HTTP API for runtime management — planned: none of these endpoints are started with the engine in v0.0.1.
 
 | Method | Path | Auth | Description |
 |:-:|:-:|:-:|:-:|
@@ -216,7 +216,7 @@ The control plane provides a lightweight HTTP API for runtime management — pla
 ### Health Check
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0;
+# pseudocode/illustrative — the control plane is not started in v0.0.1;
 # the current implementation (core/src/sys/control_plane.rs) only has
 # GET /status, POST /level, POST /reload — no /health endpoint
 # curl -s http://127.0.0.1:9090/health
@@ -227,7 +227,7 @@ The control plane provides a lightweight HTTP API for runtime management — pla
 
 ```bash
 # pseudocode/illustrative — the control plane (GET /status) is not started
-# with the engine in v0.1.0
+# with the engine in v0.0.1
 # curl -s http://127.0.0.1:9090/status | jq .
 ```
 
@@ -253,7 +253,7 @@ The response is deliberately minimal today; richer metrics (uptime, ring buffer 
 
 ```bash
 # pseudocode/illustrative — the control plane (POST /level) is not started
-# with the engine in v0.1.0
+# with the engine in v0.0.1
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -274,7 +274,7 @@ export DO_LOG_CONFIG_LOCK=1
 vim /etc/dologger/default.toml
 
 # pseudocode/illustrative — the control plane (POST /reload) is not started
-# with the engine in v0.1.0
+# with the engine in v0.0.1
 # curl -X POST http://127.0.0.1:9090/reload
 
 # Dry-run first (planned — the reload endpoint ignores the request body today)
@@ -285,7 +285,7 @@ vim /etc/dologger/default.toml
 
 ### Control Plane Security
 
-- Binds to `127.0.0.1:9090` by default (localhost only; planned — the control plane is not started in v0.1.0)
+- Binds to `127.0.0.1:9090` by default (localhost only; planned — the control plane is not started in v0.0.1)
 - mTLS + JWT authentication for remote access is planned
 - Production: use host firewall to restrict access
 
@@ -303,10 +303,10 @@ DoLogger has two independent signing domains, each with its own key:
 
 | Key Domain | Purpose | Key Material | Managed By |
 |:-:|:-:|:-:|:-:|
-| Log record signing | Per-record Ed25519 signatures on audit domains | Ephemeral pair generated in memory at startup | Built-in `DefaultKeyProvider` (planned — no `KeyProvider` plugin ships in v0.1.0) |
+| Log record signing | Per-record Ed25519 signatures on audit domains | Ephemeral pair generated in memory at startup | Built-in `DefaultKeyProvider` (planned — no `KeyProvider` plugin ships in v0.0.1) |
 | Plugin signing | Ed25519 signatures over official plugin bundles (Blue trust) | Private seed stored **only** as the `DOLOGGER_PLUGIN_SIGNING_KEY` GitHub Actions secret; public anchors + CRL committed | `dologctl plugin` commands + committed `plugins/official/trust-anchors/` |
 
-### Plugin Signing Keys (v0.1.0 — live)
+### Plugin Signing Keys (v0.0.1 — live)
 
 The official plugin bundle is signed with the project's Ed25519 seed. The private
 key never enters the repository:
@@ -393,17 +393,30 @@ Future hard guarantee (roadmap): **OIDC → cloud KMS**. GitHub's OIDC token wou
 let the workflow obtain the signing key on demand from a cloud KMS (e.g. AWS KMS
 signing or Azure Key Vault) with short-lived, per-run grants, eliminating any
 long-lived secret from CI. This needs a cloud account and breaks offline signing,
-so it is intentionally not wired up in v0.1.0.
+so it is intentionally not wired up in v0.0.1.
 
-### Log Record Signing Keys (planned)
+### Log Record Signing Keys (TPM-backed, phase 1)
 
-The engine signs audit records with the built-in `DefaultKeyProvider`: a random
-Ed25519 key pair generated in memory at startup. The private key never touches
-disk, and the public key is exposed via the API for offline verification.
-Persistent key storage — file-based or HSM-backed — is **not implemented in
-v0.1.0**: the `KeyProvider` plugin interface is defined, but no such plugin ships
-with this release. The record-signing rotation lifecycle and CRL below are the
-design that plugin will implement.
+The engine signs audit records with a **TPM-provisioned** Ed25519 key
+(author ruling 2026-08-18): the private key is created inside the TPM,
+**non-exportable**, and all signing happens in hardware.
+
+| Platform | Backend | Status |
+|:-:|:-:|:-:|
+| Windows | CNG (TPM-based key, zero new dependencies) | Phase 1 |
+| Linux | `tpm2-tss` | Phase 1 |
+| macOS | Secure Enclave (equivalent hardware boundary) | Phase 1 |
+
+Policy: `enable_signature = true` without an available TPM **refuses startup
+with an explicit error** — no silent downgrade to a software key. The
+`KeyProvider` plugin interface is the existing extension hole for external
+HSM/KMS backends. Phase 2+ (PCR measurement, attestation, monotonic
+rollback counter) is stubbed for a post-v1.0 review.
+
+The default signing granularity is **per-record** (audit favors security over
+throughput); block-level Merkle signing (`audit_block_size > 1`) is an
+optional optimization. A block size is only promoted to a documented default
+after an authoritative Criterion sweep on the real TPM backend.
 
 #### Key rotation lifecycle
 
@@ -411,7 +424,7 @@ design that plugin will implement.
 
 ```mermaid
 flowchart TD
-    P1["Phase 1: Initiate Rotation<br/>New key pair generated<br/>Old key enters grace period"] --> P2["Phase 2: Grace Period (default 7 days)<br/>Both keys active simultaneously<br/>Old key signs in-flight records<br/>New key signs newly submitted records<br/>Verifier accepts records signed by EITHER key"]
+    P1["Phase 1: Initiate Rotation<br/>New TPM key pair created<br/>Old key enters grace period"] --> P2["Phase 2: Grace Period (default 7 days)<br/>Both keys active simultaneously<br/>Old key signs in-flight records<br/>New key signs newly submitted records<br/>Verifier accepts records signed by EITHER key"]
     P2 --> P3["Phase 3: Rotation Complete<br/>Old key revoked (added to CRL)<br/>All new records signed with new key<br/>Old-key records still verifiable with old public key"]
     P3 --> P4["Phase 4: Emergency Revocation (optional)<br/>Key fingerprint added to CRL immediately<br/>All records signed by revoked key fail verification"]
 ```
@@ -435,7 +448,7 @@ pub enum CrlReason {
 
 The plugin-signing revocation list (`plugins/official/trust-anchors/revoked.txt`)
 shares the same `CrlReason` vocabulary (`compromised`, `superseded`, `deactivated`)
-but is enforced by the plugin loader, which is live in v0.1.0.
+but is enforced by the plugin loader, which is live in v0.0.1.
 
 
 ---
@@ -444,13 +457,14 @@ but is enforced by the plugin loader, which is live in v0.1.0.
 
 ### `dologctl verify-log`
 
-Verify the integrity of a WORM audit log (takes a single SIF/WORM file path — no `--path`/`--verbose` options):
+Verify the integrity of a WORM audit log (takes a single SIF/WORM file path — no `--path`/`--verbose` options). The 64B Ed25519 signatures live in the companion sidecar `audit.log.sig`; pass it with `--sidecar` (in per-record mode) so non-repudiation can be checked:
 
 ```bash
-dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+    --sidecar /var/lib/dologger/audit/audit-000001.sig
 ```
 
-Output (illustrative — the actual v0.1.0 output is a "Verification Results" summary; see the [dologctl Command Reference](guides/DologctlCommandReference.md)):
+Output (illustrative — the actual v0.0.1 output is a "Verification Results" summary; see the [dologctl Command Reference](guides/DologctlCommandReference.md)):
 
 ```
 Log File Verification
@@ -458,7 +472,9 @@ Log File Verification
   Records parsed: 4
 Verification Results
   Total records:     4
+  Content hashes:    4 valid, 0 mismatched (100.0% ok)
   Chain links:       3 valid, 0 broken (100.0% ok)
+  Signatures:        4 valid, 0 invalid (100.0% ok)
   LSN continuity:    PASS - no gaps detected
 VERIFICATION PASSED - all checks OK
 ```
@@ -469,7 +485,8 @@ When a problem is found, per-record details are printed on stderr, e.g. `CHAIN B
 
 | Check | What It Means |
 |:-:|:-:|
-| Ed25519 signature | The record content has not been modified since signing |
+| content_hash | The record content matches its recomputed SHA-256 (memory/runtime tamper evidence) |
+| Ed25519 signature (sidecar) | The record was authored by the TPM-held key (non-repudiation) |
 | prev_hash chain | The record is in its original position in the sequence |
 | LSN monotonicity | Records are in correct chronological order |
 | Gap detection | Missing records are identified and reported |
@@ -479,7 +496,7 @@ When a problem is found, per-record details are printed on stderr, e.g. `CHAIN B
 Verify external anchoring hashes (planned):
 
 ```bash
-# Takes the anchor JSON file path + --pubkey; v0.1.0 has no
+# Takes the anchor JSON file path + --pubkey; v0.0.1 has no
 # --anchor-file/--worm-path options
 dologctl verify-anchor anchors/2026-08.json --pubkey "$(cat pubkey.hex)"
 
@@ -495,7 +512,8 @@ Set up a daily cron job:
 # /etc/cron.daily/dologger-audit-verify
 #!/bin/bash
 # `-o json` is the global output-format flag; verify-log takes a single file path
-REPORT=$(dologctl verify-log /var/lib/dologger/audit/audit-000001.worm -o json)
+REPORT=$(dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+         --sidecar /var/lib/dologger/audit/audit-000001.sig -o json)
 if echo "$REPORT" | jq -e '.status == "failed"' > /dev/null; then
     echo "AUDIT INTEGRITY FAILURE: $REPORT" | \
         mail -s "CRITICAL: DoLogger audit chain broken" security@example.com
@@ -509,18 +527,25 @@ fi
 | Operation | Command |
 |:-:|:-:|
 | List WORM segments | `ls -la /var/lib/dologger/audit/` |
-| Verify chain | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm` |
+| Verify chain | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm --sidecar /var/lib/dologger/audit/audit-000001.sig` |
 | Export audit records | *(pseudocode — `dologctl audit export` is a planned feature)* |
 | Check latest LSN | `dologctl verify-log /var/lib/dologger/audit/audit-000001.worm -o json` |
 
+The companion signature file follows the same WORM lifecycle as its audit
+file and **must be archived together** — without it, non-repudiation cannot
+be verified offline.
+
 ### Tamper Detection
 
-The LSN + prev_hash chain provides self-verifying tamper evidence:
+The LSN + content_hash chain provides self-verifying tamper evidence
+(author ruling 2026-08-18: the primary battlefield is **memory/runtime**
+tampering; disk tampering is additionally covered by WORM semantics):
 
-- **Record modification**: The Ed25519 signature will not verify -- the record content changed since signing.
+- **Record modification**: The content_hash will not match the recomputed value, and the Ed25519 signature will not verify -- the record content changed since signing.
 - **Record deletion**: The prev_hash of the next record will not match the expected value -- the chain is broken.
 - **Record insertion**: The prev_hash will not match, and the LSN will not be monotonic.
 - **Record reordering**: Both prev_hash and LSN checks will fail.
+- **Forgery (re-signing)**: Impossible without the TPM-held key -- an attacker cannot mint valid signatures even with full memory access.
 
 ---
 
@@ -606,21 +631,21 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Triage:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .ring_buffer
    # Check pct_used, drops_total, emergency_spills
    ```
 
 2. **Identify bottleneck:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **Mitigate:**
    ```bash
    # pseudocode/illustrative — the /sink/disable endpoint is planned; the
-   # v0.1.0 control plane only has /status, /level, /reload
+   # v0.0.1 control plane only has /status, /level, /reload
    # curl -X POST http://127.0.0.1:9090/sink/disable -d '{"sink": "kafka"}'
    ```
 
@@ -648,19 +673,19 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 1. **Check current profile:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **Check sink health:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 
 3. **Check if signing is unexpectedly enabled:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    # Ed25519 signing adds ~17 us per record
    ```
@@ -673,7 +698,7 @@ The LSN + prev_hash chain provides self-verifying tamper evidence:
 
 5. **Mitigation:**
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl -X POST http://127.0.0.1:9090/level -d '{"level": "ERROR"}'
    ```
 
@@ -866,7 +891,7 @@ tail -f dologger_internal.log | jq 'select(.category == "SANDBOX_VIOLATION")'
 
 ### Baseline Benchmarks
 
-Establish a baseline on your production hardware (the v0.1.0 repository ships `latency`, `throughput`, and `latency_percentiles` benchmarks):
+Establish a baseline on your production hardware (the v0.0.1 repository ships `latency`, `throughput`, and `latency_percentiles` benchmarks):
 
 ```bash
 # Run all benchmarks and save the results
@@ -891,7 +916,7 @@ A regression is flagged when:
 ### Runtime Performance Monitoring
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0
+# pseudocode/illustrative — the control plane is not started in v0.0.1
 # watch -n 5 'curl -s http://127.0.0.1:9090/status | jq .pipeline'
 
 # Key metrics today: status, level, profile, plugins, signature_enabled.
@@ -904,19 +929,19 @@ If performance degrades after a change:
 
 1. **Compare profiles**: Has `performance_profile` been changed?
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .profile
    ```
 
 2. **Check signing overhead**: Is Ed25519 signing unexpectedly enabled?
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .signature_enabled
    ```
 
 3. **Check sink health**: A slow downstream causes backpressure.
    ```bash
-   # pseudocode/illustrative — the control plane is not started in v0.1.0
+   # pseudocode/illustrative — the control plane is not started in v0.0.1
    # curl http://127.0.0.1:9090/status | jq .sinks
    ```
 

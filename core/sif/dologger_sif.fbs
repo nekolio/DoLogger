@@ -225,6 +225,15 @@ table Record {
   ///   0x02 — signed (Ed25519 signature populated)
   ///   0x04 — audit  (record level is Audit; WORM chain applies)
   flags:uint32 = 0;
+
+  // =========================================================================
+  // Audit chain (ADR-002 A.3 / A.6)
+  // =========================================================================
+
+  /// SHA-256 canonical-serialization hash (A.3) of the record content.
+  /// 32 bytes; nonzero for AUDIT records (part of the tamper-evident chain).
+  /// Absent on records written before this field existed (schema evolution).
+  content_hash:[ubyte] (length:32);
 }
 
 // =============================================================================

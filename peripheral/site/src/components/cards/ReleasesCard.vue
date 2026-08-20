@@ -80,7 +80,7 @@ const changelog = computed<Changelog>(() => {
 <template>
   <div>
     <div class="chlog-head">
-      <a class="chlog-tag" :href="latest?.html_url || RELEASES_URL">{{ latest?.tag_name || 'v0.1.0' }}</a>
+      <a class="chlog-tag" :href="latest?.html_url || RELEASES_URL">{{ latest?.tag_name || 'v0.0.1' }}</a>
       <span v-if="latest?.prerelease" class="prerelease-badge">{{ t('rel-prerelease') }}</span>
       <span class="chlog-date">{{ fmtDate(latest?.published_at) }}</span>
     </div>

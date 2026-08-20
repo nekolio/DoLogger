@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](SecurityWhitepaper.md) | [中文：安全白皮书](../../zh_CN/guides/SecurityWhitepaper.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Security Engineers, Compliance Officers, Penetration Testers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Security Engineers, Compliance Officers, Penetration Testers
 >
 > **Purpose**: This document provides a comprehensive security analysis of the DoLogger logging engine. It covers the threat model, cryptographic design, trust boundaries, sandbox architecture, supply chain security, data integrity protections, and compliance mapping for regulated environments.
 >
@@ -195,52 +195,76 @@ Red plugins write to the `ext.*` namespace. These fields:
 
 Ed25519 signatures cover:
 
-1. **Always**: All Ring 0 fields
-2. **Always**: All Ring 1 fields (including LSN and `prev_hash`)
-3. **Configurable** (`sign_ring2 = true`): All Ring 2 fields
-4. **Never**: Ring 3 fields (protected by CRC32C)
+1. **Always**: All fixed hot fields (timestamp, level, message, pid, tid, LSN)
+2. **Always**: All KV fields (deterministic serialization — same canonical
+   order as the KV encoding spec, shared with the record encoding path)
+3. **Never**: Overflow spill state (protected by CRC32C)
 
 The signing process (pseudocode — illustrative algorithm description):
 
 ```
-1. Serialize covered fields in a canonical order (sorted lexicographically by field name).
-2. Compute the Ed25519 signature: sig = Ed25519_Sign(secret_key, serialized_fields).
-3. Store sig in record.signature (Ring 0, immutable).
+1. Serialize covered fields in canonical KV order (tag+len+value).
+2. Compute the content hash: content_hash = SHA-256(serialized_fields).
+3. For per-record mode (default):
+     sig = Ed25519_Sign(key, SHA-256(LSN ‖ content_hash ‖ prev_hash))
+     store sig in the companion file audit.log.sig
+   For block mode (optional, audit_block_size > 1):
+     collect content_hash[i] for the block, build a Merkle root,
+     sig_block = Ed25519_Sign(key, SHA-256(block_seq ‖ block_root))
 ```
 
-### LSN Blockchain-Style Audit Chain
+### LSN Content-Hash Audit Chain
 
-Each log record is cryptographically linked to its predecessor (pseudocode — illustrative, not executable):
+Each AUDIT record carries a 32B `content_hash` in-Record; the chain link is
+derived from it (pseudocode — illustrative, not executable):
 
 ```
 Record(N):
-  lsn       = N
-  prev_hash = SHA-256( Record(N-1).signature || Record(N-1).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256( Record(N-1).content_hash ‖ Record(N-1).lsn )
 
 Record(N+1):
-  lsn       = N+1
-  prev_hash = SHA-256( Record(N).signature || Record(N).lsn )
-  signature = Ed25519_Sign( Ring0_fields || Ring1_fields )
+  lsn          = N+1
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256( Record(N).content_hash ‖ Record(N).lsn )
 ```
+
+The 64B Ed25519 signature does **not** live in the Record — it is written
+to the companion sidecar `audit.log.sig` (per-record mode: one 64B
+signature per LSN; block mode: one signature per block). This keeps the
+hot 256B structure free of cold-path crypto data while preserving
+per-record non-repudiation.
+
+**Threat coverage** (author ruling 2026-08-18):
+
+| Threat | Layer | Mechanism |
+|:-:|:-:|:-:|
+| Memory tampering (runtime) | content_hash chain | Any mutation of a signed record breaks `prev_hash` continuity — detected on verify |
+| Forgery (re-signing) | Ed25519 signature | Key is non-exportable inside the TPM; attacker cannot mint valid signatures |
+| Disk tampering | WORM + chain | fsync + read-only permissions + chain re-verification |
 
 **Verification algorithm** (pseudocode — illustrative, not executable):
 
 ```
-verify_chain(records):
+verify_chain(records, sidecar):
   for i = 0 to len(records) - 1:
-    1. Verify Ed25519 signature of records[i]:
-       pubkey.verify(records[i].signature, serialize(records[i].Ring0+Ring1))
-       → FAIL if invalid.
+    1. Recompute content_hash[i] from canonical serialization;
+       → FAIL if it does not match records[i].content_hash.
 
     2. If i > 0:
-       expected_prev_hash = SHA-256(records[i-1].signature || records[i-1].lsn)
+       expected_prev_hash = SHA-256(records[i-1].content_hash ‖ records[i-1].lsn)
        → FAIL if records[i].prev_hash != expected_prev_hash.
 
     3. Verify monotonic LSN:
        → FAIL if records[i].lsn <= records[i-1].lsn.
 
-    4. If records[i].lsn > records[i-1].lsn + 1:
+    4. Verify Ed25519 signature from the sidecar:
+       per-record:  verify(sig[i], SHA-256(lsn ‖ content_hash ‖ prev_hash))
+       block mode:  recompute Merkle root over block content_hashes,
+                    verify the single block signature.
+
+    5. If records[i].lsn > records[i-1].lsn + 1:
        → MARK as GAP (records[i-1].lsn+1 through records[i].lsn-1 are missing).
 ```
 
@@ -249,6 +273,32 @@ verify_chain(records):
 Gaps are expected and non-malicious in two scenarios:
 - Non-AUDIT records that do not carry an LSN.
 - Emergency buffer spill events where a subset of records bypassed the normal LSN assignment.
+
+### TPM-Backed Key (Phase 1)
+
+The audit signing key is provisioned inside a hardware TPM:
+
+| Platform | Backend | Status |
+|:-:|:-:|:-:|
+| Windows | CNG (TPM-based key, zero new dependencies) | Phase 1 |
+| Linux | `tpm2-tss` | Phase 1 |
+| macOS | Secure Enclave (equivalent hardware boundary) | Phase 1 |
+
+Policy: `enable_signature = true` without an available TPM **refuses
+startup with an explicit error** — no silent downgrade to a software key.
+Phase 2+ (PCR measurement, attestation protocol, monotonic rollback
+counter) is stubbed and deferred to a post-v1.0 review.
+
+### Signature Granularity and Block-Size Gate
+
+- **Default: per-record signing** — audit favors security over throughput.
+- **Optional: block signing** — `audit_block_size > 1` enables Merkle-root
+  block signatures for high-throughput audit deployments.
+- **Gate**: a block size is only promoted to a documented default after an
+  authoritative Criterion sweep (`sign_block_sweep`) on the real TPM
+  backend. The theoretical curve (effective cost = TPM_time/N + SHA-256)
+  suggests throughput saturates while latency/memory grow linearly, so the
+  sweet spot must be measured, not assumed.
 
 ### WORM File Protection
 
@@ -262,13 +312,19 @@ File lifecycle:
 4. Archived:         Moved to cold storage. Read-only permissions persist.
 ```
 
+The companion signature file `audit.log.sig` follows the same lifecycle and
+must be archived alongside its WORM file — without it, offline
+verification cannot check non-repudiation.
+
 **Durability guarantee**: Each write is followed by `fsync()` (when `fsync_on_write = true`), providing MEDIA durability. A system crash after `fsync` returns will not lose the committed record.
 
 **Immutability guarantee**: After sealing, the file permissions prevent modification by any process, including root (though root can `chmod` the file back — this is detectable via inode change time audit).
 
 ### Cryptographic Performance
 
-Measured on AMD Ryzen 9 7950X, single core, Ed25519-dalek 2.0:
+Measured on AMD Ryzen 9 7950X, single core, Ed25519-dalek 2.0
+(software path; TPM hardware latency is backend-dependent and measured on
+the target platform):
 
 | Operation              | Latency    | Throughput       |
 |:-:|:-:|:-:|
@@ -277,6 +333,12 @@ Measured on AMD Ryzen 9 7950X, single core, Ed25519-dalek 2.0:
 | Ed25519 verification   | ~48 us     | ~20,800 verifs/s |
 | SHA-256 (64 bytes)     | ~120 ns    | ~8.3M hashes/s   |
 | CRC32C (64 bytes)      | ~3 ns      | ~330M checks/s   |
+
+AUDIT records additionally pay the TPM signing cost. Per-record mode is
+bounded by TPM ops/s (discrete TPM2: tens of ms per op — measure on the
+target backend); block mode amortizes this over the block size. The
+content_hash chain itself costs ~120 ns–1 us per record (SHA-256), which
+is the dominant in-engine overhead for audit records.
 
 ---
 
@@ -406,7 +468,7 @@ This means a compliance template applied at the system level cannot be subverted
 
 Each compliance template sets all non-downgradable items to `true` with regulatory justification comments. Templates also enforce `level = "AUDIT"` and `performance_profile = "prod-audit"`.
 
-**Applying a compliance template** (illustrative — the `config merge` subcommand and `--compliance` flag are planned, not shipped in v0.1.0; today you merge the TOML files yourself, e.g. keep the `[dologger]` section from `compliance/gdpr.toml`, and then run `dologctl config validate --strict`):
+**Applying a compliance template** (illustrative — the `config merge` subcommand and `--compliance` flag are planned, not shipped in v0.0.1; today you merge the TOML files yourself, e.g. keep the `[dologger]` section from `compliance/gdpr.toml`, and then run `dologctl config validate --strict`):
 
 ```bash
 # Merge a compliance template into your base configuration
@@ -432,9 +494,10 @@ dologctl config validate \
 
 | Layer             | Mechanism                                  | Performance Overhead | Protection Scope |
 |:-:|:-:|:-:|:-:|
-| Ring 3 fields     | CRC32C (SSE 4.2 hardware: ~0.5 cycles/B)   | Negligible           | Accidental corruption detection |
-| Ring 0/1 fields   | Ed25519 signature (~16.96 us per record)    | Moderate             | Cryptographic tamper evidence |
-| Audit chain       | SHA-256 prev\_hash                         | Low (~120 ns)        | Chain-of-custody proof |
+| KV overflow fields| CRC32C (SSE 4.2 hardware: ~0.5 cycles/B)   | Negligible           | Accidental corruption detection |
+| Fixed + KV fields | content_hash chain (SHA-256, ~120 ns–1 us) | Low                 | Memory/runtime tamper detection |
+| Non-repudiation   | Ed25519 signature (sidecar `audit.log.sig`; TPM-backed key) | Per-record: TPM ops/s bound; block mode: amortized | Forgery prevention |
+| Audit chain       | SHA-256 prev_hash (~120 ns)                | Low (~120 ns)        | Chain-of-custody proof |
 | WORM files        | `fsync` + read-only lock (I/O bound)       | Moderate             | Post-commit immutability |
 | External anchor   | Periodic root hash publication (planned)        | N/A (offline)        | Long-term tamper resistance |
 
@@ -442,25 +505,28 @@ dologctl config validate \
 
 ```text
 (illustrative example output — the summary numbers are fabricated;
-verify-log takes a single file path)
-1. Operator runs: dologctl verify-log /var/lib/dologger/audit/audit-000001.worm
+verify-log takes a single file path plus the signature sidecar)
+1. Operator runs: dologctl verify-log /var/lib/dologger/audit/audit-000001.worm \
+                  --sidecar /var/lib/dologger/audit/audit-000001.sig
 
 2. For each record in the WORM file:
    a. Parse the record binary format
-   b. Verify Ed25519 signature → PASS / FAIL
+   b. Recompute content_hash → FAIL if it does not match the stored value
    c. Verify prev_hash chain → PASS / FAIL / GAP
    d. Verify LSN monotonicity → PASS / FAIL
+   e. Verify Ed25519 signature from the sidecar → PASS / FAIL
 
 3. Summary report:
    Records: 100,000
-   Signatures valid:   99,998
-   Signatures INVALID:      2  ← SECURITY INCIDENT
-   LSN gaps detected:       1  ← Missing records
-   Chain intact:        99,997
+   Content hashes valid:  99,998
+   Signatures valid:      99,998
+   Signatures INVALID:         2  ← SECURITY INCIDENT
+   LSN gaps detected:           1  ← Missing records
+   Chain intact:            99,997
 
 4. External anchor verification (planned):
    - Fetch root hash from S3 anchor for the same LSN range
-   - Compute local root hash (Merkle tree over all signatures)
+   - Compute local root hash (Merkle tree over all content hashes)
    - Compare → PASS / FAIL
 ```
 
@@ -605,7 +671,7 @@ All TLS connections require TLS 1.2 or higher. TLS 1.0 and 1.1 are rejected at t
 
 ```bash
 # (illustrative — the `--compliance` flag and `compliance report` subcommand
-# are planned, not shipped in v0.1.0; use `dologctl config validate --strict`
+# are planned, not shipped in v0.0.1; use `dologctl config validate --strict`
 # with a config containing the template's [dologger] settings instead)
 # Validate configuration against GDPR requirements
 dologctl config validate --config /etc/dologger/default.toml --compliance gdpr

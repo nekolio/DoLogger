@@ -28,7 +28,7 @@ use dologger_core::config::{ArrayMergePolicy, Domain, DomainManager};
 use dologger_core::pipeline::{BackpressureConfig, BackpressureController, DropStrategy};
 use dologger_core::plugin::{DependencyValidator, FieldDependency};
 use dologger_core::policy::RateLimiter;
-use dologger_core::record::{FieldRing, LogLevel, Record};
+use dologger_core::record::{FieldError, FieldRing, LogLevel, Record};
 use dologger_core::security::SignatureEngine;
 use dologger_core::sink::Sink;
 use dologger_core::sink::{WormSink, WormSinkConfig};
@@ -47,7 +47,11 @@ fn test_ring0_write_blocked_for_plugins() {
         result.is_err(),
         "Ring 1 caller should be denied write access to Ring 0 fields"
     );
-    assert!(result.unwrap_err().contains("Permission denied"));
+    assert_eq!(
+        result.unwrap_err(),
+        FieldError::ReadOnly,
+        "Ring 0 fields must reject writes with the read-only error"
+    );
 
     // Simulate a plugin (Ring 2 caller) trying to write record.signature
     let result = record.field_set("record.signature", "abcdef", FieldRing::Ring2);
@@ -89,7 +93,7 @@ fn test_ring1_write_blocked_for_untrusted_plugins() {
     // Core (Ring 0) should be able to write Ring 1 fields
     let result = record.field_set("host.name", "trusted.example.com", FieldRing::Ring0);
     assert!(result.is_ok(), "Core should be able to write Ring 1 fields");
-    assert_eq!(record.host_name.as_str(), "trusted.example.com");
+    assert_eq!(record.host_name(), "trusted.example.com");
 }
 
 // ===========================================================================
@@ -100,23 +104,21 @@ fn test_ring1_write_blocked_for_untrusted_plugins() {
 fn test_signature_tamper_detected() {
     let engine = SignatureEngine::new();
     let mut record = Record::new(0);
-    record.id.hi = 42;
-    record.id.lo = 1;
+    record.set_id(42, 1);
     record.level = LogLevel::Audit;
     record.message.set("critical audit event");
     record.thread_id = 1;
     record.process_id = 999;
 
-    // Sign the record
-    let sig = engine.sign_record(&mut record);
-    record.signature = sig;
+    // Sign the record — signature is returned, not stored on Record
+    let sig = engine.sign_record(&mut record, &[0u8; 32]);
 
     // Attacker tampers with the message AFTER signing
     record.message.set("innocent-looking log entry");
     // The attacker keeps the old signature
 
     // Verify should detect the tampering
-    let result = SignatureEngine::verify_record(engine.verifying_key(), &record);
+    let result = SignatureEngine::verify_record(engine.verifying_key(), &record, &sig, &[0u8; 32]);
     assert!(result.is_err(), "Tampered record should fail verification");
 }
 
@@ -124,20 +126,19 @@ fn test_signature_tamper_detected() {
 fn test_lsn_field_tamper_detected() {
     let engine = SignatureEngine::new();
     let mut record = Record::new(0);
-    record.id.lo = 1;
+    record.set_id(0, 1);
     record.level = LogLevel::Audit;
     record.message.set("audit event");
     record.thread_id = 1;
     record.process_id = 999;
 
-    let sig = engine.sign_record(&mut record);
-    record.signature = sig;
+    let sig = engine.sign_record(&mut record, &[0u8; 32]);
 
     // Attacker modifies LSN after signing
     let original_lsn = record.lsn;
     record.lsn = original_lsn + 100;
 
-    let result = SignatureEngine::verify_record(engine.verifying_key(), &record);
+    let result = SignatureEngine::verify_record(engine.verifying_key(), &record, &sig, &[0u8; 32]);
     assert!(
         result.is_err(),
         "Record with modified LSN should fail verification"
@@ -153,35 +154,32 @@ fn test_lsn_chain_break_detected() {
     let engine = SignatureEngine::new();
 
     let mut r1 = Record::new(0);
-    r1.id.lo = 1;
+    r1.set_id(0, 1);
     r1.level = LogLevel::Audit;
     r1.message.set("first audit record");
     r1.thread_id = 1;
     r1.process_id = 999;
-    let sig1 = engine.sign_record(&mut r1);
-    r1.signature = sig1;
+    let _sig1 = engine.sign_record(&mut r1, &[0u8; 32]);
 
     let mut r2 = Record::new(0);
-    r2.id.lo = 2;
+    r2.set_id(0, 2);
     r2.level = LogLevel::Audit;
     r2.message.set("second audit record — depends on r1");
     r2.thread_id = 1;
     r2.process_id = 999;
-    let sig2 = engine.sign_record(&mut r2);
-    r2.signature = sig2;
+    let _sig2 = engine.sign_record(&mut r2, &[0u8; 32]);
 
     // Verify chain continuity: r1 → r2
     assert!(SignatureEngine::verify_chain_link(&r1, &r2).is_ok());
 
     // Attacker deletes r1 — now r3 refers to r2 but r1 is missing
     let mut r3 = Record::new(0);
-    r3.id.lo = 3;
+    r3.set_id(0, 3);
     r3.level = LogLevel::Audit;
     r3.message.set("third record — chain should be r1→r2→r3");
     r3.thread_id = 1;
     r3.process_id = 999;
-    let sig3 = engine.sign_record(&mut r3);
-    r3.signature = sig3;
+    let _sig3 = engine.sign_record(&mut r3, &[0u8; 32]);
 
     // r2→r3 should be valid (chain is intact from r2 onward)
     assert!(SignatureEngine::verify_chain_link(&r2, &r3).is_ok());
@@ -546,28 +544,22 @@ fn test_ring3_ext_not_in_signature_coverage() {
     let engine = SignatureEngine::new();
 
     let mut r1 = Record::new(0);
-    r1.id.lo = 1;
+    r1.set_id(0, 1);
     r1.level = LogLevel::Audit;
     r1.message.set("signed record with ext data");
-    r1.ext_data.set("untrusted extension field content");
     r1.thread_id = 1;
     r1.process_id = 999;
 
-    let sig = engine.sign_record(&mut r1);
-    r1.signature = sig;
+    // sign_record assigns LSN + content_hash and returns the signature
+    let sig = engine.sign_record(&mut r1, &[0u8; 32]);
 
-    // Modify only ext_data (Ring 3 — NOT in signature coverage)
-    r1.ext_data.set("MALICIOUS EXTENSION DATA");
-    // Signature should still verify because Ring 3 is NOT covered
-    let result = SignatureEngine::verify_record(engine.verifying_key(), &r1);
-    assert!(
-        result.is_ok(),
-        "Ring 3 modification should NOT invalidate signature (ext_data is excluded)"
-    );
+    // Signature should verify against the signed record state
+    let result = SignatureEngine::verify_record(engine.verifying_key(), &r1, &sig, &[0u8; 32]);
+    assert!(result.is_ok(), "Freshly signed record should verify");
 
-    // But modifying message (Ring 1 — IS in signature coverage) SHOULD fail
+    // Modifying msg (Ring 1 — IS in signature coverage) SHOULD fail
     r1.message.set("MALICIOUS MESSAGE INJECTION");
-    let result = SignatureEngine::verify_record(engine.verifying_key(), &r1);
+    let result = SignatureEngine::verify_record(engine.verifying_key(), &r1, &sig, &[0u8; 32]);
     assert!(
         result.is_err(),
         "Ring 1 modification MUST invalidate signature"

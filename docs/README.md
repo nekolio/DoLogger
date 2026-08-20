@@ -83,7 +83,7 @@ Deep dive into the full specification?
 
 | Document | Description |
 |:-:|:-:|
-| [Official Plugins](en_US/OfficialPluginRoadmap.md) | Official plugins shipped in v0.1.0 — inventory, not a roadmap |
+| [Official Plugins](en_US/OfficialPluginRoadmap.md) | Official plugins shipped in v0.0.1 — inventory, not a roadmap |
 
 ### 中文文档 (zh_CN) — 分层学习路径
 
@@ -123,7 +123,7 @@ Deep dive into the full specification?
 
 | 文档 | 说明 |
 |:-:|:-:|
-| [官方插件](zh_CN/OfficialPluginRoadmap.md) | v0.1.0 随附的官方插件清单 — 非路线图 |
+| [官方插件](zh_CN/OfficialPluginRoadmap.md) | v0.0.1 随附的官方插件清单 — 非路线图 |
 
 ### 设计规范
 

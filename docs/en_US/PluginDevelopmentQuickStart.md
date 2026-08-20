@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](PluginDevelopmentQuickStart.md) | [中文：插件开发快速入门](../zh_CN/PluginDevelopmentQuickStart.md)
 >
-> **Version**: v0.1.0 | **Target Audience**: Non-Rust plugin developers (C, C++, Go)
+> **Version**: v0.0.1 | **Target Audience**: Non-Rust plugin developers (C, C++, Go)
 >
 > **Purpose**: Get from zero to a working DoLogger plugin in your language of choice.
 > Covers the complete build chain — Conan → CMake → Rust core → your plugin.
@@ -140,8 +140,8 @@ static dologger_filter_vtable_t g_vtable = { .filter = my_filter_fn };
 
 static dologger_plugin_info_t g_plugin_info = {
     .name        = "my-filter",
-    .version     = 0x000100,               /* 0.1.0 packed (major.minor.patch) */
-    .abi_version = 0x000100,               /* core ABI this plugin targets */
+    .version     = 0x000001,               /* 0.0.1 packed (major.minor.patch) */
+    .abi_version = 0x000001,               /* core ABI this plugin targets */
     .phase       = DO_LOG_PHASE_FILTER,    /* 0x0002 */
     .vtable      = &g_vtable,
 };
@@ -307,8 +307,8 @@ const (
 	levelAudit uint32 = 6
 
 	phaseFilter    uint32 = 0x0002 // DO_LOG_PHASE_FILTER
-	pluginVersion  uint32 = 0x000100
-	coreAbiVersion uint32 = 0x000100
+	pluginVersion  uint32 = 0x000001
+	coreAbiVersion uint32 = 0x000001
 )
 
 // minLevel: records with level >= minLevel are kept. Default: WARN.
@@ -464,7 +464,7 @@ This header declares:
 | **Trust levels** | *(planned — sandbox trust levels not yet implemented)* |
 | **Log levels** | `DO_LOG_TRACE` through `DO_LOG_AUDIT` |
 | **Record accessors** | `dologger_field_get()`, `dologger_field_set()`, ... |
-| **ABI version** | Declared per plugin in the `plugin_info.abi_version` field (e.g. `0x000100` = 0.1.0); the header has no global `DO_LOG_ABI_VERSION` / `DO_LOG_CORE_ABI_VERSION` macro |
+| **ABI version** | Declared per plugin in the `plugin_info.abi_version` field (e.g. `0x000001` = 0.0.1); the header has no global `DO_LOG_ABI_VERSION` / `DO_LOG_CORE_ABI_VERSION` macro |
 | **Plugin exports** | `plugin_query(uint32_t core_abi_version)`, `plugin_init(const void *config)`, `plugin_shutdown(void)` |
 
 ### Plugin ABI Contract

@@ -1,6 +1,6 @@
 # DoLogger Integration Guide
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Application Developers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Application Developers
 >
 > **Purpose**: Learn how to embed DoLogger into your application. Covers the C API, configuration, domain inheritance, plugin selection, and language adapters. If you are brand new, start with the [Quick Start Guide](QuickStart.md) first.
 >
@@ -200,7 +200,7 @@ key_rotation_grace_period_days = 7      # Old keys valid after rotation
 Enable any combination of sinks. All enabled sinks receive every record:
 
 ```toml
-# (illustrative — v0.1.0 FileSinkConfig has: path, max_size (bytes),
+# (illustrative — v0.0.1 FileSinkConfig has: path, max_size (bytes),
 # fsync_on_write, durability_level, buffer_size; time-based rotation,
 # compression, and retention are planned)
 # A sink is active iff its [sinks.*] table is defined; there is no "enabled" flag.
@@ -220,7 +220,7 @@ Always validate configuration before deploying:
 # Strict validation
 dologctl config validate --config dologger.toml --strict
 
-# pseudocode — planned features; v0.1.0 has no --compliance flag and no
+# pseudocode — planned features; v0.0.1 has no --compliance flag and no
 # config show subcommand
 # dologctl config validate --config dologger.toml --compliance gdpr
 # dologctl config show --effective
@@ -234,7 +234,7 @@ dologctl config validate --config dologger.toml --strict
 
 Domains let you define separate logging configurations for different subsystems of your application. Child domains inherit from parents and can only tighten security settings.
 
-> **v0.1.0 note**: The `[domains]` TOML syntax below is the **planned** configuration surface. The v0.1.0 config loader parses `[dologger]` keys only — domains are registered programmatically via `DomainManager::add_domain` (see `core/src/config/domain.rs`). TOML-driven domains arrive in a later release. The runtime behavior described here (inheritance, non-downgradable tightening) applies to domains regardless of how they are registered.
+> **v0.0.1 note**: The `[domains]` TOML syntax below is the **planned** configuration surface. The v0.0.1 config loader parses `[dologger]` keys only — domains are registered programmatically via `DomainManager::add_domain` (see `core/src/config/domain.rs`). TOML-driven domains arrive in a later release. The runtime behavior described here (inheritance, non-downgradable tightening) applies to domains regardless of how they are registered.
 
 ### Diagram
 
@@ -578,7 +578,7 @@ dologger_record_params_t params = {
 dologger_log(logger, &params);
 ```
 
-(Note: the v0.1.0 FFI implementation does not yet propagate `request_id` and other extension fields into the output record.)
+(Note: the v0.0.1 FFI implementation does not yet propagate `request_id` and other extension fields into the output record.)
 
 ### Pattern 3: Conditional Logging
 
@@ -663,7 +663,7 @@ Change the log level at runtime to debug issues in production:
 
 ```bash
 # pseudocode/illustrative — the control plane endpoint (POST /level) is not
-# started with the engine in v0.1.0
+# started with the engine in v0.0.1
 # curl -X POST http://127.0.0.1:9090/level \
 #   -H "Content-Type: application/json" \
 #   -d '{"level": "DEBUG"}'
@@ -705,7 +705,7 @@ Change the log level at runtime to debug issues in production:
 **Checklist:**
 1. Verify `performance_profile` -- a `dev` profile uses small buffers and batches
 2. Check if `enable_signature = true` -- Ed25519 signing adds ~17 us per record
-3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (pseudocode/illustrative — the control plane is not started in v0.1.0; richer metrics are planned)
+3. Run `curl http://127.0.0.1:9090/status | jq .` to check engine status (pseudocode/illustrative — the control plane is not started in v0.0.1; richer metrics are planned)
 4. Run `dologctl perf` to baseline the engine on your hardware
 5. Check if `fsync_on_write = true` -- forces I/O flush on every record
 
@@ -724,7 +724,7 @@ Change the log level at runtime to debug issues in production:
 **Symptom:** Diagnostic log shows `[PLUGIN] load failed`.
 
 **Checklist:**
-1. ABI version mismatch: compare the plugin's `abi_version` field (from `plugin_query()`) with the core ABI version (v0.1.0 has no global `DO_LOG_ABI_VERSION` macro — the engine passes its `core_abi_version` to `plugin_query()`)
+1. ABI version mismatch: compare the plugin's `abi_version` field (from `plugin_query()`) with the core ABI version (v0.0.1 has no global `DO_LOG_ABI_VERSION` macro — the engine passes its `core_abi_version` to `plugin_query()`)
 2. Missing dependency: check `manifest.toml` `[dependencies]` section
 3. Blue plugin signature: verify the `.sig` file is present and valid
 4. License incompatibility: the plugin's SPDX identifier may be in a denied category
@@ -735,7 +735,7 @@ Change the log level at runtime to debug issues in production:
 Windows holds file handles after rotation. Configure the file sink to use `FILE_SHARE_DELETE` and close handles before rotation. If files are locked, stop the engine briefly:
 
 ```bash
-# (pseudocode — v0.1.0 dologctl has no stop/start subcommands)
+# (pseudocode — v0.0.1 dologctl has no stop/start subcommands)
 # dologctl stop
 # Delete or rotate files
 # dologctl start

@@ -1,6 +1,6 @@
 [package]
 name = "dologger-filter-example"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "Example Filter plugin for DoLogger — drops records below a configurable level"
 license.workspace = true

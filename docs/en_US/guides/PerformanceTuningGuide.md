@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](PerformanceTuningGuide.md) | [中文：性能调优指南](../../zh_CN/guides/PerformanceTuningGuide.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE / Operations Engineers, Performance Engineers, System Administrators
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: SRE / Operations Engineers, Performance Engineers, System Administrators
 >
 > **Purpose**: This document provides system-level performance tuning guidance for DoLogger deployments. It covers OS kernel parameters, CPU and NUMA affinity, ring buffer sizing formulas, performance profile selection, sink throughput characteristics, memory budgeting, and real-world deployment examples.
 >
@@ -207,7 +207,7 @@ CPUAffinity=2-7
 DoLogger threads can be pinned to specific cores:
 
 ```toml
-# (planned — illustrative schema; v0.1.0 has no threading/affinity config keys)
+# (planned — illustrative schema; v0.0.1 has no threading/affinity config keys)
 [dologger.threading]
 # Pin each thread pool to specific CPUs
 cpu_pool_affinity = [2, 3, 4, 5]    # Pipeline processing threads
@@ -335,7 +335,7 @@ export DO_LOG_BUF_SIZE=524288
 ### Monitoring Buffer Utilization
 
 ```bash
-# pseudocode/illustrative — the control plane is not started in v0.1.0;
+# pseudocode/illustrative — the control plane is not started in v0.0.1;
 # the planned /status response has no ring_buffer object yet — the output
 # below is illustrative of the planned metrics
 # curl -s http://127.0.0.1:9090/status | jq .ring_buffer
@@ -483,7 +483,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 # Check process RSS
 ps -o pid,rss,comm -p $(pgrep -f dologger)
 
-# (pseudocode/illustrative — the control plane is not started in v0.1.0;
+# (pseudocode/illustrative — the control plane is not started in v0.0.1;
 # the planned /status response has no .memory object)
 # curl -s http://127.0.0.1:9090/status | jq .memory
 ```
@@ -536,7 +536,7 @@ ring_buffer_size = 65536         # 64K -- low rate, focus on durability
 batch_size = 128
 enable_signature = true           # Non-downgradable
 # fsync_on_write is a domain-level item (DomainManager), not a [dologger]
-# key in v0.1.0 — listed for completeness. WORM durability is configured
+# key in v0.0.1 — listed for completeness. WORM durability is configured
 # on the [sinks.worm_file] sink itself:
 fsync_on_write = true             # Non-downgradable
 shutdown_policy = "graceful"
@@ -652,7 +652,7 @@ sudo sysctl -w vm.nr_hugepages=272
 
 ```text
 (pseudocode/illustrative — diagnostic workflow; the control plane is not
-started in v0.1.0; the .ring_buffer/.memory fields are planned metrics
+started in v0.0.1; the .ring_buffer/.memory fields are planned metrics
 and the /status handler's response is
 {"status","level","profile","plugins","signature_enabled"})
 1. Check overall health
@@ -696,7 +696,7 @@ and the /status handler's response is
 
 ```bash
 # Engine status (pseudocode/illustrative — the control plane is not started
-# in v0.1.0)
+# in v0.0.1)
 # curl -s http://127.0.0.1:9090/status | jq .
 
 # CPU profile (60-second sample)

@@ -35,9 +35,9 @@ const DO_LOG_ERR_BUFFER_TOO_SMALL: i32 = -0x0106;
 const PHASE_FORMATTING: u32 = dologger_core::plugin::phase::PHASE_FORMATTING;
 
 // Plugin info versioning — abi_version MUST match the core's declared ABI
-// (0.1.0); the host validates it when the bundle is loaded.
+// (0.0.1); the host validates it when the bundle is loaded.
 const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
-const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
+const PLUGIN_VERSION: u32 = 1; // 0.0.1 (packed major.minor.patch)
 
 // ---------------------------------------------------------------------------
 // Static state — the host-accessor bridge captured at init
@@ -163,7 +163,7 @@ pub fn plugin_info() -> &'static DologgerPluginInfo {
 
 /// Initialise the plugin: capture the host-accessor bridge.
 ///
-/// `config` points to a [`HostInit`] (`dologger_host_init_t`). For v0.1.0 the
+/// `config` points to a [`HostInit`] (`dologger_host_init_t`). For v0.0.1 the
 /// bridge is captured; `config_json` (color/show_thread/timestamp_format) is
 /// reserved for a future formatting-config pass.
 pub fn init(config: *const std::ffi::c_void) -> i32 {

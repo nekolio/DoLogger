@@ -6,7 +6,7 @@
  * required to integrate the DoLogger logging engine into any C-compatible
  * host application.
  *
- * @version 0.1.0
+ * @version 0.0.1
  * @date 2026-08-11
  *
  * # Usage
@@ -441,7 +441,7 @@ DOLOGGER_API void dologger_free(void *ptr);
 /**
  * @brief Get the DoLogger core version string.
  *
- * @return Null-terminated version string (e.g., "0.1.0").
+ * @return Null-terminated version string (e.g., "0.0.1").
  */
 DOLOGGER_API const char *dologger_version(void);
 

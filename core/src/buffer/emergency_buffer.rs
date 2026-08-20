@@ -494,35 +494,32 @@ fn record_to_bytes(record: &Record) -> Vec<u8> {
     // In production, this would use SIF format; for now, use a simple framing.
     let mut buf = Vec::with_capacity(512);
 
-    // Header: magic (4B) + id_hi (8B) + id_lo (8B) + lsn (8B) + timestamp (16B) + level (1B) + flags (1B)
+    // Header: magic (4B) + id_hi (8B) + id_lo (8B) + lsn (8B) + timestamp (8B) + level (1B) + flags (2B)
     buf.extend_from_slice(b"DLOG"); // magic
-    buf.extend_from_slice(&record.id.hi.to_le_bytes()); // record.id hi (dedup key)
-    buf.extend_from_slice(&record.id.lo.to_le_bytes()); // record.id lo (dedup key)
+    buf.extend_from_slice(&record.id_hi().to_le_bytes()); // record id_hi (dedup key)
+    buf.extend_from_slice(&record.id_lo().to_le_bytes()); // record id_lo (dedup key)
     buf.extend_from_slice(&record.lsn.to_le_bytes()); // LSN
-    buf.extend_from_slice(&record.timestamp.hi.to_le_bytes()); // timestamp hi
-    buf.extend_from_slice(&record.timestamp.lo.to_le_bytes()); // timestamp lo
+    buf.extend_from_slice(&record.timestamp.to_le_bytes()); // timestamp nanos (u64)
     buf.push(record.level as u8); // level
-    buf.push(0); // flags (reserved)
+    buf.extend_from_slice(&record.flags.to_le_bytes()); // flags (u16)
 
     // Message: 2B length LE + UTF-8 data
-    let msg = record.message.as_str();
-    let msg_bytes = msg.as_bytes();
+    let msg_bytes = record.message.as_str().as_bytes();
     let msg_len = msg_bytes.len().min(u16::MAX as usize) as u16;
     buf.extend_from_slice(&msg_len.to_le_bytes());
-    buf.extend_from_slice(&msg_bytes[..msg_len as usize]);
+    buf.extend_from_slice(msg_bytes);
 
     // Thread ID
     buf.extend_from_slice(&record.thread_id.to_le_bytes());
 
-    // Signature (64 bytes, always present)
-    buf.extend_from_slice(&(64u16).to_le_bytes());
-    buf.extend_from_slice(&record.signature);
+    // Content hash (32 bytes, replaces signature for dedup/integrity)
+    buf.extend_from_slice(&(32u16).to_le_bytes());
+    buf.extend_from_slice(&record.content_hash);
 
     // Audit tags
-    let tags = record.audit_tags.as_str();
-    let tags_bytes = tags.as_bytes();
-    buf.extend_from_slice(&(tags_bytes.len() as u16).to_le_bytes());
-    buf.extend_from_slice(tags_bytes);
+    let tags = record.audit_tags();
+    buf.extend_from_slice(&(tags.len() as u16).to_le_bytes());
+    buf.extend_from_slice(tags.as_bytes());
 
     buf
 }

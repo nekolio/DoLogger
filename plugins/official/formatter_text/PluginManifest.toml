@@ -5,11 +5,11 @@
 
 [plugin]
 name = "formatter-text"
-version = "0.1.0"
+version = "0.0.1"
 plugin_type = "formatter"
 mount_phase = ["format"]
 abi_version = 1
-min_core_abi = "0.1.0"
+min_core_abi = "0.0.1"
 description = "Human-readable colored text formatter with configurable columns (color, thread, timestamp, elapsed)."
 
 [plugin.trust]

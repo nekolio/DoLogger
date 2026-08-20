@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](AdapterDevelopmentGuide.md) | [中文：适配器开发指南](../../zh_CN/guides/AdapterDevelopmentGuide.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Language Adapter Developers, SDK Maintainers, Integrators
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Language Adapter Developers, SDK Maintainers, Integrators
 >
 > **Purpose**: This document describes how to create language adapters (Python, Go, C/C++, and others) for the DoLogger C ABI. It covers the thin wrapper pattern, language-specific binding approaches, error handling conventions, thread safety guarantees, and cross-platform testing strategies.
 >
@@ -982,7 +982,7 @@ class TestEngine:
 
 ### Cross-Platform CI Configuration
 
-(example CI configuration — the YAML syntax is valid, but this workflow file does not exist in the v0.1.0 repository yet; `pip install -e adapters/python/` also requires packaging metadata to be added to the Python adapter):
+(example CI configuration — the YAML syntax is valid, but this workflow file does not exist in the v0.0.1 repository yet; `pip install -e adapters/python/` also requires packaging metadata to be added to the Python adapter):
 
 ```yaml
 # .github/workflows/adapter-tests.yml
@@ -1027,7 +1027,7 @@ jobs:
 # pyproject.toml (illustrative template)
 [project]
 name = "dologger"
-version = "0.1.0"
+version = "0.0.1"
 description = "Python adapter for the DoLogger logging engine"
 requires-python = ">=3.8"
 
@@ -1057,7 +1057,7 @@ Users install via `go get github.com/dologger/adapters/go`. The `libdologger_cor
 # Cargo.toml (matches the repository's adapters/rust/Cargo.toml)
 [package]
 name = "dologger-sdk"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 
 [dependencies]

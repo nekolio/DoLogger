@@ -10,4 +10,4 @@
 # Rotation: add the new key below, commit, and (after the grace window)
 # move the old key's fingerprint to revoked.txt with reason "superseded".
 #
-# v0.1.0 ships no signed plugins, so this file is intentionally empty.
+# v0.0.1 ships no signed plugins, so this file is intentionally empty.

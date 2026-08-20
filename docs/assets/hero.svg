@@ -2085,16 +2085,16 @@
                 <animate attributeName="opacity" calcMode="linear" values="0.00;0.00;0.35;0.15;0.35;0.10;0.35;0.00;0.25;0.15;0.25;0.40;1.00;1.00" keyTimes="0.0000;0.5921;0.5939;0.5956;0.5973;0.5990;0.6007;0.6024;0.6050;0.6084;0.6119;0.6179;0.6779;1.0000" dur="14s" repeatCount="indefinite"/>
                 <text x="329.6" y="232" font-size="20" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                      fill="url(#title)" filter="url(#bloom)" opacity="0.25">v0.1.0</text>
+                      fill="url(#title)" filter="url(#bloom)" opacity="0.25">v0.0.1</text>
                 <text x="329.6" y="232" font-size="20" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                      fill="url(#title)" filter="url(#glowSoft)">v0.1.0</text>
+                      fill="url(#title)" filter="url(#glowSoft)">v0.0.1</text>
                 <text x="329.6" y="232" font-size="20" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                      fill="url(#title)">v0.1.0</text>
+                      fill="url(#title)">v0.0.1</text>
                 <text x="329.6" y="232" font-size="20" font-weight="700"
                       font-family="'JetBrains Mono', Consolas, Menlo, 'DejaVu Sans Mono', monospace"
-                      fill="url(#sheen)" opacity="0.6">v0.1.0</text>
+                      fill="url(#sheen)" opacity="0.6">v0.0.1</text>
               </g>
             </g>
             <g transform="translate(44.0, 0)">

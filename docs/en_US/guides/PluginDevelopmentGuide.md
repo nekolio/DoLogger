@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](PluginDevelopmentGuide.md) | [中文：插件开发指南](../../zh_CN/guides/PluginDevelopmentGuide.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Plugin Developers
 >
 > **Purpose**: This document describes the end-to-end process of developing, testing, signing, and distributing a DoLogger plugin. It covers the plugin lifecycle, all 9 VTable types, the manifest format, sandbox constraints, and license compliance requirements.
 >
@@ -77,8 +77,8 @@ static dologger_filter_vtable_t g_vtable = {
 
 static dologger_plugin_info_t g_info = {
     .name        = "example-filter",
-    .version     = 0x000100,    // 0.1.0
-    .abi_version = 0x000100,    // core ABI 0.1.0
+    .version     = 0x000001,    // 0.0.1
+    .abi_version = 0x000001,    // core ABI 0.0.1
     .phase       = DO_LOG_PHASE_FILTER,
     .vtable      = &g_vtable,
 };
@@ -125,7 +125,7 @@ cl /LD /Fe:example_filter.dll filter.c /I C:\path\to\dologger\include
 ### Loading the Plugin
 
 ```toml
-# (illustrative — the v0.1.0 engine does not read a [plugins] section from
+# (illustrative — the v0.0.1 engine does not read a [plugins] section from
 # dologger.toml; plugins are discovered in ./plugins and /usr/lib/dologger/plugins)
 # dologger.toml
 [plugins.drop-debug]
@@ -156,7 +156,7 @@ DoLogger defines 9 plugin types, each with its own VTable. Plugins are dispatche
 ### Pipeline Phase Ordering
 
 ```text
-(illustrative pipeline ordering — the shipped v0.1.0 phases are defined in
+(illustrative pipeline ordering — the shipped v0.0.1 phases are defined in
 core/include/dologger_core.h as DO_LOG_PHASE_* bit flags)
 PreFilter → Filter → Field → Process → Format → Sink
    (2)       (1)     (3,4)    (5)      (6)      (7)
@@ -174,14 +174,14 @@ Every plugin **MUST** ship a `manifest.toml` file. The engine validates manifest
 
 ```toml
 # (structure verified against plugins/official/*/PluginManifest.toml;
-# sections marked "planned" are not yet parsed by the v0.1.0 engine)
+# sections marked "planned" are not yet parsed by the v0.0.1 engine)
 [plugin]
 name = "json-formatter"
 version = "2.1.0"
 plugin_type = "formatter"
 mount_phase = ["format"]
 abi_version = 1
-min_core_abi = "0.1.0"     # Minimum core version required
+min_core_abi = "0.0.1"     # Minimum core version required
 description = "Formats log records as newline-delimited JSON"
 
 [plugin.trust]
@@ -193,7 +193,7 @@ email = "nekoliowork+DoLogger@gmail.com"
 url = "https://github.com/dologger/json-formatter"
 
 [dependencies]
-# (planned — not yet parsed by the v0.1.0 engine; field-level validation
+# (planned — not yet parsed by the v0.0.1 engine; field-level validation
 # is prepared in core/src/plugin/dependency.rs)
 requires_fields = ["record.id", "record.timestamp", "host.name"]
 
@@ -210,9 +210,9 @@ third_party = [  # (planned)
 ]
 
 [compatibility]
-# (planned — v0.1.0 enforces `abi_version` equality instead)
-min_engine_version = "0.1.0"
-max_engine_version = "0.1.0"
+# (planned — v0.0.1 enforces `abi_version` equality instead)
+min_engine_version = "0.0.1"
+max_engine_version = "0.0.1"
 ```
 
 ### Manifest Field Reference
@@ -257,14 +257,14 @@ Capabilities declared `true` are only granted if the trust color permits them. A
 ## C ABI Interface Specification
 
 > [!NOTE]
-> The shipped v0.1.0 header (`core/include/dologger_core.h`) defines the ABI shown first in each block below: `plugin_query(uint32_t core_abi_version)` returning a `dologger_plugin_info_t` with `{name, version, abi_version, phase, vtable}`, plus `int plugin_init(const void *config)` / `int plugin_shutdown(void)`, and VTable layouts with only the required callbacks (e.g. Filter = a single `filter` function that returns non-zero to drop). Everything marked pseudocode describes the planned v1.0 ABI (not compiled). Always code against the shipped header; this guide tracks the intended direction.
+> The shipped v0.0.1 header (`core/include/dologger_core.h`) defines the ABI shown first in each block below: `plugin_query(uint32_t core_abi_version)` returning a `dologger_plugin_info_t` with `{name, version, abi_version, phase, vtable}`, plus `int plugin_init(const void *config)` / `int plugin_shutdown(void)`, and VTable layouts with only the required callbacks (e.g. Filter = a single `filter` function that returns non-zero to drop). Everything marked pseudocode describes the planned v1.0 ABI (not compiled). Always code against the shipped header; this guide tracks the intended direction.
 
 ### Required Exports
 
 Every single-plugin library **MUST** export the following symbols:
 
 ```c
-// (v0.1.0 actual signatures — see core/include/dologger_core.h)
+// (v0.0.1 actual signatures — see core/include/dologger_core.h)
 // Query plugin information (must export).
 dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
 
@@ -285,7 +285,7 @@ library exports the multi-plugin registry contract **instead of**
 `plugin_query`:
 
 ```c
-// (v0.1.0 actual — see core/include/dologger_core.h)
+// (v0.0.1 actual — see core/include/dologger_core.h)
 // Query every plugin hosted by a bundle library (must export for bundles).
 dologger_plugin_info_list_t *plugin_query_multi(uint32_t core_abi_version);
 
@@ -365,7 +365,7 @@ boil down to editing `active.pub` / `revoked.txt` and replacing the secret.
 ### Optional Exports
 
 ```c
-// (pseudocode — planned optional exports for hot reload; v0.1.0 has no
+// (pseudocode — planned optional exports for hot reload; v0.0.1 has no
 // dologger_state_buf_t)
 // dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
 // dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
@@ -375,7 +375,7 @@ If `plugin_state_serialize` or `plugin_state_deserialize` is not exported, the e
 
 ### VTable Export Convention
 
-In v0.1.0 the VTable is **not** a separate exported symbol: the loader resolves
+In v0.0.1 the VTable is **not** a separate exported symbol: the loader resolves
 only `plugin_query`, and the VTable is carried by the returned
 `dologger_plugin_info_t` (`vtable` field). Exporting a standalone
 `dologger_vtable` symbol is part of the planned v1.0 ABI:
@@ -401,7 +401,7 @@ The ABI version is bumped on breaking changes to:
 - `dologger_plugin_info_t` struct changes
 - Callback function signature changes
 
-In v0.1.0 the header has **no global `DO_LOG_ABI_VERSION` macro**: the engine passes its `core_abi_version` to `plugin_query()`, and the plugin declares the ABI it was built against in `dologger_plugin_info_t::abi_version` (e.g. `0x000100` = 0.1.0). A production plugin should validate the passed-in version and return `NULL` on mismatch; the engine refuses to load a plugin whose declared `abi_version` does not match.
+In v0.0.1 the header has **no global `DO_LOG_ABI_VERSION` macro**: the engine passes its `core_abi_version` to `plugin_query()`, and the plugin declares the ABI it was built against in `dologger_plugin_info_t::abi_version` (e.g. `0x000001` = 0.0.1). A production plugin should validate the passed-in version and return `NULL` on mismatch; the engine refuses to load a plugin whose declared `abi_version` does not match.
 
 ---
 
@@ -410,7 +410,7 @@ In v0.1.0 the header has **no global `DO_LOG_ABI_VERSION` macro**: the engine pa
 ### Filter Plugin
 
 ```c
-// (v0.1.0 actual definition — see core/include/dologger_core.h)
+// (v0.0.1 actual definition — see core/include/dologger_core.h)
 typedef struct {
     /** Return non-zero to drop the record. MUST NOT perform I/O. */
     int (*filter)(const dologger_record_handle_t *rec, void *config);
@@ -436,7 +436,7 @@ typedef dologger_error_t (*dologger_filter_batch_fn_t)(
 );
 ```
 
-**Filter Actions (planned v1.0 ABI — v0.1.0 filters simply return non-zero to drop):**
+**Filter Actions (planned v1.0 ABI — v0.0.1 filters simply return non-zero to drop):**
 
 | Action                | Meaning |
 |:-:|:-:|
@@ -651,14 +651,14 @@ cargo test -p my-plugin -- test_filter_drop_debug
 ### Integration Testing
 
 ```bash
-# Start DoLogger and load the plugin — v0.1.0 auto-scans ./plugins and
+# Start DoLogger and load the plugin — v0.0.1 auto-scans ./plugins and
 # /usr/lib/dologger/plugins (a [plugins] section in the config is not read)
 cp ./target/debug/libmy_filter.so ./plugins/
 dologctl run --trace
 
 # Alternative: run the simple logger example (uses
 # DologgerConfig::dev_profile() — it does not read a config path argument
-# in v0.1.0)
+# in v0.0.1)
 cargo run --example simple_logger
 ```
 
@@ -731,9 +731,9 @@ Protect the seed on your machine with `dologctl plugin wrap-key` and sign with
 `--wrapped-key`; verify against the committed store with
 `dologctl plugin verify --trust-store plugins/official/trust-anchors`.
 
-### Plugin Distribution (v0.1.0)
+### Plugin Distribution (v0.0.1)
 
-v0.1.0 ships local plugin management only — there is no remote registry.
+v0.0.1 ships local plugin management only — there is no remote registry.
 Signing, load-time verification, and the Red gate (unsigned plugins rejected
 in production) are implemented; Blue-trust plugins are signed locally and
 distributed with their `.sig` sidecar.

@@ -190,8 +190,9 @@ impl Logger {
             let record = &mut *record_ptr;
 
             // Ring 0: ID + timestamp
-            record.id = self.engine.time_source.next_id();
-            record.timestamp = self.engine.time_source.now_utc();
+            let id = self.engine.time_source.next_id();
+            record.set_id(id.hi, id.lo);
+            record.timestamp = self.engine.time_source.now_nanos();
 
             // Ring 1: Level + message + source context
             record.level = level;
@@ -199,10 +200,10 @@ impl Logger {
 
             // Capture caller location via std::panic::Location (nightly only).
             // When stable, callers compile without source location.
-            record.source_line = 0;
+            record.set_source_line(0);
 
             // Thread/process info
-            record.thread_id = thread_id_u64();
+            record.thread_id = thread_id_u64() as u32;
             record.process_id = std::process::id();
         }
 

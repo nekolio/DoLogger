@@ -23,7 +23,7 @@
 ## 概述
 
 DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防篡改审计日志
-的应用而设计。它将纳秒级延迟的无锁记录提交与 Ed25519 签名审计链、插件
+的应用而设计。它将纳秒级延迟的无锁记录提交与 TPM 支撑的 Ed25519 审计链、插件
 沙箱隔离、以及 11 种内置输出接收器相结合——全部由 TOML 配置驱动,支持
 域继承与不可降级的安全保障。
 
@@ -31,7 +31,7 @@ DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防�
 |:-:|:-:|:-:|
 | **提交延迟（P50）** | 102 ns | 500–2000 ns |
 | **批量吞吐量** | 13.3M rec/s | 1–5M rec/s |
-| **审计链** | Ed25519 + LSN + prev_hash 区块链 | 少见 / 外挂 |
+| **审计链** | content_hash + LSN 链，TPM 支撑的 Ed25519 侧车签名 | 少见 / 外挂 |
 | **插件沙箱** | seccomp-bpf / AppContainer / Sandbox | 无 |
 | **性能配置** | 4 种配置（Dev/Prod/ProdAudit/Balanced） | 手动调优 |
 | **输出接收器** | 11 种内置（Console、File、Callback、Kafka、Syslog、Webhook、SQLite、WORM、Security、Shared Memory、OTel） | 通常 1–3 种 |
@@ -42,7 +42,7 @@ DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防�
 ## 特性
 
 - `[PERF]` **无锁热路径** — 基于 CAS 的环形缓冲区 + Treiber 栈对象池;记录提交零堆分配(本地 P50 ≈ 102 ns)。
-- `[SIGN]` **Ed25519 审计链** — 每条审计记录在组装阶段被签名,通过 LSN + prev_hash 链接成链;离线可用 `dologctl verify-log` 校验。
+- `[SIGN]` **TPM 支撑的 Ed25519 审计链** — 每条审计记录携带由 LSN 链接的 content_hash;不可导出的 TPM 密钥逐条签名(默认)写入 `audit.log.sig` 侧车文件;离线可用 `dologctl verify-log --sidecar` 校验。
 - `[SINK]` **11 种接收器 + 沙箱插件** — Console、File、Kafka、Syslog、Webhook、SQLite、WORM、Security、Shared Memory、OTel、Callback;插件在 seccomp-bpf / AppContainer / Sandbox 隔离下运行,按信任级别着色。
 - `[OBSV]` **内置可观测性** — 逐记录管道耗时(`--trace`)、SIF 录制/回放、`dologctl perf` 基准测试、崩溃恢复报告。
 
@@ -56,7 +56,7 @@ DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防�
 
 | 环境 | 提交 P50 | 吞吐量 | 签名提交（Ed25519） |
 |:-:|:-:|:-:|:-:|
-| GitHub runner — AMD EPYC 7763,v0.1.0 release | **120 ns** | 5.06M rec/s | 19.8 µs |
+| GitHub runner — AMD EPYC 7763,v0.0.1 release | **120 ns** | 5.06M rec/s | 19.8 µs |
 | 本机 — Windows 11 LTSC,Intel i5-12400F | **102 ns** | 9.78M rec/s | 16.96 µs |
 
 Criterion(同一本机):
@@ -84,7 +84,7 @@ CRC32C 通过 SSE 4.2(`_mm_crc32_u64`)硬件加速,并提供 Slicing-by-8
 请用随附的 `checksums-sha256.txt` 校验每个下载文件:
 
 ```bash
-curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/dologctl-linux-x86_64
+curl -fLO https://github.com/Nekolio/DoLogger/releases/download/v0.0.1/dologctl-linux-x86_64
 chmod +x dologctl-linux-x86_64
 ./dologctl-linux-x86_64 init --template dev
 ./dologctl-linux-x86_64 run --config dologger.toml
@@ -117,10 +117,10 @@ fn main() {
 }
 ```
 
-审计记录经 Ed25519 签名;离线校验日志:
+审计记录经 Ed25519 签名（TPM 持有密钥，签名存于 `audit.log.sig` 侧车）;离线校验日志:
 
 ```shell
-dologctl verify-log audit.log
+dologctl verify-log audit.log --sidecar audit.log.sig
 ```
 
 ### Shell 补全
@@ -242,7 +242,7 @@ Shared Memory、OTel)在管道第 6 阶段运行,由核心直接驱动;插件在
 
 ## 安全
 
-- **Ed25519 审计链**:每条审计记录均被签名;LSN + prev_hash 形成类区块链防篡改链条
+- **Ed25519 审计链**:每条审计记录携带 content_hash;LSN + prev_hash 形成防篡改链条。签名由 TPM 供给(密钥不可导出、硬件签名),存于 `audit.log.sig` 侧车文件——audit 模式无 TPM 时拒绝启动
 - **WORM 存储**:一次写入多次读取,fsync + 只读权限强制
 - **插件沙箱**:seccomp-bpf(Linux)、AppContainer(Windows)、Sandbox(macOS),信任颜色能力矩阵
 - **密钥检测**:14 条前缀匹配规则,覆盖 Critical/High/Medium 三个严重级别(AWS、GCP、GitHub Token、私钥等)

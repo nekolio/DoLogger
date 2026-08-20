@@ -1,6 +1,6 @@
 [package]
 name = "dologger-plugin-filter-level"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license.workspace = true
 description = "DoLogger official plugin: drop records below a configurable log level with per-domain overrides"

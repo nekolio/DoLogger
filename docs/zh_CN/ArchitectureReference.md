@@ -1,6 +1,6 @@
 # DoLogger 架构参考手册
 
-> **版本**：v0.1.0 | **最后更新**：2026-08-12 | **目标读者**：核心开发者、插件作者、系统工程师
+> **版本**：v0.0.1 | **最后更新**：2026-08-12 | **目标读者**：核心开发者、插件作者、系统工程师
 >
 > **用途**：DoLogger 引擎内部的权威参考——管道架构、无锁数据结构、加密审计链、安全模型、接收器扇出、背压机制与性能调优。阅读前请先熟悉[集成指南](IntegrationGuide.md)。
 >
@@ -15,7 +15,7 @@
 1. [开始之前](#开始之前)
 2. [管道架构](#管道架构)
 3. [环形缓冲区设计与无锁保证](#环形缓冲区设计与无锁保证)
-4. [审计链：Ed25519 + LSN + prev_hash](#审计链ed25519--lsn--prev_hash)
+4. [审计链：Ed25519 + LSN + content_hash](#审计链ed25519--lsn--content_hash)
 5. [安全模型：Ring 0-3 权限与三色信任](#安全模型ring-0-3-权限与三色信任)
 6. [接收器扇出与回退链](#接收器扇出与回退链)
 7. [背压系统](#背压系统)
@@ -203,48 +203,55 @@ Record 在 `RecordPool` 中预分配，避免热路径上的堆分配：
 
 ---
 
-## 审计链：Ed25519 + LSN + prev_hash
+## 审计链：Ed25519 + LSN + content_hash
 
 ### 链结构
 
-（伪代码 — 仅示意，未编译）：
+（伪代码 — 仅示意，未编译；64B Ed25519 签名存于伴随侧车文件 `audit.log.sig`，**不驻留** Record）：
 
 ```
 Record(1)：
-  lsn       = 1
-  prev_hash = SHA-256(0x00...00)       // 创世块——全零
-  signature = Ed25519_Sign(secret_key, Ring0+Ring1 字段)
+  lsn          = 1
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256(0x00...00)       // 创世块——全零
+  // 侧车：sig(1) = Ed25519_Sign(key, SHA-256(lsn ‖ content_hash ‖ prev_hash))
 
 Record(2)：
-  lsn       = 2
-  prev_hash = SHA-256(Record(1).signature || Record(1).lsn)
-  signature = Ed25519_Sign(secret_key, Ring0+Ring1 字段)
+  lsn          = 2
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256(Record(1).content_hash ‖ Record(1).lsn)
+  // 侧车：sig(2) = Ed25519_Sign(key, SHA-256(lsn ‖ content_hash ‖ prev_hash))
 
 Record(3)：
-  lsn       = 3
-  prev_hash = SHA-256(Record(2).signature || Record(2).lsn)
-  signature = Ed25519_Sign(secret_key, Ring0+Ring1 字段)
+  lsn          = 3
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256(Record(2).content_hash ‖ Record(2).lsn)
+  // 侧车：sig(3) = Ed25519_Sign(key, SHA-256(lsn ‖ content_hash ‖ prev_hash))
 ```
 
-| 记录 | LSN | prev_hash | signature |
-|:-:|:-:|:-:|:-:|
-| Record(1) | 1 | SHA-256(0x00...00) — 创世块 | Ed25519_Sign(secret_key, Ring0+Ring1) |
-| Record(2) | 2 | SHA-256(Record(1).signature \|\| Record(1).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
-| Record(3) | 3 | SHA-256(Record(2).signature \|\| Record(2).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
+| 记录 | LSN | prev_hash | content_hash | 侧车签名 |
+|:-:|:-:|:-:|:-:|:-:|
+| Record(1) | 1 | SHA-256(0x00...00) — 创世块 | SHA-256(canonical serialization) | Ed25519 over SHA-256(lsn‖content_hash‖prev_hash) |
+| Record(2) | 2 | SHA-256(Record(1).content_hash \|\| Record(1).lsn) | SHA-256(canonical serialization) | Ed25519 over SHA-256(lsn‖content_hash‖prev_hash) |
+| Record(3) | 3 | SHA-256(Record(2).content_hash \|\| Record(2).lsn) | SHA-256(canonical serialization) | Ed25519 over SHA-256(lsn‖content_hash‖prev_hash) |
+
+可选块模式（`audit_block_size > 1`）：块内 content_hash 折叠为 Merkle 根，
+侧车中存储单条块签名而非逐条签名。签名密钥在 TPM 内供给（不可导出、硬件
+签名；`enable_signature=true` 无 TPM → 拒绝启动）。
 
 ### 验证算法
 
 （伪代码 — 仅示意，未编译；已发布的验证器为 `dologctl verify-log`，参见[运维与安全指南](OperationsAndSecurity.md#审计验证)）：
 
 ```
-verify_chain(records)：
+verify_chain(records, sidecar)：
   for i = 0 to len(records)-1:
-    1. 验证 Ed25519 签名：
-       if !pubkey.verify(records[i].signature, serialize(Ring0+Ring1)):
+    1. 从规范序列化重算 content_hash[i]：
+       if records[i].content_hash != 重算值:
          return FAIL at i
 
     2. 验证 prev_hash 链（若 i > 0）：
-       expected = SHA-256(records[i-1].signature || records[i-1].lsn)
+       expected = SHA-256(records[i-1].content_hash || records[i-1].lsn)
        if records[i].prev_hash != expected:
          return CHAIN_BREAK at i
 
@@ -252,7 +259,11 @@ verify_chain(records)：
        if records[i].lsn <= records[i-1].lsn:
          return LSN_ORDER_VIOLATION at i
 
-    4. 检测间隔（gap）：
+    4. 从侧车验证 Ed25519 签名：
+       逐条模式：verify(sig[i], SHA-256(lsn ‖ content_hash ‖ prev_hash))
+       块模式：  重建 Merkle 根，验证块签名
+
+    5. 检测间隔（gap）：
        if records[i].lsn > records[i-1].lsn + 1:
          标记 GAP（从 records[i-1].lsn+1 到 records[i].lsn-1）
 
@@ -269,14 +280,13 @@ verify_chain(records)：
 
 | 字段范围 | 完整性 | 备注 |
 |:-:|:-:|:-:|
-| Ring 0 | Ed25519 | 始终签名 |
-| Ring 1 | Ed25519 | 始终签名 |
-| Ring 2 | Ed25519（可选） | 当 `sign_ring2 = true` 时签名 |
-| Ring 3 | 仅 CRC32C | 硬件加速，非加密级别 |
+| 固定热字段（timestamp、level、message、pid、tid、LSN） | Ed25519 | 始终签名 |
+| KV 字段 | Ed25519 | 始终签名（规范 KV 顺序） |
+| 溢出落堆状态 | 仅 CRC32C | 硬件加速，非加密级别 |
 
 ### 加密性能
 
-测试环境：AMD Ryzen 9 7950X，单核，ed25519-dalek 2.0：
+测试环境：AMD Ryzen 9 7950X，单核，ed25519-dalek 2.0（软件路径；TPM 硬件延迟随后端而异，须在目标平台实测）：
 
 | 操作 | 延迟 | 吞吐量 |
 |:-:|:-:|:-:|
@@ -286,6 +296,10 @@ verify_chain(records)：
 | SHA-256（64 字节） | ~120 ns | ~8.3M 哈希/s |
 | CRC32C（64 字节） | ~3 ns | ~330M 校验/s |
 
+AUDIT 记录额外支付 TPM 签名成本：逐条模式受 TPM ops/s 限制（离散 TPM2：
+每次数十 ms 量级——须在目标后端实测）；块模式将成本均摊到块大小。
+content_hash 链每条约 120 ns–1 us，是引擎内 audit 主导开销。
+
 ### 外部锚定（规划中）
 
 定期将 Merkle 根哈希发布到不可变外部存储（S3、区块链），以提供长期防篡改能力：
@@ -293,7 +307,7 @@ verify_chain(records)：
 （伪代码 — 仅示意规划中的外部锚定，未编译）：
 
 ```
-// 每隔 N 条记录，对签名链计算 Merkle 根
+// 每隔 N 条记录，对 content_hash 链计算 Merkle 根
 let merkle_root = compute_merkle_root(records[l..r]);
 send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 ```
@@ -533,7 +547,7 @@ flowchart TD
     subgraph AUDIT["AUDIT 消费者线程（1 个，专用，永不共享）"]
         A1["名称：dologger-audit-pipeline<br/>优先级：普通<br/>工作：读取 → 签名 → 双写（WORM+Security）→ 回收"]
     end
-    subgraph WATCH["配置监控线程（1 个）—— 规划中<br/>（ConfigWatcher 在 v0.1.0 尚未接入 Engine::init）"]
+    subgraph WATCH["配置监控线程（1 个）—— 规划中<br/>（ConfigWatcher 在 v0.0.1 尚未接入 Engine::init）"]
         W1["名称：dologger-config-watcher<br/>工作：每 1 秒轮询配置文件（500ms 去抖）"]
     end
 ```
@@ -608,7 +622,7 @@ sequenceDiagram
         E->>P: dlopen(plugin_path) — 加载共享库
         E->>P: dlsym("plugin_query") → PluginInfo
         Note over E,P: 验证 ABI 版本、类型、许可证 SPDX
-        Note over E,P: 通过 PluginInfo.vtable 指针读取 VTable（v0.1.0 不单独导出符号）
+        Note over E,P: 通过 PluginInfo.vtable 指针读取 VTable（v0.0.1 不单独导出符号）
         Note over E,P: 验证必需函数指针
         Note over E: （仅 Blue）验证 Ed25519 签名
         Note over E: 应用沙箱策略（seccomp / AppContainer）
@@ -624,7 +638,7 @@ sequenceDiagram
 
 ### 必需的 C ABI 导出
 
-每个插件必须导出（v0.1.0 实际签名，见 `core/include/dologger_core.h`）：
+每个插件必须导出（v0.0.1 实际签名，见 `core/include/dologger_core.h`）：
 
 ```c
 dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
@@ -633,7 +647,7 @@ int plugin_shutdown(void);
 // 类型特定的 VTable 通过 PluginInfo.vtable 指针暴露，无需单独导出符号
 ```
 
-每个插件可以导出（伪代码 — 规划中的热重载状态序列化，v0.1.0 尚无 `dologger_state_buf_t`）：
+每个插件可以导出（伪代码 — 规划中的热重载状态序列化，v0.0.1 尚无 `dologger_state_buf_t`）：
 
 ```c
 dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
@@ -677,7 +691,7 @@ FlatBuffer 编码的 `Record` 表，外加一个小的帧头，支持模式演�
 FlatBuffer 模式位于 `core/sif/dologger_sif.fbs`；绑定由 `core/build.rs`
 （`flatc --rust`）生成并提交作为回退。模式支持演化，旧消费者会忽略未知字段。
 
-### 状态 — v0.1.0
+### 状态 — v0.0.1
 
 线格式与 `encode_record` / `decode_record` / `validate_frame` API 已交付，
 并被共享内存 sink 与 CLI 使用。引擎的 Formatting→Sink SIF 交接处于规划中

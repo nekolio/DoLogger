@@ -7,15 +7,17 @@
 //!
 //! | Command            | Description |
 //! |--------------------|-------------|
-//! | `verify-log`       | Verify audit log file signature chain, LSN monotonicity, prev_hash |
+//! | `verify-log`       | Verify audit log signature chain (sidecar + LSN, ADR-002 A.6) |
 //! | `verify-anchor`    | Verify external anchor JSON file signatures and ordering |
 //! | `recovery-report`  | Scan *.worm files, report LSN continuity and gaps |
 
+use std::collections::HashMap;
 use std::fs;
 
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
+use dologger_core::record::Record;
 use dologger_core::sif::decode_record;
 
 use crate::output::{self, color, OutputFormat};
@@ -58,26 +60,43 @@ fn bright_cyan() -> &'static str {
 /// Parsed SIF record fields relevant to audit verification.
 #[derive(Debug, Clone)]
 struct SifRecord {
+    /// Metadata retained for future diagnostics/display; tamper-evidence for
+    /// these fields is carried by the A.3 content hash, not the signed digest.
+    #[allow(dead_code)]
     id_hi: u64,
+    #[allow(dead_code)]
     id_lo: u64,
     lsn: u64,
+    #[allow(dead_code)]
     timestamp_hi: u64,
+    #[allow(dead_code)]
     timestamp_lo: u64,
+    #[allow(dead_code)]
     level: u8,
-    /// Presence bitmask: bit0 = has signature, bit1 = has prev_hash.
-    flags: u8,
+    #[allow(dead_code)]
     thread_id: u64,
+    #[allow(dead_code)]
     process_id: u32,
+    #[allow(dead_code)]
     message: String,
     #[allow(dead_code)]
     source_file: String,
     #[allow(dead_code)]
     host_name: String,
+    #[allow(dead_code)]
     source_line: u32,
+    #[allow(dead_code)]
     source_column: u32,
-    signature: [u8; 64],
-    prev_hash: [u8; 32],
+    /// A.3 canonical-serialization hash carried by the SIF record.
+    content_hash: [u8; 32],
+    /// True when `content_hash` is nonzero — the record participates in the
+    /// audit chain and must carry a sidecar signature.
+    in_chain: bool,
+    /// True when a fresh canonical-serialization hash (A.3) matches the stored
+    /// `content_hash`. False means a hashed field was altered after writing.
+    content_ok: bool,
     /// Byte offset in the source file where this record begins (length prefix).
+    #[allow(dead_code)]
     file_offset: u64,
 }
 
@@ -87,27 +106,27 @@ struct SifRecord {
 fn parse_sif(data: &[u8]) -> Option<SifRecord> {
     let rec = decode_record(data).ok()?;
 
-    // Presence flags: bit0 = signature present, bit1 = prev_hash present.
-    let flags: u8 = (rec.signature.iter().any(|&b| b != 0) as u8)
-        | ((rec.prev_hash.iter().any(|&b| b != 0) as u8) << 1);
+    let stored_hash = rec.content_hash;
+    let in_chain = stored_hash != [0u8; 32];
+    let content_ok = in_chain && Record::compute_content_hash_from(&rec) == stored_hash;
 
     Some(SifRecord {
-        id_hi: rec.id.hi,
-        id_lo: rec.id.lo,
+        id_hi: rec.id_hi(),
+        id_lo: rec.id_lo(),
         lsn: rec.lsn,
-        timestamp_hi: rec.timestamp.hi,
-        timestamp_lo: rec.timestamp.lo,
+        timestamp_hi: rec.timestamp / 1_000_000_000,
+        timestamp_lo: rec.timestamp % 1_000_000_000,
         level: rec.level as u8,
-        flags,
-        thread_id: rec.thread_id,
+        thread_id: rec.thread_id as u64,
         process_id: rec.process_id,
         message: rec.message.as_str().to_string(),
-        source_file: rec.source_file.as_str().to_string(),
-        host_name: rec.host_name.as_str().to_string(),
-        source_line: rec.source_line,
-        source_column: rec.source_column,
-        signature: rec.signature,
-        prev_hash: rec.prev_hash,
+        source_file: rec.source_file(),
+        host_name: rec.host_name(),
+        source_line: rec.source_line(),
+        source_column: rec.source_column(),
+        content_hash: stored_hash,
+        in_chain,
+        content_ok,
         file_offset: 0,
     })
 }
@@ -157,58 +176,113 @@ fn read_sif_file(path: &str) -> Result<Vec<SifRecord>, String> {
 // Signature verification helpers
 // ===========================================================================
 
-/// Build the signing payload from a SIF record — byte-for-byte identical to
+/// Build the A.6 signing digest — byte-for-byte identical to
 /// `SignatureEngine::build_signing_payload_static` in the core crate, so
 /// `verify-log` accepts records signed by the core.
-fn build_signing_payload(rec: &SifRecord) -> Vec<u8> {
-    let mut data = Vec::with_capacity(256);
-
-    // Ring 0: id, timestamp (signature and origin_lsn are excluded)
-    data.extend_from_slice(&rec.id_hi.to_le_bytes());
-    data.extend_from_slice(&rec.id_lo.to_le_bytes());
-    data.extend_from_slice(&rec.timestamp_hi.to_le_bytes());
-    data.extend_from_slice(&rec.timestamp_lo.to_le_bytes());
-
-    // LSN + prev_hash
-    data.extend_from_slice(&rec.lsn.to_le_bytes());
-    data.extend_from_slice(&rec.prev_hash);
-
-    // Ring 1: level + message
-    data.push(rec.level);
-    data.extend_from_slice(rec.message.as_bytes());
-
-    // Source location
-    data.extend_from_slice(&rec.source_line.to_le_bytes());
-    data.extend_from_slice(&rec.source_column.to_le_bytes());
-
-    // Thread/process
-    data.extend_from_slice(&rec.thread_id.to_le_bytes());
-    data.extend_from_slice(&rec.process_id.to_le_bytes());
-
-    data
+///
+/// The signed digest is `SHA-256(lsn || content_hash || prev_hash)` where
+/// `prev_hash` derives from the previous signed record's chain state
+/// (`SHA-256(prev.content_hash || prev.lsn)`, or the all-zeros genesis
+/// derivation for the first record).
+fn build_signing_payload(rec: &SifRecord, prev_hash: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(rec.lsn.to_le_bytes());
+    hasher.update(rec.content_hash);
+    hasher.update(prev_hash);
+    hasher.finalize().into()
 }
 
-/// Verify a record's Ed25519 signature using the given public key.
-fn verify_signature(rec: &SifRecord, verifying_key: &VerifyingKey) -> bool {
-    let sig_bytes: [u8; 64] = rec.signature;
-    let sig = Signature::from_bytes(&sig_bytes);
-    let payload = build_signing_payload(rec);
+/// Derive the A.6 predecessor hash for a record's chain state (ruling #15):
+/// `SHA-256(content_hash || lsn)`.
+fn derive_prev_hash(content_hash: &[u8; 32], lsn: u64) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(content_hash);
+    hasher.update(lsn.to_le_bytes());
+    hasher.finalize().into()
+}
+
+/// Genesis chain state used before the first signed record:
+/// `prev_content_hash = 0`, `prev_lsn = 0`.
+fn genesis_prev_hash() -> [u8; 32] {
+    derive_prev_hash(&[0u8; 32], 0)
+}
+
+/// Verify a record's Ed25519 signature using the given public key and the
+/// derived predecessor hash (A.6).
+fn verify_signature(
+    rec: &SifRecord,
+    prev_hash: &[u8; 32],
+    sig: &[u8; 64],
+    verifying_key: &VerifyingKey,
+) -> bool {
+    let sig = Signature::from_bytes(sig);
+    let payload = build_signing_payload(rec, prev_hash);
     verifying_key.verify(&payload, &sig).is_ok()
 }
 
-/// Verify the prev_hash chain link between two consecutive records.
+/// Verify the chain link between two consecutive records.
+///
+/// Per ruling #15 the chain relation is LSN monotonicity only: `prev_hash` is
+/// a derivation (`SHA-256(prev.content_hash || prev.lsn)`) computed at
+/// sign/verify time, never stored, so there is no stored predecessor hash to
+/// compare here. The signature covers the derived hash (ADR-002 A.6); a
+/// tampered predecessor fails at signature verification.
 fn verify_chain_link(prev: &SifRecord, next: &SifRecord) -> Result<(), &'static str> {
     if next.lsn <= prev.lsn {
         return Err("LSN regression");
     }
-    let mut hasher = Sha256::new();
-    hasher.update(prev.lsn.to_le_bytes());
-    hasher.update(prev.signature);
-    let expected: [u8; 32] = hasher.finalize().into();
-    if expected != next.prev_hash {
-        return Err("prev_hash mismatch");
-    }
     Ok(())
+}
+
+// ===========================================================================
+// Signature sidecar parsing
+// ===========================================================================
+
+/// One signature-sidecar entry: the A.3 content hash and Ed25519 signature
+/// the pipeline wrote for one LSN.
+#[derive(Debug, Clone, Copy)]
+struct SidecarEntry {
+    content_hash: [u8; 32],
+    signature: [u8; 64],
+}
+
+/// Parse `<lsn>:<content_hash_hex>:<signature_hex>` lines (decimal LSN,
+/// lowercase hex blobs) into an LSN-keyed map.
+fn read_sidecar(path: &str) -> Result<HashMap<u64, SidecarEntry>, String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("Cannot read '{path}': {e}"))?;
+    let mut entries = HashMap::new();
+    for (idx, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let mut parts = line.split(':');
+        let lsn = parts
+            .next()
+            .and_then(|s| s.parse::<u64>().ok())
+            .ok_or_else(|| format!("{path}:{}: malformed LSN in sidecar line", idx + 1))?;
+        let content_hash: [u8; 32] = parts
+            .next()
+            .and_then(|s| dologger_core::hex::decode(s).ok())
+            .and_then(|b| <[u8; 32]>::try_from(b).ok())
+            .ok_or_else(|| format!("{path}:{}: malformed content_hash hex", idx + 1))?;
+        let signature: [u8; 64] = parts
+            .next()
+            .and_then(|s| dologger_core::hex::decode(s).ok())
+            .and_then(|b| <[u8; 64]>::try_from(b).ok())
+            .ok_or_else(|| format!("{path}:{}: malformed signature hex", idx + 1))?;
+        if parts.next().is_some() {
+            return Err(format!("{path}:{}: extra fields in sidecar line", idx + 1));
+        }
+        entries.insert(
+            lsn,
+            SidecarEntry {
+                content_hash,
+                signature,
+            },
+        );
+    }
+    Ok(entries)
 }
 
 // ===========================================================================
@@ -221,9 +295,14 @@ fn verify_chain_link(prev: &SifRecord, next: &SifRecord) -> Result<(), &'static 
 /// prev_hash chain. Report total, valid, tampered, gaps.
 ///
 /// If `pubkey_hex` is provided, also verify Ed25519 signatures against it.
-pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat) {
+pub fn cmd_verify_log(
+    path: &str,
+    pubkey_hex: Option<&str>,
+    sidecar_path: Option<&str>,
+    format: OutputFormat,
+) {
     if format == OutputFormat::Json {
-        cmd_verify_log_json(path, pubkey_hex);
+        cmd_verify_log_json(path, pubkey_hex, sidecar_path);
         return;
     }
 
@@ -278,6 +357,21 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
         }
     };
     stdout!("");
+
+    // Read the signature sidecar (LSN → hash + signature) if requested.
+    let sidecar: Option<HashMap<u64, SidecarEntry>> = match sidecar_path {
+        Some(p) => match read_sidecar(p) {
+            Ok(map) => {
+                stdout!("  Sidecar: {p} ({c}{}{reset} entries)", map.len());
+                Some(map)
+            }
+            Err(e) => {
+                stderr!("{r}Error:{reset} {e}");
+                std::process::exit(EXIT_VERIFY_FAILED);
+            }
+        },
+        None => None,
+    };
 
     // Read and parse the file
     let records = match read_sif_file(path) {
@@ -336,18 +430,71 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
         }
     }
 
-    // Signature verification
-    if let Some(ref vk) = verifying_key {
+    // Signature verification: signed records carry a sidecar entry keyed by
+    // LSN. Each signature covers SHA-256(lsn || content_hash || prev_hash)
+    // with prev_hash derived from the previous *signed* record's chain state
+    // (A.6) — non-audit records do not advance the chain. Content tampering
+    // is caught both by re-hashing (A.3) and by the Ed25519 signature.
+    let mut missing_sig: u32 = 0;
+    let mut orphan_entries: u32 = 0;
+    if let Some(ref map) = sidecar {
         stdout!("");
-        stdout!("  Verifying Ed25519 signatures...");
+        stdout!(
+            "  Verifying signatures ({c}{}{reset} sidecar entries)...",
+            map.len()
+        );
+        let mut prev_chain: Option<(&[u8; 32], u64)> = None;
         for rec in sorted.iter() {
-            if rec.flags & 0x01 != 0 {
-                if verify_signature(rec, vk) {
-                    valid_sig += 1;
-                } else {
-                    tampered_sig += 1;
-                    stderr!("  {r}TAMPERED{reset} LSN {} — signature invalid", rec.lsn);
+            if !rec.in_chain {
+                continue;
+            }
+            let prev_hash = match prev_chain {
+                Some((ch, lsn)) => derive_prev_hash(ch, lsn),
+                None => genesis_prev_hash(),
+            };
+            // The chain advances through every signed record even if its own
+            // sidecar entry was lost — later signatures bind to this record.
+            prev_chain = Some((&rec.content_hash, rec.lsn));
+            match map.get(&rec.lsn) {
+                Some(entry) => {
+                    if !rec.content_ok {
+                        tampered_sig += 1;
+                        stderr!(
+                            "  {r}TAMPERED{reset} LSN {} — content_hash no longer matches record content",
+                            rec.lsn
+                        );
+                    } else if entry.content_hash != rec.content_hash {
+                        tampered_sig += 1;
+                        stderr!(
+                            "  {r}TAMPERED{reset} LSN {} — sidecar hash differs from record hash",
+                            rec.lsn
+                        );
+                    } else if let Some(ref vk) = verifying_key {
+                        if verify_signature(rec, &prev_hash, &entry.signature, vk) {
+                            valid_sig += 1;
+                        } else {
+                            tampered_sig += 1;
+                            stderr!("  {r}TAMPERED{reset} LSN {} — signature invalid", rec.lsn);
+                        }
+                    } else {
+                        valid_sig += 1;
+                    }
                 }
+                None => {
+                    missing_sig += 1;
+                    stderr!(
+                        "  {r}MISSING SIGNATURE{reset} LSN {} — no sidecar entry",
+                        rec.lsn
+                    );
+                }
+            }
+        }
+        // Orphan sidecar entries — LSNs with a signature but no matching
+        // record in the log — imply records were deleted after signing.
+        for lsn in map.keys() {
+            if !sorted.iter().any(|r| r.lsn == *lsn) {
+                orphan_entries += 1;
+                stderr!("  {r}ORPHAN SIDECAR{reset} LSN {lsn} — no matching record in log");
             }
         }
     }
@@ -375,7 +522,7 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
         }
     }
 
-    if verifying_key.is_some() {
+    if sidecar.is_some() {
         let sig_total = valid_sig + tampered_sig;
         if sig_total > 0 {
             let pct = valid_sig as f64 / sig_total as f64 * 100.0;
@@ -385,12 +532,24 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
         } else {
             stdout!("  Signatures:        {d}no signed records found{reset}");
         }
+        if missing_sig > 0 {
+            stdout!("  Missing signatures:{r} {missing_sig}{reset}");
+        }
+        if orphan_entries > 0 {
+            stdout!("  Orphan sidecar:    {r} {orphan_entries}{reset}");
+        }
     }
 
     // Exit code
-    if broken_chain > 0 || tampered_sig > 0 || !lsn_gaps.is_empty() {
+    if broken_chain > 0
+        || tampered_sig > 0
+        || !lsn_gaps.is_empty()
+        || missing_sig > 0
+        || orphan_entries > 0
+    {
         stdout!("");
-        let issue_count = broken_chain + tampered_sig + lsn_gaps.len() as u32;
+        let issue_count =
+            broken_chain + tampered_sig + lsn_gaps.len() as u32 + missing_sig + orphan_entries;
         stderr!("{r}{b}VERIFICATION FAILED{reset}{r} — {issue_count} issue(s) detected{reset}");
         std::process::exit(EXIT_VERIFY_FAILED);
     } else {
@@ -405,17 +564,29 @@ pub fn cmd_verify_log(path: &str, pubkey_hex: Option<&str>, format: OutputFormat
 }
 
 /// JSON variant of `cmd_verify_log`. Outputs a single JSON object to stdout.
-fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>) {
+fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>, sidecar_path: Option<&str>) {
     // Parse public key (silently)
     let verifying_key: Option<VerifyingKey> = pubkey_hex
         .and_then(|h| dologger_core::hex::decode(h.trim()).ok())
         .and_then(|b| <[u8; 32]>::try_from(b).ok())
         .and_then(|arr| VerifyingKey::from_bytes(&arr).ok());
 
+    let sidecar: Option<HashMap<u64, SidecarEntry>> = match sidecar_path {
+        Some(p) => match read_sidecar(p) {
+            Ok(m) => Some(m),
+            Err(e) => {
+                let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": e});
+                output::stdout_line(&obj.to_string());
+                std::process::exit(EXIT_VERIFY_FAILED);
+            }
+        },
+        None => None,
+    };
+
     let records = match read_sif_file(path) {
         Ok(r) => r,
         Err(e) => {
-            let obj = serde_json::json!({"status": "error", "message": e});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": e});
             output::stdout_line(&obj.to_string());
             std::process::exit(EXIT_VERIFY_FAILED);
         }
@@ -430,6 +601,8 @@ fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>) {
     let mut valid_chain: u32 = 0;
     let mut broken_chain: u32 = 0;
     let mut lsn_gaps_count: u32 = 0;
+    let mut missing_sig: u32 = 0;
+    let mut orphan_entries: u32 = 0;
 
     for i in 1..total {
         match verify_chain_link(sorted[i - 1], sorted[i]) {
@@ -442,17 +615,42 @@ fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>) {
         }
     }
 
-    if let Some(ref vk) = verifying_key {
-        for rec in sorted.iter().filter(|r| r.flags & 0x01 != 0) {
-            if verify_signature(rec, vk) {
-                valid_sig += 1;
-            } else {
-                tampered_sig += 1;
+    if let Some(ref map) = sidecar {
+        let mut prev_chain: Option<(&[u8; 32], u64)> = None;
+        for rec in sorted.iter().filter(|r| r.in_chain) {
+            let prev_hash = match prev_chain {
+                Some((ch, lsn)) => derive_prev_hash(ch, lsn),
+                None => genesis_prev_hash(),
+            };
+            prev_chain = Some((&rec.content_hash, rec.lsn));
+            match map.get(&rec.lsn) {
+                Some(entry) => {
+                    if !rec.content_ok || entry.content_hash != rec.content_hash {
+                        tampered_sig += 1;
+                    } else if let Some(ref vk) = verifying_key {
+                        if verify_signature(rec, &prev_hash, &entry.signature, vk) {
+                            valid_sig += 1;
+                        } else {
+                            tampered_sig += 1;
+                        }
+                    } else {
+                        valid_sig += 1;
+                    }
+                }
+                None => missing_sig += 1,
             }
         }
+        orphan_entries = map
+            .keys()
+            .filter(|lsn| !sorted.iter().any(|r| r.lsn == **lsn))
+            .count() as u32;
     }
 
-    let passed = broken_chain == 0 && tampered_sig == 0 && lsn_gaps_count == 0;
+    let passed = broken_chain == 0
+        && tampered_sig == 0
+        && lsn_gaps_count == 0
+        && missing_sig == 0
+        && orphan_entries == 0;
 
     let obj = serde_json::json!({
         "status": if passed { "passed" } else { "failed" },
@@ -463,7 +661,9 @@ fn cmd_verify_log_json(path: &str, pubkey_hex: Option<&str>) {
         "lsn_gaps": lsn_gaps_count,
         "signatures": {
             "valid": valid_sig,
-            "tampered": tampered_sig
+            "tampered": tampered_sig,
+            "missing": missing_sig,
+            "orphan_sidecar_entries": orphan_entries
         }
     });
     output::stdout_line(&obj.to_string());
@@ -707,14 +907,14 @@ fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
             {
                 Some(k) => k,
                 None => {
-                    let obj = serde_json::json!({"status": "error", "message": "Invalid or missing --pubkey"});
+                    let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": "Invalid or missing --pubkey"});
                     output::stdout_line(&obj.to_string());
                     std::process::exit(EXIT_VERIFY_FAILED);
                 }
             }
         }
         None => {
-            let obj = serde_json::json!({"status": "error", "message": "--pubkey is required for anchor verification"});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": "--pubkey is required for anchor verification"});
             output::stdout_line(&obj.to_string());
             std::process::exit(EXIT_VERIFY_FAILED);
         }
@@ -723,8 +923,7 @@ fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
     let json_str = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
-            let obj =
-                serde_json::json!({"status": "error", "message": format!("Cannot read file: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": format!("Cannot read file: {e}")});
             output::stdout_line(&obj.to_string());
             std::process::exit(EXIT_VERIFY_FAILED);
         }
@@ -733,8 +932,7 @@ fn cmd_verify_anchor_json(path: &str, pubkey_hex: Option<&str>) {
     let anchors: Vec<AnchorJson> = match serde_json::from_str(&json_str) {
         Ok(a) => a,
         Err(e) => {
-            let obj =
-                serde_json::json!({"status": "error", "message": format!("Invalid JSON: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": format!("Invalid JSON: {e}")});
             output::stdout_line(&obj.to_string());
             std::process::exit(EXIT_VERIFY_FAILED);
         }
@@ -994,7 +1192,7 @@ fn cmd_recovery_report_json(worm_dir: &str) {
     let dir = match fs::read_dir(worm_dir) {
         Ok(d) => d,
         Err(e) => {
-            let obj = serde_json::json!({"status": "error", "message": format!("Cannot read directory: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_VERIFY_FAILED, "message": format!("Cannot read directory: {e}")});
             output::stdout_line(&obj.to_string());
             std::process::exit(EXIT_VERIFY_FAILED);
         }

@@ -610,10 +610,15 @@ impl KeyRotationManager {
     ///
     /// - `Ok(index)`: The record is valid and was signed by `active_keys[index]`.
     /// - `Err(SignatureError)`: No active non-revoked key verified the record.
-    pub fn verify_record_multi(&self, record: &Record) -> Result<usize, SignatureError> {
-        let sig_bytes: [u8; 64] = record.signature;
-        let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
-        let data = crate::security::SignatureEngine::build_signing_payload_static(record);
+    pub fn verify_record_multi(
+        &self,
+        record: &Record,
+        sig_bytes: &[u8; 64],
+        prev_hash: &[u8; 32],
+    ) -> Result<usize, SignatureError> {
+        let signature = ed25519_dalek::Signature::from_bytes(sig_bytes);
+        let data =
+            crate::security::SignatureEngine::build_signing_payload_static(record, prev_hash);
 
         for (idx, vk) in self.active_keys.iter().enumerate() {
             // Skip revoked keys
@@ -630,9 +635,11 @@ impl KeyRotationManager {
 
     /// Sign the payload for a record using the primary signing key.
     ///
-    /// Returns the 64-byte Ed25519 signature.
-    pub fn sign_record(&self, record: &Record) -> [u8; 64] {
-        let data = crate::security::SignatureEngine::build_signing_payload_static(record);
+    /// Returns the 64-byte Ed25519 signature. `prev_hash` is the A.6-derived
+    /// predecessor hash (`SHA-256(prev.content_hash || prev.lsn)`).
+    pub fn sign_record(&self, record: &Record, prev_hash: &[u8; 32]) -> [u8; 64] {
+        let data =
+            crate::security::SignatureEngine::build_signing_payload_static(record, prev_hash);
         self.primary_signing_key().sign(&data).to_bytes()
     }
 
@@ -677,8 +684,7 @@ mod tests {
     /// Helper: create a simple test record.
     fn make_test_record(id: u64) -> Record {
         let mut r = Record::new(0);
-        r.id.hi = 0;
-        r.id.lo = id;
+        r.set_id(0, id);
         r.level = LogLevel::Audit;
         r.message.set("test audit message for key rotation");
         r.thread_id = 1;
@@ -693,11 +699,10 @@ mod tests {
         let manager = KeyRotationManager::new(sk.clone(), 7);
         assert_eq!(manager.active_key_count(), 1);
 
-        let mut record = make_test_record(1);
-        let sig = manager.sign_record(&record);
-        record.signature = sig;
+        let record = make_test_record(1);
+        let sig = manager.sign_record(&record, &[0u8; 32]);
 
-        let result = manager.verify_record_multi(&record);
+        let result = manager.verify_record_multi(&record, &sig, &[0u8; 32]);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
     }
@@ -711,9 +716,8 @@ mod tests {
         assert_eq!(manager.active_key_count(), 1);
 
         // Sign a record with the old key before rotation
-        let mut old_record = make_test_record(1);
-        let old_sig = manager.sign_record(&old_record);
-        old_record.signature = old_sig;
+        let old_record = make_test_record(1);
+        let old_sig = manager.sign_record(&old_record, &[0u8; 32]);
 
         // Initiate rotation
         let event = manager.initiate_rotation().unwrap();
@@ -721,17 +725,16 @@ mod tests {
         assert_eq!(event.status, RotationStatus::InProgress);
 
         // Sign a record with the new key
-        let mut new_record = make_test_record(2);
-        let new_sig = manager.sign_record(&new_record);
-        new_record.signature = new_sig;
+        let new_record = make_test_record(2);
+        let new_sig = manager.sign_record(&new_record, &[0u8; 32]);
 
         // Both records should verify (2 active keys)
-        let old_result = manager.verify_record_multi(&old_record);
+        let old_result = manager.verify_record_multi(&old_record, &old_sig, &[0u8; 32]);
         assert!(old_result.is_ok());
         // old record should match key at index 0 (old key)
         assert_eq!(old_result.unwrap(), 0);
 
-        let new_result = manager.verify_record_multi(&new_record);
+        let new_result = manager.verify_record_multi(&new_record, &new_sig, &[0u8; 32]);
         assert!(new_result.is_ok());
         // new record should match key at index 1 (new key = primary)
         assert_eq!(new_result.unwrap(), 1);
@@ -744,14 +747,14 @@ mod tests {
         // Actually after complete, old key is added to CRL with Superseded
         // and removed from active_keys. Let's check if old record still verifies...
         // The old key is removed from active_keys, so old record should FAIL.
-        let old_result_after = manager.verify_record_multi(&old_record);
+        let old_result_after = manager.verify_record_multi(&old_record, &old_sig, &[0u8; 32]);
         assert!(
             old_result_after.is_err(),
             "Old record should fail after rotation complete because old key is no longer active"
         );
 
         // New record should still verify
-        let new_result_after = manager.verify_record_multi(&new_record);
+        let new_result_after = manager.verify_record_multi(&new_record, &new_sig, &[0u8; 32]);
         assert!(new_result_after.is_ok());
     }
 
@@ -768,9 +771,8 @@ mod tests {
         let mut manager = KeyRotationManager::new(sk_old.clone(), 7);
 
         // Sign with old key
-        let mut record = make_test_record(1);
-        let sig = manager.sign_record(&record);
-        record.signature = sig;
+        let record = make_test_record(1);
+        let sig = manager.sign_record(&record, &[0u8; 32]);
 
         // Initiate rotation so we have 2 keys
         manager.initiate_rotation().unwrap();
@@ -785,7 +787,7 @@ mod tests {
 
         // The old record was signed with the old key which is now revoked
         // It should fail verification
-        let result = manager.verify_record_multi(&record);
+        let result = manager.verify_record_multi(&record, &sig, &[0u8; 32]);
         assert!(
             result.is_err(),
             "Record signed by revoked key must fail verification"
@@ -808,9 +810,11 @@ mod tests {
         assert!(!manager.rotation_in_progress());
 
         // Phase 1: Sign with old key
-        let mut old_record = make_test_record(1);
-        old_record.signature = manager.sign_record(&old_record);
-        assert!(manager.verify_record_multi(&old_record).is_ok());
+        let old_record = make_test_record(1);
+        let old_sig = manager.sign_record(&old_record, &[0u8; 32]);
+        assert!(manager
+            .verify_record_multi(&old_record, &old_sig, &[0u8; 32])
+            .is_ok());
 
         // Phase 2: Initiate rotation
         let event = manager.initiate_rotation().unwrap();
@@ -820,11 +824,11 @@ mod tests {
         assert_eq!(manager.rotation_history.len(), 1);
 
         // Phase 3: Both keys active -> both records verify
-        let mut new_record = make_test_record(2);
-        new_record.signature = manager.sign_record(&new_record);
+        let new_record = make_test_record(2);
+        let new_sig = manager.sign_record(&new_record, &[0u8; 32]);
 
-        let old_verify = manager.verify_record_multi(&old_record);
-        let new_verify = manager.verify_record_multi(&new_record);
+        let old_verify = manager.verify_record_multi(&old_record, &old_sig, &[0u8; 32]);
+        let new_verify = manager.verify_record_multi(&new_record, &new_sig, &[0u8; 32]);
         assert!(
             old_verify.is_ok(),
             "Old record should verify during grace period"
@@ -841,11 +845,15 @@ mod tests {
 
         // Phase 5: Old record fails, new record passes
         assert!(
-            manager.verify_record_multi(&old_record).is_err(),
+            manager
+                .verify_record_multi(&old_record, &old_sig, &[0u8; 32])
+                .is_err(),
             "Old record should fail after rotation complete"
         );
         assert!(
-            manager.verify_record_multi(&new_record).is_ok(),
+            manager
+                .verify_record_multi(&new_record, &new_sig, &[0u8; 32])
+                .is_ok(),
             "New record should pass after rotation complete"
         );
 

@@ -83,8 +83,8 @@ Matches `dologger_plugin_info_t` from `core/include/dologger_core.h`:
 | Field       | Type        | Value                           |
 |-------------|-------------|---------------------------------|
 | name        | `const char*` | `"cpp-example-formatter"`    |
-| version     | `uint32_t`  | `0x000100` (0.1.0)              |
-| abi_version | `uint32_t`  | `0x000100` (0.1.0)              |
+| version     | `uint32_t`  | `0x000001` (0.0.1)              |
+| abi_version | `uint32_t`  | `0x000001` (0.0.1)              |
 | phase       | `uint32_t`  | `0x0010` (DO_LOG_PHASE_FORMATTING) |
 | vtable      | `void*`     | Pointer to `dologger_formatter_vtable_t` |
 

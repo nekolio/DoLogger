@@ -14,7 +14,7 @@ body:
     attributes:
       label: Version
       description: Output of `dologctl version`
-      placeholder: dologctl 0.1.0
+      placeholder: dologctl 0.0.1
     validations:
       required: true
 

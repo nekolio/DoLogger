@@ -1,6 +1,6 @@
 # Architecture Evolution: The Root-Level Difference of Moving Sink from Plugin to Core Built-in
 
-> **Version**: v0.1.0 | **Last updated**: 2026-08-15 | **Audience**: core developers, architecture reviewers, plugin authors
+> **Version**: v0.0.1 | **Last updated**: 2026-08-15 | **Audience**: core developers, architecture reviewers, plugin authors
 >
 > **Purpose**: Using design intent as the lens (the in-repo authority being [ArchitectureReference.md](ArchitectureReference.md)), contrast the pre-refactor (`aedcd7f~1`) and post-refactor (`aedcd7f`) architecture models to answer one question: **what is the *root-level* source of the gap between "final result vs. design proposal"?**
 >

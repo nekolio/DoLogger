@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "dologctl"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "clap",
@@ -523,7 +523,7 @@ dependencies = [
 
 [[package]]
 name = "dologger-core"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "aes-gcm",
  "chrono",
@@ -546,14 +546,14 @@ dependencies = [
 
 [[package]]
 name = "dologger-filter-example"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
 ]
 
 [[package]]
 name = "dologger-official-plugins"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
  "dologger-plugin-field-container",
@@ -565,21 +565,21 @@ dependencies = [
 
 [[package]]
 name = "dologger-plugin-field-container"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
 ]
 
 [[package]]
 name = "dologger-plugin-filter-level"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
 ]
 
 [[package]]
 name = "dologger-plugin-formatter-json"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
  "serde_json",
@@ -587,14 +587,14 @@ dependencies = [
 
 [[package]]
 name = "dologger-plugin-formatter-text"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
 ]
 
 [[package]]
 name = "dologger-sdk"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "dologger-core",
  "log",

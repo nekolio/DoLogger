@@ -16,12 +16,11 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use dologger_core::ffi::dologger_uint128_t;
 use dologger_core::record::{LogLevel, Record};
 use dologger_core::sif::{decode_record, encode_record};
 
 use crate::output::{self, color, OutputFormat};
-use crate::{stderr, stdout};
+use crate::{stderr, stdout, EXIT_ERR};
 
 // ---------------------------------------------------------------------------
 // Colour helpers
@@ -73,11 +72,8 @@ const DEFAULT_RECORDS_PER_SEC: u64 = 100;
 fn generate_sif_record(lsn: u64, timestamp_ms: u64, level: u8, message: &str) -> Vec<u8> {
     let mut rec = Record::new(0);
     rec.lsn = lsn;
-    // Timestamp layout: hi = seconds, lo = nanoseconds.
-    rec.timestamp = dologger_uint128_t {
-        hi: timestamp_ms / 1000,
-        lo: (timestamp_ms % 1000) * 1_000_000,
-    };
+    // Timestamp: u64 nanoseconds since UNIX epoch.
+    rec.timestamp = timestamp_ms * 1_000_000;
     rec.level = LogLevel::from_u8(level).unwrap_or(LogLevel::Info);
     rec.thread_id = 1;
     rec.process_id = std::process::id();
@@ -205,9 +201,9 @@ fn cmd_record_json(domain: &str, output: &str, duration: u64, total_records: u64
     if let Some(parent) = output_path.parent() {
         if !parent.as_os_str().is_empty() {
             if let Err(e) = fs::create_dir_all(parent) {
-                let obj = serde_json::json!({"status": "error", "message": format!("Cannot create directory: {e}")});
+                let obj = serde_json::json!({"status": "error", "error_code": EXIT_ERR, "message": format!("Cannot create directory: {e}")});
                 output::stdout_line(&obj.to_string());
-                std::process::exit(1);
+                std::process::exit(EXIT_ERR);
             }
         }
     }
@@ -215,9 +211,9 @@ fn cmd_record_json(domain: &str, output: &str, duration: u64, total_records: u64
     let file = match fs::File::create(output) {
         Ok(f) => f,
         Err(e) => {
-            let obj = serde_json::json!({"status": "error", "message": format!("Cannot create file: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_ERR, "message": format!("Cannot create file: {e}")});
             output::stdout_line(&obj.to_string());
-            std::process::exit(1);
+            std::process::exit(EXIT_ERR);
         }
     };
 
@@ -358,16 +354,15 @@ pub fn cmd_replay(input: &str, speed: &str, format: OutputFormat) {
         };
 
         let lsn = rec.lsn;
-        let ts_hi = rec.timestamp.hi;
-        let ts_lo = rec.timestamp.lo;
+        let ts_nanos = rec.timestamp;
         let level = rec.level as usize;
         let tid = rec.thread_id;
         let pid = rec.process_id;
         let message = rec.message.as_str().to_string();
-        let source_file = rec.source_file.as_str().to_string();
-        let host_name = rec.host_name.as_str().to_string();
+        let source_file = rec.source_file();
+        let host_name = rec.host_name();
 
-        let timestamp_ms = ts_hi * 1000 + ts_lo / 1_000_000;
+        let timestamp_ms = ts_nanos / 1_000_000;
         let level_name = level_names.get(level).copied().unwrap_or("?");
         let level_color = level_colors.get(level).copied().unwrap_or(reset);
 
@@ -418,10 +413,9 @@ fn cmd_replay_json(input: &str, speed: &str) {
     let data = match fs::read(input) {
         Ok(d) => d,
         Err(e) => {
-            let obj =
-                serde_json::json!({"status": "error", "message": format!("Cannot read file: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_ERR, "message": format!("Cannot read file: {e}")});
             output::stdout_line(&obj.to_string());
-            std::process::exit(1);
+            std::process::exit(EXIT_ERR);
         }
     };
 
@@ -578,9 +572,9 @@ fn cmd_record_stop_json(domain: &str) {
             ("not_recording".to_string(), String::new())
         }
         Err(e) => {
-            let obj = serde_json::json!({"status": "error", "message": format!("Cannot read PID file: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_ERR, "message": format!("Cannot read PID file: {e}")});
             output::stdout_line(&obj.to_string());
-            std::process::exit(1);
+            std::process::exit(EXIT_ERR);
         }
     };
 

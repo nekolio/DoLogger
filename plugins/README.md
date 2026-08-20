@@ -69,8 +69,8 @@ Official plugins ship with every release as ONE bundle asset per OS/arch:
 | `.dll` | Windows |
 | `.dylib` | macOS |
 
-Examples: `dologger-official-plugins-v0.1.0-linux-x86_64.so`,
-`dologger-official-plugins-v0.1.0-windows-x86_64.dll`.
+Examples: `dologger-official-plugins-v0.0.1-linux-x86_64.so`,
+`dologger-official-plugins-v0.0.1-windows-x86_64.dll`.
 
 The bundle hosts every official plugin (formatter-json, formatter-text, filter-level,
 field-container); the host registers them all via `plugin_query_multi` (see

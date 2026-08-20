@@ -6,8 +6,7 @@
 
 | Version | Supported | Notes |
 |:-:|:-:|:-:|
-| 0.1.x (latest) | ✅ | Pre-1.0 development phase — pin exact versions |
-| < 0.1.0 | ❌ | Not released |
+| 0.0.1 (latest) | ✅ | Pre-1.0 development phase — pin exact versions |
 
 ## Reporting a Vulnerability
 
@@ -48,7 +47,7 @@ The design baseline is documented in:
 | 版本 | 支持状态 | 说明 |
 |:-:|:-:|:-:|
 | 0.1.x(最新) | ✅ | 1.0 之前开发阶段 —— 请锁定确切版本 |
-| < 0.1.0 | ❌ | 尚未发布 |
+| < 0.0.1 | ❌ | 尚未发布 |
 
 ### 报告漏洞
 

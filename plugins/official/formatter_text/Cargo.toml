@@ -1,6 +1,6 @@
 [package]
 name = "dologger-plugin-formatter-text"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 license.workspace = true
 description = "DoLogger official plugin: human-readable colored text formatter with configurable columns"

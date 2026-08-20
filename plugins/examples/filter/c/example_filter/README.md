@@ -71,8 +71,8 @@ Matches `dologger_plugin_info_t` from `core/include/dologger_core.h`:
 | Field       | Type        | Value                      |
 |-------------|-------------|----------------------------|
 | name        | `const char*` | `"c-example-filter"`    |
-| version     | `uint32_t`  | `0x000100` (0.1.0)         |
-| abi_version | `uint32_t`  | `0x000100` (0.1.0)         |
+| version     | `uint32_t`  | `0x000001` (0.0.1)         |
+| abi_version | `uint32_t`  | `0x000001` (0.0.1)         |
 | phase       | `uint32_t`  | `0x0002` (DO_LOG_PHASE_FILTER) |
 | vtable      | `void*`     | Pointer to `dologger_filter_vtable_t` |
 

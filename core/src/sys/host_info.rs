@@ -55,25 +55,25 @@ impl HostInfoProvider {
     pub fn provide(&self, record: &mut Record) -> usize {
         let mut fields_set = 0;
 
-        record.host_name.set(&self.host_name);
+        record.set_host_name(&self.host_name);
         fields_set += 1;
 
         record.process_id = std::process::id();
         fields_set += 1;
 
-        record.process_name.set(&self.app_name);
+        record.set_process_name(&self.app_name);
         fields_set += 1;
 
-        record.thread_id = thread_id_u64();
+        record.thread_id = thread_id_u64() as u32;
         fields_set += 1;
 
-        record.app_name.set(&self.app_name);
+        record.set_app_name(&self.app_name);
         fields_set += 1;
 
-        record.app_version.set(&self.app_version);
+        record.set_app_version(&self.app_version);
         fields_set += 1;
 
-        record.environment.set(&self.environment);
+        record.set_environment(&self.environment);
         fields_set += 1;
 
         fields_set

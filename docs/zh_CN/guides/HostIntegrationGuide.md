@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](HostIntegrationGuide.md) | [English: Host Integration Guide](../../en_US/guides/HostIntegrationGuide.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 宿主应用开发者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 宿主应用开发者
 
 ## 目录
 
@@ -132,7 +132,7 @@ dologger_handle_t *dologger_init(const char *config_path, dologger_error_t *err)
 | 非 `NULL` 句柄 | 引擎初始化成功。 |
 | `NULL` | 初始化失败 — 检查 `err` 获取详情。第二次调用 `dologger_init` 会返回 `NULL` 且错误码为 `DO_LOG_ERR_ALREADY_INITIALIZED`。 |
 
-v0.1.0 中不存在 `dologger_init_params_t` — 初始化参数来自配置文件（或传 `NULL` 使用默认值），外加运行时 `dologger_config_load_from_string()` API。
+v0.0.1 中不存在 `dologger_init_params_t` — 初始化参数来自配置文件（或传 `NULL` 使用默认值），外加运行时 `dologger_config_load_from_string()` API。
 
 ### `dologger_shutdown()`
 
@@ -277,10 +277,10 @@ shutdown_timeout_ms = 5000
 
 ### 配置热重载
 
-（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.1.0 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或通过控制面触发重载（规划中）。）
+（伪代码/示意 — `ConfigWatcher`（`core/src/config/watcher.rs`）在 v0.0.1 中尚未接入 `Engine::init`：引擎**不会**自动重载配置。请重启引擎，或通过控制面触发重载（规划中）。）
 
 ```bash
-# 伪代码/示意 — v0.1.0 不会自动生效
+# 伪代码/示意 — v0.0.1 不会自动生效
 # 在运行时修改日志级别
 # sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
 # 引擎约 1.5 秒内感知变更
@@ -291,7 +291,7 @@ shutdown_timeout_ms = 5000
 ### 控制面重载
 
 ```bash
-# 伪代码/示意 — v0.1.0 中控制面未随引擎启动
+# 伪代码/示意 — v0.0.1 中控制面未随引擎启动
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
@@ -399,7 +399,7 @@ int32_t dologger_get_last_error(const dologger_handle_t *handle,
 ## 回调 Sink 注册
 
 > [!NOTE]
-> 下面的 C 注册 API 处于规划中 — 已发布的 v0.1.0 头文件中没有 `dologger_register_callback_sink` 符号。Rust 引擎内部已有回调 Sink（`core/src/sink/callback.rs`，以 `dologger_core::sink_callback` 暴露），该 API 将对其进行封装。
+> 下面的 C 注册 API 处于规划中 — 已发布的 v0.0.1 头文件中没有 `dologger_register_callback_sink` 符号。Rust 引擎内部已有回调 Sink（`core/src/sink/callback.rs`，以 `dologger_core::sink_callback` 暴露），该 API 将对其进行封装。
 
 宿主应用将能够注册回调，在进程内接收格式化后的日志数据，绕过外部 Sink：
 
@@ -508,7 +508,7 @@ SDK（`dologger_sdk::Logger`）在 `Engine` 之上提供级别辅助函数（`tr
 
 ### Python（规划中）
 
-（伪代码/示意 — 打包的托管适配器为规划中；仓库已附带可运行的 ctypes 适配器（`adapters/python/dologger.py`），其 `DoLogger` 类可通过 `from dologger import DoLogger` 导入，并已随 v0.1.0 实测运行。以下代码为规划的接口的示意预览（伪代码，不可直接运行）：）
+（伪代码/示意 — 打包的托管适配器为规划中；仓库已附带可运行的 ctypes 适配器（`adapters/python/dologger.py`），其 `DoLogger` 类可通过 `from dologger import DoLogger` 导入，并已随 v0.0.1 实测运行。以下代码为规划的接口的示意预览（伪代码，不可直接运行）：）
 
 ```python
 import dologger
@@ -611,7 +611,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### 诊断检查清单
 
-1. **引擎健康**：`curl http://127.0.0.1:9090/status`（伪代码/示意 — v0.1.0 中控制面未启动）
+1. **引擎健康**：`curl http://127.0.0.1:9090/status`（伪代码/示意 — v0.0.1 中控制面未启动）
 2. **Sysmon 事件**：重定向 `stderr`，关注 `PIPELINE_BACKLOG`、`SHM_DROP`、`SINK_CIRCUIT_OPEN`、`SANDBOX_VIOLATION`、`SIGNATURE_FAILURE`。
 3. **内部日志**：`tail -f dologger_internal.log`
 4. **配置**：`dologctl config validate --config /path/to/dologger.toml --strict`

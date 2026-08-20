@@ -18,9 +18,9 @@ use std::path::PathBuf;
 use libloading::Library;
 
 /// Core ABI version — must match `dologger_core::plugin::CORE_ABI_VERSION`
-/// (0.1.0 packed as `0x000100`). Kept local so the test asserts the contract
+/// (0.0.1 packed as `0x000001`). Kept local so the test asserts the contract
 /// against the compiled artifact, not against a value re-imported from source.
-const CORE_ABI_VERSION: u32 = 0x000100;
+const CORE_ABI_VERSION: u32 = 0x000001;
 
 /// Canonical plugin info — mirrors `dologger_plugin_info_t`.
 #[repr(C)]
@@ -146,7 +146,7 @@ fn dlopen_every_entry_declares_matching_abi_and_vtable() {
         let info = unsafe { &**p };
         assert_eq!(
             info.abi_version, CORE_ABI_VERSION,
-            "every official plugin must declare ABI 0x000100"
+            "every official plugin must declare ABI 0x000001"
         );
         assert!(!info.vtable.is_null(), "vtable must be non-null");
         assert!(info.phase != 0, "phase mask must be non-empty");

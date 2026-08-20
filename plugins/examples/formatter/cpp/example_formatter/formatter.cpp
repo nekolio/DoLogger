@@ -138,8 +138,8 @@ static const char g_plugin_name[] = "cpp-example-formatter";
 
 static dologger_plugin_info_t g_plugin_info = {
     .name        = g_plugin_name,
-    .version     = 0x000100,                   /* 0.1.0   */
-    .abi_version = 0x000100,                   /* 0.1.0   */
+    .version     = 0x000001,                   /* 0.0.1   */
+    .abi_version = 0x000001,                   /* 0.0.1   */
     .phase       = DO_LOG_PHASE_FORMATTING,    /* 0x0010   */
     .vtable      = &g_vtable
 };

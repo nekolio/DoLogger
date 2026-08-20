@@ -67,8 +67,9 @@ fn main() {
 
         unsafe {
             let record = &mut *record_ptr;
-            record.id = time_source.next_id();
-            record.timestamp = time_source.now_utc();
+            let id = time_source.next_id();
+            record.set_id(id.hi, id.lo);
+            record.timestamp = time_source.now_nanos();
             record.level = match i % 7 {
                 1 => LogLevel::Debug,
                 2 => LogLevel::Info,
@@ -81,11 +82,11 @@ fn main() {
             record
                 .message
                 .set(&format!("Log message #{i}: Hello from DoLogger!"));
-            record.thread_id = tid;
+            record.thread_id = tid as u32;
             record.process_id = pid;
-            record.process_name.set("simple_logger");
-            record.host_name.set("localhost");
-            record.environment.set("dev");
+            record.set_process_name("simple_logger");
+            record.set_host_name("localhost");
+            record.set_environment("dev");
         }
 
         if ring_buffer.try_push(record_ptr).is_err() {

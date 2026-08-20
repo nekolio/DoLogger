@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](PerformanceBenchmarkGuide.md) | [English: DoLogger Performance Benchmark Guide](../../en_US/guides/PerformanceBenchmarkGuide.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 核心开发者、性能工程师、插件作者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 核心开发者、性能工程师、插件作者
 >
 > **用途**: 本文档描述如何运行、解释和扩展 DoLogger 基准测试套件。涵盖基准测试框架、参考硬件、结果解释（P50/P99/P99.9 百分位和吞吐量）、用于回归检测的 CI 集成以及添加新基准测试的约定。
 >
@@ -120,7 +120,7 @@ DoLogger 提供三个基准测试目标，每个测量性能的不同维度。
 
 ### 规划中：逐阶段延迟细分
 
-逐管道阶段的细分已规划但未在 v0.1.0 中实现（随附的 `latency` 基准测试测量的是完整提交延迟）：
+逐管道阶段的细分已规划但未在 v0.0.1 中实现（随附的 `latency` 基准测试测量的是完整提交延迟）：
 
 | 阶段 | 计时内容 |
 |:-:|:-:|
@@ -152,7 +152,7 @@ DoLogger 提供三个基准测试目标，每个测量性能的不同维度。
 ### 基本用法
 
 ```bash
-# 运行单个基准测试套件（v0.1.0 仓库实际提供 latency、throughput、latency_percentiles）
+# 运行单个基准测试套件（v0.0.1 仓库实际提供 latency、throughput、latency_percentiles）
 cargo bench --bench latency
 
 # 运行所有基准测试套件
@@ -343,7 +343,7 @@ CI 管道在每个 Pull Request 上运行基准测试，并与 `main` 分支基�
 
 ### CI 配置（GitHub Actions）
 
-（示例 CI 配置 — YAML 语法有效，但该 workflow 与 `scripts/ci/check_benchmark_regression.py` 在 v0.1.0 仓库中尚不存在）：
+（示例 CI 配置 — YAML 语法有效，但该 workflow 与 `scripts/ci/check_benchmark_regression.py` 在 v0.0.1 仓库中尚不存在）：
 
 ```yaml
 # .github/workflows/benchmarks.yml
@@ -431,7 +431,7 @@ CI 基准测试需要专用的、隔离的硬件。自托管运行器必须：
 ### 文件结构
 
 ```text
-（v0.1.0 实际布局 — 基准测试位于 core/benches/ 下）
+（v0.0.1 实际布局 — 基准测试位于 core/benches/ 下）
 benches/
   latency.rs               ← 单条记录提交延迟（P50/P99）
   throughput.rs            ← 环形缓冲区推送吞吐量
@@ -444,7 +444,7 @@ benches/
 
 ### 基准测试模板
 
-（伪代码 — 模板示例：`dologger_bench_common`、`Engine::log()` 等在 v0.1.0 不存在，仓库实际基准测试用 `ring_buffer.try_push` + `engine.pool.alloc` 模式，见 `core/benches/latency.rs`）：
+（伪代码 — 模板示例：`dologger_bench_common`、`Engine::log()` 等在 v0.0.1 不存在，仓库实际基准测试用 `ring_buffer.try_push` + `engine.pool.alloc` 模式，见 `core/benches/latency.rs`）：
 
 ```rust
 // benches/hot_path.rs — 示例结构

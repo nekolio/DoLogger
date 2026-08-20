@@ -1,6 +1,6 @@
 # DoLogger 官方插件
 
-> **版本**: v0.1.0
+> **版本**: v0.0.1
 
 > 🌐 **语言 / Language**: [中文](OfficialPluginRoadmap.md) | [English: DoLogger Official Plugins](../en_US/OfficialPluginRoadmap.md)
 
@@ -18,7 +18,7 @@ DoLogger 随附一组精选的官方插件——类似于语言标准库——�
 PreFilter(0) → Filter(1) → FieldProvider(2) → Assembly(3) → Processing(4) → Formatting(5) → Sink(6)
 ```
 
-| 阶段 | 插件类型 | v0.1.0 状态 |
+| 阶段 | 插件类型 | v0.0.1 状态 |
 |:-:|:-:|:-:|
 | 0 | PolicyProvider | 内置核心：`rate_limiter`、`drop_level` |
 | 1 | Filter | 官方插件：`filter_level` |
@@ -113,7 +113,7 @@ cargo test -p dologger-plugin-field-container
 
 ## 尚未实现
 
-以下内容在 v0.1.0 中刻意缺席，且没有目标版本：
+以下内容在 v0.0.1 中刻意缺席，且没有目标版本：
 
 - 远程插件注册表（`dologctl plugin search` / `plugin update`）——CLI 目前
   仅提供 `list`、`install <path>`、`remove`、`verify` 与 `scan`。

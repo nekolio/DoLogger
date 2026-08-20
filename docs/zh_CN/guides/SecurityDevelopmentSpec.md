@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](SecurityDevelopmentSpec.md) | [English: DoLogger Security Development Specification](../../en_US/guides/SecurityDevelopmentSpec.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 插件开发者、核心贡献者、安全审计人员
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 插件开发者、核心贡献者、安全审计人员
 >
 > **用途**: 本文档定义 DoLogger 插件开发的强制性安全编码标准。涵盖内存安全、输入验证、沙箱模型、密钥处理、加密指导、模糊测试要求和静态分析工具。所有插件无论信任颜色均须遵守本规范。
 >
@@ -90,7 +90,7 @@ let record = unsafe { &*record_ptr }; // 无解释
 
 ### 验证模式（C）
 
-(伪代码 — 教学示例，仅示意验证模式；`dologger_filter_result_t`、`DO_LOG_MAX_MESSAGE_LEN` 等符号在 v0.1.0 中不存在)：
+(伪代码 — 教学示例，仅示意验证模式；`dologger_filter_result_t`、`DO_LOG_MAX_MESSAGE_LEN` 等符号在 v0.0.1 中不存在)：
 
 ```c
 dologger_error_t my_filter(dologger_record_t *record,
@@ -197,7 +197,7 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 
 ### 在沙箱约束下开发
 
-(伪代码 — 教学示例，仅示意沙箱约束；v0.1.0 实际插件入口为 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
+(伪代码 — 教学示例，仅示意沙箱约束；v0.0.1 实际插件入口为 `int plugin_init(const void *config)`，`dologger_plugin_config_t` 不存在)：
 
 ```c
 // YELLOW 插件：不要这样做——网络被拒绝
@@ -253,7 +253,7 @@ sudo strace -f -e trace=file,network,process \
 
 ### 使用 SecretDetector API
 
-(伪代码 — v0.1.0 无 `dologger_secret_scan()` C 导出；核心内的 SecretDetector 为 Rust 内部 API（`core/src/security/secret_detector.rs`）)：
+(伪代码 — v0.0.1 无 `dologger_secret_scan()` C 导出；核心内的 SecretDetector 为 Rust 内部 API（`core/src/security/secret_detector.rs`）)：
 
 ```c
 // 在记录可能包含密钥的文本之前，扫描它
@@ -327,7 +327,7 @@ if (scan_result.secret_detected) {
 
 如果您的插件处理或验证 Ed25519 签名：
 
-(伪代码 — v0.1.0 无 `dologger_verify_record_signature()` C 导出，该接口为规划中)：
+(伪代码 — v0.0.1 无 `dologger_verify_record_signature()` C 导出，该接口为规划中)：
 
 ```c
 // 要做：使用引擎的验证 API

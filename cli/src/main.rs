@@ -113,6 +113,10 @@ enum Commands {
         /// Public key hex (32 bytes) for Ed25519 signature verification
         #[arg(long)]
         pubkey: Option<String>,
+        /// Signature sidecar file (one `<lsn>:<content_hash_hex>:<sig_hex>`
+        /// line per signed record; written by the pipeline)
+        #[arg(long)]
+        sidecar: Option<String>,
     },
     /// Verify external anchor JSON file
     VerifyAnchor {
@@ -364,9 +368,16 @@ fn main() {
         } => cmd_run(dry_run, config.as_deref(), trace, shm.as_deref()),
         Commands::Plugin { action } => cmd_plugin(action),
         Commands::Config { action } => cmd_config(action),
-        Commands::VerifyLog { path, pubkey } => {
-            commands::verify::cmd_verify_log(&path, pubkey.as_deref(), cfg.format)
-        }
+        Commands::VerifyLog {
+            path,
+            pubkey,
+            sidecar,
+        } => commands::verify::cmd_verify_log(
+            &path,
+            pubkey.as_deref(),
+            sidecar.as_deref(),
+            cfg.format,
+        ),
         Commands::VerifyAnchor { path, pubkey } => {
             commands::verify::cmd_verify_anchor(&path, pubkey.as_deref(), cfg.format)
         }

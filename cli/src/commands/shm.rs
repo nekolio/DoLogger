@@ -20,7 +20,7 @@ use dologger_core::sink::{
 };
 
 use crate::output::{self, color, OutputFormat};
-use crate::{stderr, stdout};
+use crate::{stderr, stdout, EXIT_ERR};
 
 // ---------------------------------------------------------------------------
 // Colour helpers
@@ -192,10 +192,9 @@ fn cmd_shm_status_json(path: &str) {
     let status = match read_status(path) {
         Ok(s) => s,
         Err(e) => {
-            let obj =
-                serde_json::json!({"status": "error", "message": format!("Cannot open SHM: {e}")});
+            let obj = serde_json::json!({"status": "error", "error_code": EXIT_ERR, "message": format!("Cannot open SHM: {e}")});
             output::stdout_line(&obj.to_string());
-            std::process::exit(1);
+            std::process::exit(EXIT_ERR);
         }
     };
 
@@ -395,9 +394,10 @@ fn cmd_shm_clear_json(path: &str, force: bool) {
                 output::stdout_line(&obj.to_string());
             }
             Err(e) => {
-                let obj = serde_json::json!({"status": "error", "message": e});
+                let obj =
+                    serde_json::json!({"status": "error", "error_code": EXIT_ERR, "message": e});
                 output::stdout_line(&obj.to_string());
-                std::process::exit(1);
+                std::process::exit(EXIT_ERR);
             }
         }
     } else {

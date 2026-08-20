@@ -106,68 +106,51 @@ pub fn decode_record(frame: &[u8]) -> Result<Record, SifError> {
 fn sif_to_record(sif: &SifRecord<'_>) -> Record {
     let mut r = Record::new(0);
 
-    r.id = crate::ffi::dologger_uint128_t {
-        hi: sif.id_hi(),
-        lo: sif.id_lo(),
-    };
-    r.timestamp = crate::ffi::dologger_uint128_t {
-        hi: sif.timestamp_hi(),
-        lo: sif.timestamp_lo(),
-    };
-    r.signature = vector_to_array(sif.signature().bytes());
-    r.origin_lsn = sif.origin_lsn();
+    r.set_id(sif.id_hi(), sif.id_lo());
+    r.timestamp = sif.timestamp_hi() * 1_000_000_000 + sif.timestamp_lo();
     r.level = LogLevel::from_u8(sif.level()).unwrap_or(LogLevel::Info);
 
     r.message.set(sif.message().unwrap_or(""));
-    r.source_file.set(sif.source_file().unwrap_or(""));
-    r.source_function.set(sif.source_function().unwrap_or(""));
-    r.source_line = sif.source_line();
-    r.source_column = sif.source_column();
-    r.thread_id = sif.thread_id();
-    r.thread_name.set(sif.thread_name().unwrap_or(""));
+    r.set_source_file(sif.source_file().unwrap_or(""));
+    r.set_source_function(sif.source_function().unwrap_or(""));
+    r.set_source_line(sif.source_line());
+    r.set_source_column(sif.source_column());
+    r.thread_id = sif.thread_id() as u32;
+    r.set_thread_name(sif.thread_name().unwrap_or(""));
     r.process_id = sif.process_id();
-    r.process_name.set(sif.process_name().unwrap_or(""));
-    r.host_name.set(sif.host_name().unwrap_or(""));
-    r.container_id.set(sif.container_id().unwrap_or(""));
-    r.app_name.set(sif.app_name().unwrap_or(""));
-    r.app_version.set(sif.app_version().unwrap_or(""));
-    r.environment.set(sif.environment().unwrap_or(""));
-    r.user_id.set(sif.user_id().unwrap_or(""));
-    r.session_id.set(sif.session_id().unwrap_or(""));
-    r.request_id.set(sif.request_id().unwrap_or(""));
-    r.trace_id.set(sif.trace_id().unwrap_or(""));
-    r.span_id.set(sif.span_id().unwrap_or(""));
-    r.coroutine_id = sif.coroutine_id();
+    r.set_process_name(sif.process_name().unwrap_or(""));
+    r.set_host_name(sif.host_name().unwrap_or(""));
+    r.set_container_id(sif.container_id().unwrap_or(""));
+    r.set_app_name(sif.app_name().unwrap_or(""));
+    r.set_app_version(sif.app_version().unwrap_or(""));
+    r.set_environment(sif.environment().unwrap_or(""));
+    r.set_user_id(sif.user_id().unwrap_or(""));
+    r.set_session_id(sif.session_id().unwrap_or(""));
+    r.set_request_id(sif.request_id().unwrap_or(""));
+    r.set_trace_id(sif.trace_id().unwrap_or(""));
+    r.set_span_id(sif.span_id().unwrap_or(""));
+    r.set_coroutine_id(sif.coroutine_id());
 
-    r.exception_type.set(sif.exception_type().unwrap_or(""));
-    r.exception_message
-        .set(sif.exception_message().unwrap_or(""));
-    r.exception_stacktrace
-        .set(sif.exception_stacktrace().unwrap_or(""));
-    r.exception_code = sif.exception_code();
+    r.set_exception_type(sif.exception_type().unwrap_or(""));
+    r.set_exception_message(sif.exception_message().unwrap_or(""));
+    r.set_exception_stacktrace(sif.exception_stacktrace().unwrap_or(""));
+    r.set_exception_code(sif.exception_code() as i64);
 
-    r.labels.set(sif.labels().unwrap_or(""));
+    r.set_labels(sif.labels().unwrap_or(""));
     r.lsn = sif.lsn();
-    r.prev_hash = vector_to_array(sif.prev_hash().bytes());
-    r.security_gap = sif.security_gap();
-    r.audit_tags.set(sif.audit_tags().unwrap_or(""));
-
-    r.ext_data.set(sif.ext_data().unwrap_or(""));
-    r.ext_crc32c = sif.ext_crc32c();
+    r.set_security_gap(sif.security_gap());
+    r.set_audit_tags(sif.audit_tags().unwrap_or(""));
 
     r.pool_index = sif.pool_index();
-    r.flags = sif.flags();
+    r.flags = sif.flags() as u16;
+    // A.3 canonical-serialization hash; absent on pre-schema-evolution frames
+    // (decodes to the zero initialiser).
+    r.content_hash = sif
+        .content_hash()
+        .map(|v| <[u8; 32]>::try_from(v.bytes()).unwrap_or([0u8; 32]))
+        .unwrap_or([0u8; 32]);
 
     r
-}
-
-/// Copy a vector slice into a fixed-size array, zero-padding short input and
-/// truncating over-long input.
-fn vector_to_array<const N: usize>(bytes: &[u8]) -> [u8; N] {
-    let mut out = [0u8; N];
-    let n = bytes.len().min(N);
-    out[..n].copy_from_slice(&bytes[..n]);
-    out
 }
 
 // ---------------------------------------------------------------------------
@@ -177,142 +160,98 @@ fn vector_to_array<const N: usize>(bytes: &[u8]) -> [u8; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ffi::dologger_uint128_t;
     use crate::sif::{encode_record, SifHeader, SIF_MAGIC, SIF_VERSION};
 
     /// A record with every schema field populated, including heap-backed
     /// `RecordString` fields.
     fn full_record() -> Record {
         let mut r = Record::new(0);
-        r.id = dologger_uint128_t {
-            hi: 0x1122_3344_5566_7788,
-            lo: 0x99AA_BBCC_DDEE_FF01,
-        };
-        r.timestamp = dologger_uint128_t {
-            hi: 1_780_000_000,
-            lo: 123_456_789,
-        };
-        r.signature = [0xAA; 64];
-        r.origin_lsn = 42;
+        r.set_id(0x1122_3344_5566_7788, 0x99AA_BBCC_DDEE_FF01);
+        r.timestamp = 1_780_000_000u64 * 1_000_000_000 + 123_456_789;
         r.level = LogLevel::Error;
         r.message.set(&"M".repeat(300)); // heap path
-        r.source_file.set("src/main.rs");
-        r.source_function.set("main");
-        r.source_line = 10;
-        r.source_column = 5;
+        r.set_source_file("src/main.rs");
+        r.set_source_function("main");
+        r.set_source_line(10);
+        r.set_source_column(5);
         r.thread_id = 12345;
-        r.thread_name.set("worker-1");
+        r.set_thread_name("worker-1");
         r.process_id = 999;
-        r.process_name.set("dologctl");
-        r.host_name.set("host.example.com");
-        r.container_id.set("abc123");
-        r.app_name.set("my-service");
-        r.app_version.set("1.2.3");
-        r.environment.set("prod");
-        r.user_id.set("u-1");
-        r.session_id.set("s-1");
-        r.request_id.set("r-1");
-        r.trace_id.set("t-1");
-        r.span_id.set("sp-1");
-        r.coroutine_id = 7;
-        r.exception_type.set("std::runtime_error");
-        r.exception_message.set("boom");
-        r.exception_stacktrace.set("at main.rs:10");
-        r.exception_code = -1;
-        r.labels.set(r#"{"k":"v"}"#);
+        r.set_process_name("dologctl");
+        r.set_host_name("host.example.com");
+        r.set_container_id("abc123");
+        r.set_app_name("my-service");
+        r.set_app_version("1.2.3");
+        r.set_environment("prod");
+        r.set_user_id("u-1");
+        r.set_session_id("s-1");
+        r.set_request_id("r-1");
+        r.set_trace_id("t-1");
+        r.set_span_id("sp-1");
+        r.set_coroutine_id(7);
+        r.set_exception_type("std::runtime_error");
+        r.set_exception_message("boom");
+        r.set_exception_stacktrace("at main.rs:10");
+        r.set_exception_code(-1);
+        r.set_labels(r#"{"k":"v"}"#);
         r.lsn = 1000;
-        r.prev_hash = [0xBB; 32];
-        r.security_gap = true;
-        r.audit_tags.set("[{\"plugin\":\"x\"}]");
-        r.ext_data.set("ext-blob");
-        r.ext_crc32c = 0xDEAD_BEEF;
+        r.set_security_gap(true);
+        r.set_audit_tags("[{\"plugin\":\"x\"}]");
         r.pool_index = 5;
         r.flags = 0x07;
+        r.content_hash = [
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+            0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C,
+            0x1D, 0x1E, 0x1F, 0x20,
+        ];
         r
     }
 
     /// Assert every schema field of `a` equals `b`.
     fn assert_records_equal(a: &Record, b: &Record) {
-        assert_eq!(a.id.hi, b.id.hi, "id.hi");
-        assert_eq!(a.id.lo, b.id.lo, "id.lo");
-        assert_eq!(a.timestamp.hi, b.timestamp.hi, "timestamp.hi");
-        assert_eq!(a.timestamp.lo, b.timestamp.lo, "timestamp.lo");
-        assert_eq!(a.signature, b.signature, "signature");
-        assert_eq!(a.origin_lsn, b.origin_lsn, "origin_lsn");
+        assert_eq!(a.id_hi(), b.id_hi(), "id_hi");
+        assert_eq!(a.id_lo(), b.id_lo(), "id_lo");
+        assert_eq!(a.timestamp, b.timestamp, "timestamp");
         assert_eq!(a.level, b.level, "level");
-        assert_eq!(a.message.as_str(), b.message.as_str(), "message");
+        assert_eq!(a.message.as_str(), b.message.as_str(), "msg");
+        assert_eq!(a.source_file(), b.source_file(), "source_file");
+        assert_eq!(a.source_function(), b.source_function(), "source_function");
+        assert_eq!(a.source_line(), b.source_line(), "source_line");
+        assert_eq!(a.source_column(), b.source_column(), "source_column");
+        assert_eq!(a.thread_id, b.thread_id, "tid");
+        assert_eq!(a.thread_name(), b.thread_name(), "thread_name");
+        assert_eq!(a.process_id, b.process_id, "pid");
+        assert_eq!(a.process_name(), b.process_name(), "process_name");
+        assert_eq!(a.host_name(), b.host_name(), "host_name");
+        assert_eq!(a.container_id(), b.container_id(), "container_id");
+        assert_eq!(a.app_name(), b.app_name(), "app_name");
+        assert_eq!(a.app_version(), b.app_version(), "app_version");
+        assert_eq!(a.environment(), b.environment(), "environment");
+        assert_eq!(a.user_id(), b.user_id(), "user_id");
+        assert_eq!(a.session_id(), b.session_id(), "session_id");
+        assert_eq!(a.request_id(), b.request_id(), "request_id");
+        assert_eq!(a.trace_id(), b.trace_id(), "trace_id");
+        assert_eq!(a.span_id(), b.span_id(), "span_id");
+        assert_eq!(a.coroutine_id(), b.coroutine_id(), "coroutine_id");
+        assert_eq!(a.exception_type(), b.exception_type(), "exception_type");
         assert_eq!(
-            a.source_file.as_str(),
-            b.source_file.as_str(),
-            "source_file"
-        );
-        assert_eq!(
-            a.source_function.as_str(),
-            b.source_function.as_str(),
-            "source_function"
-        );
-        assert_eq!(a.source_line, b.source_line, "source_line");
-        assert_eq!(a.source_column, b.source_column, "source_column");
-        assert_eq!(a.thread_id, b.thread_id, "thread_id");
-        assert_eq!(
-            a.thread_name.as_str(),
-            b.thread_name.as_str(),
-            "thread_name"
-        );
-        assert_eq!(a.process_id, b.process_id, "process_id");
-        assert_eq!(
-            a.process_name.as_str(),
-            b.process_name.as_str(),
-            "process_name"
-        );
-        assert_eq!(a.host_name.as_str(), b.host_name.as_str(), "host_name");
-        assert_eq!(
-            a.container_id.as_str(),
-            b.container_id.as_str(),
-            "container_id"
-        );
-        assert_eq!(a.app_name.as_str(), b.app_name.as_str(), "app_name");
-        assert_eq!(
-            a.app_version.as_str(),
-            b.app_version.as_str(),
-            "app_version"
-        );
-        assert_eq!(
-            a.environment.as_str(),
-            b.environment.as_str(),
-            "environment"
-        );
-        assert_eq!(a.user_id.as_str(), b.user_id.as_str(), "user_id");
-        assert_eq!(a.session_id.as_str(), b.session_id.as_str(), "session_id");
-        assert_eq!(a.request_id.as_str(), b.request_id.as_str(), "request_id");
-        assert_eq!(a.trace_id.as_str(), b.trace_id.as_str(), "trace_id");
-        assert_eq!(a.span_id.as_str(), b.span_id.as_str(), "span_id");
-        assert_eq!(a.coroutine_id, b.coroutine_id, "coroutine_id");
-        assert_eq!(
-            a.exception_type.as_str(),
-            b.exception_type.as_str(),
-            "exception_type"
-        );
-        assert_eq!(
-            a.exception_message.as_str(),
-            b.exception_message.as_str(),
+            a.exception_message(),
+            b.exception_message(),
             "exception_message"
         );
         assert_eq!(
-            a.exception_stacktrace.as_str(),
-            b.exception_stacktrace.as_str(),
+            a.exception_stacktrace(),
+            b.exception_stacktrace(),
             "exception_stacktrace"
         );
-        assert_eq!(a.exception_code, b.exception_code, "exception_code");
-        assert_eq!(a.labels.as_str(), b.labels.as_str(), "labels");
+        assert_eq!(a.exception_code(), b.exception_code(), "exception_code");
+        assert_eq!(a.labels(), b.labels(), "labels");
         assert_eq!(a.lsn, b.lsn, "lsn");
-        assert_eq!(a.prev_hash, b.prev_hash, "prev_hash");
-        assert_eq!(a.security_gap, b.security_gap, "security_gap");
-        assert_eq!(a.audit_tags.as_str(), b.audit_tags.as_str(), "audit_tags");
-        assert_eq!(a.ext_data.as_str(), b.ext_data.as_str(), "ext_data");
-        assert_eq!(a.ext_crc32c, b.ext_crc32c, "ext_crc32c");
+        assert_eq!(a.security_gap(), b.security_gap(), "security_gap");
+        assert_eq!(a.audit_tags(), b.audit_tags(), "audit_tags");
         assert_eq!(a.pool_index, b.pool_index, "pool_index");
         assert_eq!(a.flags, b.flags, "flags");
+        assert_eq!(a.content_hash, b.content_hash, "content_hash");
     }
 
     #[test]

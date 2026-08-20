@@ -11,7 +11,7 @@
 #     release assets (CORS), so this must happen at build time.
 #
 # data.js prefers the baked files, then its own GitHub API calls (with a
-# localStorage cache), then the hardcoded v0.1.0 manifest. Without
+# localStorage cache), then the hardcoded v0.0.1 manifest. Without
 # GITHUB_TOKEN (local dev) the data files are fallback markers and the
 # page still renders fully — the artifact is static either way.
 set -euo pipefail

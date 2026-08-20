@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [English](HostIntegrationGuide.md) | [中文：宿主集成手册](../../zh_CN/guides/HostIntegrationGuide.md)
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Host Application Developers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Host Application Developers
 >
 > **Purpose**: This document describes how to integrate the DoLogger logging engine into a host application via the C ABI. It covers initialization, log submission, configuration, callbacks, thread safety, language adapters, performance tuning, and troubleshooting.
 >
@@ -136,7 +136,7 @@ dologger_handle_t *dologger_init(const char *config_path, dologger_error_t *err)
 | Non-`NULL` handle | Engine initialized successfully. |
 | `NULL` | Initialization failed — inspect `err` for details. Calling `dologger_init` a second time returns `NULL` with `DO_LOG_ERR_ALREADY_INITIALIZED`. |
 
-There is no `dologger_init_params_t` in v0.1.0 — initialization parameters come from the config file (or `NULL` for defaults) plus the runtime `dologger_config_load_from_string()` API.
+There is no `dologger_init_params_t` in v0.0.1 — initialization parameters come from the config file (or `NULL` for defaults) plus the runtime `dologger_config_load_from_string()` API.
 
 ### `dologger_shutdown()`
 
@@ -281,10 +281,10 @@ shutdown_timeout_ms = 5000
 
 ### Configuration Hot Reload
 
-(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.1.0: the engine does **not** reload the configuration automatically. Restart the engine, or trigger a reload via the control plane (planned).)
+(pseudocode/illustrative — `ConfigWatcher` (`core/src/config/watcher.rs`) is not wired into `Engine::init` in v0.0.1: the engine does **not** reload the configuration automatically. Restart the engine, or trigger a reload via the control plane (planned).)
 
 ```bash
-# pseudocode/illustrative — not automatic in v0.1.0
+# pseudocode/illustrative — not automatic in v0.0.1
 # Change the log level at runtime
 # sed -i 's/level = "INFO"/level = "DEBUG"/' /etc/dologger/default.toml
 # Engine picks up the change within ~1.5 seconds
@@ -296,7 +296,7 @@ Changes are logged via sysmon as `CONFIG_RELOAD` events. Security-tier keys (non
 
 ```bash
 # pseudocode/illustrative — the control plane is not started with the engine
-# in v0.1.0
+# in v0.0.1
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
@@ -406,7 +406,7 @@ Do **not** rely on parsing this file programmatically. Use `dologger_get_last_er
 ## Callback Sink Registration
 
 > [!NOTE]
-> The C registration API below is planned — the shipped v0.1.0 header has no `dologger_register_callback_sink` symbol. The Rust engine has an internal callback sink (`core/src/sink/callback.rs`, exposed as `dologger_core::sink_callback`) that this API will wrap.
+> The C registration API below is planned — the shipped v0.0.1 header has no `dologger_register_callback_sink` symbol. The Rust engine has an internal callback sink (`core/src/sink/callback.rs`, exposed as `dologger_core::sink_callback`) that this API will wrap.
 
 Host applications will be able to register a callback to receive formatted log data in-process, bypassing external Sinks:
 
@@ -515,7 +515,7 @@ The SDK (`dologger_sdk::Logger`) provides level helpers (`trace` … `audit`) ar
 
 ### Python (planned)
 
-A packaged managed adapter is planned. The repository already ships a working ctypes adapter (`adapters/python/dologger.py`) whose `DoLogger` class is importable as `from dologger import DoLogger` and has been verified to run with v0.1.0. The code below is an illustrative preview of the planned interface (pseudocode, not runnable):
+A packaged managed adapter is planned. The repository already ships a working ctypes adapter (`adapters/python/dologger.py`) whose `DoLogger` class is importable as `from dologger import DoLogger` and has been verified to run with v0.0.1. The code below is an illustrative preview of the planned interface (pseudocode, not runnable):
 
 ```python
 import dologger
@@ -618,7 +618,7 @@ echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled
 
 ### Diagnostic Checklist
 
-1. **Engine health**: `curl http://127.0.0.1:9090/status` (pseudocode/illustrative — the control plane is not started in v0.1.0)
+1. **Engine health**: `curl http://127.0.0.1:9090/status` (pseudocode/illustrative — the control plane is not started in v0.0.1)
 2. **Sysmon events**: Redirect `stderr` and watch for `PIPELINE_BACKLOG`, `SHM_DROP`, `SINK_CIRCUIT_OPEN`, `SANDBOX_VIOLATION`, `SIGNATURE_FAILURE`.
 3. **Internal log**: `tail -f dologger_internal.log`
 4. **Configuration**: `dologctl config validate --config /path/to/dologger.toml --strict`

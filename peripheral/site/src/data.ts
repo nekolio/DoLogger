@@ -2,7 +2,7 @@
  *
  * Fetches version / release / benchmark data from the GitHub API with a
  * localStorage cache, and falls back to build-time JSON baked by
- * peripheral/github/scripts/build-site.sh, then to the v0.1.0 manifest below. The
+ * peripheral/github/scripts/build-site.sh, then to the v0.0.1 manifest below. The
  * page picks up a new release with no code change.
  *
  * Resolution order per dataset:
@@ -77,35 +77,35 @@ export interface SiteData {
 }
 
 /* ------------------------------------------------------------------
- * v0.1.0 fallback — the REAL release manifest (asset names match the
+ * v0.0.1 fallback — the REAL release manifest (asset names match the
  * release.yml build matrix). Used offline / rate-limited / pre-release.
  * Includes the official-plugins bundle: ONE asset per OS/arch carrying
  * every official plugin (formatter-json, formatter-text, filter-level, field-container).
  * ---------------------------------------------------------------- */
 export const ASSET_NAMES = [
-  'dologctl-v0.1.0-linux-x86_64', 'dologctl-v0.1.0-linux-aarch64', 'dologctl-v0.1.0-linux-i686',
-  'dologctl-v0.1.0-linux-armv7', 'dologctl-v0.1.0-linux-riscv64',
-  'dologctl-v0.1.0-windows-x86_64.exe', 'dologctl-v0.1.0-windows-aarch64.exe', 'dologctl-v0.1.0-windows-i686.exe',
-  'dologctl-v0.1.0-macos-aarch64', 'dologctl-v0.1.0-macos-x86_64',
-  'libdologger_core-v0.1.0-linux-x86_64.so', 'libdologger_core-v0.1.0-linux-aarch64.so',
-  'libdologger_core-v0.1.0-linux-i686.so', 'libdologger_core-v0.1.0-linux-armv7.so',
-  'libdologger_core-v0.1.0-linux-riscv64.so',
-  'dologger_core-v0.1.0-windows-x86_64.dll', 'dologger_core-v0.1.0-windows-aarch64.dll', 'dologger_core-v0.1.0-windows-i686.dll',
-  'libdologger_core-v0.1.0-macos-aarch64.dylib', 'libdologger_core-v0.1.0-macos-x86_64.dylib',
-  'dologger-official-plugins-v0.1.0-linux-x86_64.so', 'dologger-official-plugins-v0.1.0-linux-aarch64.so',
-  'dologger-official-plugins-v0.1.0-linux-i686.so', 'dologger-official-plugins-v0.1.0-linux-armv7.so',
-  'dologger-official-plugins-v0.1.0-linux-riscv64.so',
-  'dologger-official-plugins-v0.1.0-windows-x86_64.dll', 'dologger-official-plugins-v0.1.0-windows-aarch64.dll',
-  'dologger-official-plugins-v0.1.0-windows-i686.dll',
-  'dologger-official-plugins-v0.1.0-macos-aarch64.dylib', 'dologger-official-plugins-v0.1.0-macos-x86_64.dylib',
+  'dologctl-v0.0.1-linux-x86_64', 'dologctl-v0.0.1-linux-aarch64', 'dologctl-v0.0.1-linux-i686',
+  'dologctl-v0.0.1-linux-armv7', 'dologctl-v0.0.1-linux-riscv64',
+  'dologctl-v0.0.1-windows-x86_64.exe', 'dologctl-v0.0.1-windows-aarch64.exe', 'dologctl-v0.0.1-windows-i686.exe',
+  'dologctl-v0.0.1-macos-aarch64', 'dologctl-v0.0.1-macos-x86_64',
+  'libdologger_core-v0.0.1-linux-x86_64.so', 'libdologger_core-v0.0.1-linux-aarch64.so',
+  'libdologger_core-v0.0.1-linux-i686.so', 'libdologger_core-v0.0.1-linux-armv7.so',
+  'libdologger_core-v0.0.1-linux-riscv64.so',
+  'dologger_core-v0.0.1-windows-x86_64.dll', 'dologger_core-v0.0.1-windows-aarch64.dll', 'dologger_core-v0.0.1-windows-i686.dll',
+  'libdologger_core-v0.0.1-macos-aarch64.dylib', 'libdologger_core-v0.0.1-macos-x86_64.dylib',
+  'dologger-official-plugins-v0.0.1-linux-x86_64.so', 'dologger-official-plugins-v0.0.1-linux-aarch64.so',
+  'dologger-official-plugins-v0.0.1-linux-i686.so', 'dologger-official-plugins-v0.0.1-linux-armv7.so',
+  'dologger-official-plugins-v0.0.1-linux-riscv64.so',
+  'dologger-official-plugins-v0.0.1-windows-x86_64.dll', 'dologger-official-plugins-v0.0.1-windows-aarch64.dll',
+  'dologger-official-plugins-v0.0.1-windows-i686.dll',
+  'dologger-official-plugins-v0.0.1-macos-aarch64.dylib', 'dologger-official-plugins-v0.0.1-macos-x86_64.dylib',
   'benchmark-results.json'
 ]
 
 export const FALLBACK_RELEASES: Release[] = [{
-  tag_name: 'v0.1.0',
-  name: 'DoLogger v0.1.0',
+  tag_name: 'v0.0.1',
+  name: 'DoLogger v0.0.1',
   prerelease: true,
-  html_url: 'https://github.com/Nekolio/DoLogger/releases/tag/v0.1.0',
+  html_url: 'https://github.com/Nekolio/DoLogger/releases/tag/v0.0.1',
   published_at: '2026-08-13T00:00:00Z',
   /* A static changelog mirroring the two-section release body from
    * generate-release-notes.sh, so the Changelog card has content offline /
@@ -114,7 +114,7 @@ export const FALLBACK_RELEASES: Release[] = [{
    * is BUILT-IN, not plugin-based. No fake hashes — the card renders them
    * without a commit link. */
   body: [
-    '# DoLogger v0.1.0',
+    '# DoLogger v0.0.1',
     '',
     '## Changelog / 更新日志',
     '',
@@ -136,7 +136,7 @@ export const FALLBACK_RELEASES: Release[] = [{
   assets: ASSET_NAMES.map(function (name) {
     return {
       name: name,
-      browser_download_url: 'https://github.com/Nekolio/DoLogger/releases/download/v0.1.0/' + name
+      browser_download_url: 'https://github.com/Nekolio/DoLogger/releases/download/v0.0.1/' + name
     }
   })
 }]
@@ -144,7 +144,7 @@ export const FALLBACK_RELEASES: Release[] = [{
 /* README "Performance Snapshot" — measured on the same code (release + LTO). */
 export const FALLBACK_BENCHMARKS: Benchmarks = {
   fallback: true,
-  tag: 'v0.1.0',
+  tag: 'v0.0.1',
   environments: [
     {
       label: 'GitHub runner — AMD EPYC 7763',
@@ -328,8 +328,8 @@ async function detectPlatform(): Promise<Platform> {
 /* ------------------------------------------------------------------
  * Asset matching. Names are matched by PREFIX + SUFFIX, never by exact
  * string, so both naming schemes resolve:
- *   legacy:    dologctl-linux-x86_64          (pre-v0.1.0 published assets)
- *   versioned: dologctl-v0.1.0-linux-x86_64   (release.yml)
+ *   legacy:    dologctl-linux-x86_64          (pre-v0.0.1 published assets)
+ *   versioned: dologctl-v0.0.1-linux-x86_64   (release.yml)
  * ------------------------------------------------------------------ */
 const CLI_PREFIX = 'dologctl'
 const LIB_PREFIXES = ['libdologger_core', 'dologger_core']

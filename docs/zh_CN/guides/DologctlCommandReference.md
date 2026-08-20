@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](DologctlCommandReference.md) | [English: dologctl Command Reference](../../en_US/guides/DologctlCommandReference.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-13 | **目标受众**: 运维人员、集成者、插件开发者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-13 | **目标受众**: 运维人员、集成者、插件开发者
 >
 > **用途**: `dologctl` 命令行工具的完整参考。涵盖每个子命令、选项、退出码和代表性示例,并为人工与机器两种消费者说明输出格式。
 
@@ -140,7 +140,7 @@ dologctl plugin install <source>
 
 ```bash
 dologctl plugin install ./target/release/formatter_json.dll
-# 伪代码/示意 — v0.1.0 的 install 仅接受本地文件路径（fs::copy），不支持 URL
+# 伪代码/示意 — v0.0.1 的 install 仅接受本地文件路径（fs::copy），不支持 URL
 # dologctl plugin install https://plugins.example.com/formatter_json-v1.2.0.zip
 ```
 
@@ -269,18 +269,20 @@ dologctl plugin totp                     # 当前 6 位验证码
 
 ### dologctl verify-log
 
-离线验证日志文件的审计链:Ed25519 签名、LSN 连续性、`prev_hash` 链式关联。
+离线验证日志文件的审计链:Ed25519 签名(自 `audit.log.sig` 侧车读取)、LSN 连续性、
+`content_hash` 完整性、`prev_hash` 链式关联。
 
 ```text
-dologctl verify-log <path> [--pubkey <hex>]
+dologctl verify-log <path> [--sidecar <path>] [--pubkey <hex>]
 ```
 
 | 选项 | 说明 |
 |:-:|:-:|
+| `--sidecar <path>` | 签名侧车文件路径（`audit.log.sig`）。仅在提供时验证逐条签名；WORM 文件必须与其侧车一同归档。 |
 | `--pubkey <hex>` | 用于签名验证的公钥(64 个十六进制字符)。省略则只做结构验证。 |
 
 ```bash
-dologctl verify-log audit.worm --pubkey "$(cat pubkey.hex)"
+dologctl verify-log audit.worm --sidecar audit.sig --pubkey "$(cat pubkey.hex)"
 dologctl verify-log audit.worm --output json    # 机器可读结论
 ```
 

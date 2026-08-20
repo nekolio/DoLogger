@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](PluginDevelopmentQuickStart.md) | [English: DoLogger Plugin Development QuickStart](../en_US/PluginDevelopmentQuickStart.md)
 
-> **版本**: v0.1.0 | **目标受众**: 非 Rust 插件开发者（C、C++、Go）
+> **版本**: v0.0.1 | **目标受众**: 非 Rust 插件开发者（C、C++、Go）
 >
 > **用途**: 从零开始用您选择的语言创建一个可工作的 DoLogger 插件。涵盖完整的构建链——Conan → CMake → Rust 核心 → 您的插件。
 
@@ -127,8 +127,8 @@ dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
     static dologger_filter_vtable_t vtable = { .filter = my_filter_fn };
     static dologger_plugin_info_t info = {
         .name        = "my-filter",
-        .version     = 0x000100,    // 0.1.0（major.minor.patch 压缩编码）
-        .abi_version = 0x000100,    // 本插件面向的核心 ABI 版本
+        .version     = 0x000001,    // 0.0.1（major.minor.patch 压缩编码）
+        .abi_version = 0x000001,    // 本插件面向的核心 ABI 版本
         .phase       = DO_LOG_PHASE_FILTER,
         .vtable      = &vtable,
     };
@@ -216,8 +216,8 @@ dologger_plugin_info_t *plugin_query(uint32_t core_abi_version) {
     // 按头文件中字段顺序聚合初始化（C++17 无指定初始化器）
     static dologger_plugin_info_t info = {
         "regex-filter",            // name
-        0x000100,                  // version
-        0x000100,                  // abi_version
+        0x000001,                  // version
+        0x000001,                  // abi_version
         DO_LOG_PHASE_FILTER,       // phase
         &vtable,                   // vtable
     };
@@ -261,8 +261,8 @@ func plugin_query(coreAbiVersion C.uint32_t) *C.dologger_plugin_info_t {
     _ = coreAbiVersion   // 生产插件应在此校验兼容性
     info := (*C.dologger_plugin_info_t)(C.malloc(C.size_t(unsafe.Sizeof(C.dologger_plugin_info_t{}))))
     info.name = C.CString("go-filter")
-    info.version = 0x000100
-    info.abi_version = 0x000100
+    info.version = 0x000001
+    info.abi_version = 0x000001
     info.phase = C.DO_LOG_PHASE_FILTER
     info.vtable = unsafe.Pointer(&C.vtable)
     return info
@@ -395,14 +395,14 @@ core/include/dologger_core.h
 | **信任级别** | *（规划中 — 沙箱信任级别尚未实现）* |
 | **日志级别** | `DO_LOG_TRACE` 到 `DO_LOG_AUDIT`（`dologger_level_t` 枚举） |
 | **记录访问器** | `dologger_field_get()`、`dologger_field_set()`、... |
-| **ABI 版本** | 由每个插件在 `plugin_info.abi_version` 字段声明（如 `0x000100` = 0.1.0）；头文件中无全局 `DO_LOG_ABI_VERSION`/`DO_LOG_CORE_ABI_VERSION` 宏 |
+| **ABI 版本** | 由每个插件在 `plugin_info.abi_version` 字段声明（如 `0x000001` = 0.0.1）；头文件中无全局 `DO_LOG_ABI_VERSION`/`DO_LOG_CORE_ABI_VERSION` 宏 |
 | **插件导出** | `plugin_query(uint32_t core_abi_version)`、`plugin_init(const void *config)`、`plugin_shutdown(void)` |
 
-（注：v0.1.0 头文件不含 `DO_LOG_TRUST_*` 信任常量或 `dologger_record_level()` 等记录访问器函数）
+（注：v0.0.1 头文件不含 `DO_LOG_TRUST_*` 信任常量或 `dologger_record_level()` 等记录访问器函数）
 
 ### 插件 ABI 契约
 
-每个插件必须恰好导出这三个符号（v0.1.0 实际签名）：
+每个插件必须恰好导出这三个符号（v0.0.1 实际签名）：
 
 ```c
 // 1. 身份 + VTable —— 加载时调用一次

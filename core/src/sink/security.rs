@@ -149,12 +149,10 @@ impl SecuritySink {
 
 /// Format a record in fixed security format.
 ///
-/// Format: `LSN|TIMESTAMP_HI:TIMESTAMP_LO|LEVEL|THREAD|PROCESS|HOST|MESSAGE|SIG_PREFIX`
+/// Format: `LSN|TIMESTAMP|LEVEL|THREAD|PROCESS|HOST|MESSAGE|HASH_PREFIX`
 fn format_security_record(record: &Record) -> String {
-    let timestamp_ns =
-        (record.timestamp.hi as u128) * 1_000_000_000 + (record.timestamp.lo as u128);
-    let sig_hex: String = record
-        .signature
+    let hash_hex: String = record
+        .content_hash
         .iter()
         .take(8)
         .map(|b| format!("{b:02x}"))
@@ -163,13 +161,13 @@ fn format_security_record(record: &Record) -> String {
     format!(
         "{}|{}|{}|{}|{}|{}|{}|{}\n",
         record.lsn,
-        timestamp_ns,
+        record.timestamp,
         record.level.to_str(),
         record.thread_id,
         record.process_id,
-        record.host_name.as_str(),
+        record.host_name(),
         record.message.as_str().replace('|', "\\x7c"),
-        sig_hex,
+        hash_hex,
     )
 }
 

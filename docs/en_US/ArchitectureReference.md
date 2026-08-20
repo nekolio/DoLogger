@@ -1,6 +1,6 @@
 # DoLogger Architecture Reference
 
-> **Version**: v0.1.0 | **Last Updated**: 2026-08-12 | **Target Audience**: Core Developers, Plugin Authors, Systems Engineers
+> **Version**: v0.0.1 | **Last Updated**: 2026-08-12 | **Target Audience**: Core Developers, Plugin Authors, Systems Engineers
 >
 > **Purpose**: Definitive reference for the DoLogger engine internals -- pipeline architecture, lock-free data structures, cryptographic audit chain, security model, sink fan-out, backpressure, and performance tuning. Assume familiarity with the [Integration Guide](IntegrationGuide.md).
 >
@@ -15,7 +15,7 @@
 1. [Before You Start](#before-you-start)
 2. [Pipeline Architecture](#pipeline-architecture)
 3. [Ring Buffer Design and Lock-Free Guarantees](#ring-buffer-design-and-lock-free-guarantees)
-4. [Audit Chain: Ed25519 + LSN + prev_hash](#audit-chain-ed25519--lsn--prev_hash)
+4. [Audit Chain: Ed25519 + LSN + content_hash](#audit-chain-ed25519--lsn--content_hash)
 5. [Security Model: Ring 0-3 Permissions and Three-Color Trust](#security-model-ring-0-3-permissions-and-three-color-trust)
 6. [Sink Fan-Out and Fallback Chains](#sink-fan-out-and-fallback-chains)
 7. [Backpressure System](#backpressure-system)
@@ -209,48 +209,58 @@ The ring buffer uses a single CAS cursor for all producers. Under heavy multi-th
 
 ---
 
-## Audit Chain: Ed25519 + LSN + prev_hash
+## Audit Chain: Ed25519 + LSN + content_hash
 
 ### Chain Structure
 
-(pseudocode — illustrative, not compiled):
+(pseudocode — illustrative, not compiled; the 64B Ed25519 signature lives in
+the companion sidecar `audit.log.sig`, NOT in the Record):
 
 ```
 Record(1):
-  lsn       = 1
-  prev_hash = SHA-256(0x00...00)       // Genesis block -- all zeros
-  signature = Ed25519_Sign(secret_key, Ring0+Ring1 fields)
+  lsn          = 1
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256(0x00...00)       // Genesis block -- all zeros
+  // sidecar: sig(1) = Ed25519_Sign(key, SHA-256(lsn ‖ content_hash ‖ prev_hash))
 
 Record(2):
-  lsn       = 2
-  prev_hash = SHA-256(Record(1).signature || Record(1).lsn)
-  signature = Ed25519_Sign(secret_key, Ring0+Ring1 fields)
+  lsn          = 2
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256(Record(1).content_hash ‖ Record(1).lsn)
+  // sidecar: sig(2) = Ed25519_Sign(key, SHA-256(lsn ‖ content_hash ‖ prev_hash))
 
 Record(3):
-  lsn       = 3
-  prev_hash = SHA-256(Record(2).signature || Record(2).lsn)
-  signature = Ed25519_Sign(secret_key, Ring0+Ring1 fields)
+  lsn          = 3
+  content_hash = SHA-256(canonical_serialization(fixed_fields ‖ kv_fields))
+  prev_hash    = SHA-256(Record(2).content_hash ‖ Record(2).lsn)
+  // sidecar: sig(3) = Ed25519_Sign(key, SHA-256(lsn ‖ content_hash ‖ prev_hash))
 ```
 
-| Record | LSN | prev_hash | signature |
-|:-:|:-:|:-:|:-:|
-| Record(1) | 1 | SHA-256(0x00...00) — Genesis block | Ed25519_Sign(secret_key, Ring0+Ring1) |
-| Record(2) | 2 | SHA-256(Record(1).signature \|\| Record(1).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
-| Record(3) | 3 | SHA-256(Record(2).signature \|\| Record(2).lsn) | Ed25519_Sign(secret_key, Ring0+Ring1) |
+| Record | LSN | prev_hash | content_hash | sidecar signature |
+|:-:|:-:|:-:|:-:|:-:|
+| Record(1) | 1 | SHA-256(0x00...00) — Genesis block | SHA-256(canonical serialization) | Ed25519 over SHA-256(lsn‖content_hash‖prev_hash) |
+| Record(2) | 2 | SHA-256(Record(1).content_hash \|\| Record(1).lsn) | SHA-256(canonical serialization) | Ed25519 over SHA-256(lsn‖content_hash‖prev_hash) |
+| Record(3) | 3 | SHA-256(Record(2).content_hash \|\| Record(2).lsn) | SHA-256(canonical serialization) | Ed25519 over SHA-256(lsn‖content_hash‖prev_hash) |
+
+Optional block mode (`audit_block_size > 1`): content_hashes of a block are
+folded into a Merkle root; a single block signature is stored in the sidecar
+instead of one per record. The signing key is provisioned in a TPM
+(non-exportable, hardware signing; `enable_signature=true` without a TPM
+refuses startup).
 
 ### Verification Algorithm
 
 (pseudocode — illustrative, not compiled; the shipped verifier is `dologctl verify-log`, see the [Operations & Security Guide](OperationsAndSecurity.md#audit-verification)):
 
 ```
-verify_chain(records):
+verify_chain(records, sidecar):
   for i = 0 to len(records)-1:
-    1. Verify Ed25519 signature:
-       if !pubkey.verify(records[i].signature, serialize(Ring0+Ring1)):
+    1. Recompute content_hash[i] from canonical serialization:
+       if records[i].content_hash != recomputed:
          return FAIL at i
 
     2. Verify prev_hash chain (if i > 0):
-       expected = SHA-256(records[i-1].signature || records[i-1].lsn)
+       expected = SHA-256(records[i-1].content_hash || records[i-1].lsn)
        if records[i].prev_hash != expected:
          return CHAIN_BREAK at i
 
@@ -258,7 +268,11 @@ verify_chain(records):
        if records[i].lsn <= records[i-1].lsn:
          return LSN_ORDER_VIOLATION at i
 
-    4. Detect gaps:
+    4. Verify Ed25519 signature from the sidecar:
+       per-record: verify(sig[i], SHA-256(lsn ‖ content_hash ‖ prev_hash))
+       block mode: rebuild the Merkle root, verify the block signature
+
+    5. Detect gaps:
        if records[i].lsn > records[i-1].lsn + 1:
          mark GAP from (records[i-1].lsn+1) to (records[i].lsn-1)
 
@@ -275,14 +289,14 @@ verify_chain(records):
 
 | Fields | Integrity | Notes |
 |:-:|:-:|:-:|
-| Ring 0 | Ed25519 | Always signed |
-| Ring 1 | Ed25519 | Always signed |
-| Ring 2 | Ed25519 (optional) | Signed when `sign_ring2 = true` |
-| Ring 3 | CRC32C only | Hardware-accelerated, not cryptographic |
+| Fixed hot fields (timestamp, level, message, pid, tid, LSN) | Ed25519 | Always signed |
+| KV fields | Ed25519 | Always signed (canonical KV order) |
+| Overflow spill state | CRC32C only | Hardware-accelerated, not cryptographic |
 
 ### Cryptographic Performance
 
-Measured on AMD Ryzen 9 7950X, single core, ed25519-dalek 2.0:
+Measured on AMD Ryzen 9 7950X, single core, ed25519-dalek 2.0 (software path;
+TPM hardware latency is backend-dependent, measured on the target platform):
 
 | Operation | Latency | Throughput |
 |:-:|:-:|:-:|
@@ -292,6 +306,12 @@ Measured on AMD Ryzen 9 7950X, single core, ed25519-dalek 2.0:
 | SHA-256 (64 bytes) | ~120 ns | ~8.3M hashes/s |
 | CRC32C (64 bytes) | ~3 ns | ~330M checks/s |
 
+AUDIT records additionally pay the TPM signing cost: per-record mode is
+bounded by TPM ops/s (discrete TPM2: tens of ms per op — measure on the
+target backend); block mode amortizes it over the block size. The
+content_hash chain costs ~120 ns–1 us per record and is the dominant
+in-engine audit overhead.
+
 ### External Anchoring (planned)
 
 Periodic Merkle root hashes are published to immutable external storage (S3, blockchain) to provide long-term tamper resistance:
@@ -299,7 +319,7 @@ Periodic Merkle root hashes are published to immutable external storage (S3, blo
 (pseudocode — illustrative, not compiled):
 
 ```
-// Every N records, compute a Merkle root over the signature chain
+// Every N records, compute a Merkle root over the content-hash chain
 let merkle_root = compute_merkle_root(records[l..r]);
 send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 ```
@@ -553,7 +573,7 @@ flowchart TD
     subgraph AUDIT["AUDIT Consumer Thread (dedicated, never shared)"]
         A1["Name: dologger-audit-pipeline<br/>Priority: Normal<br/>Work: Read → Sign → Dual-write (WORM + Security) → Pool return"]
     end
-    subgraph WATCH["Config Watcher Thread (1 thread) — planned<br/>(ConfigWatcher is not wired into Engine::init in v0.1.0)"]
+    subgraph WATCH["Config Watcher Thread (1 thread) — planned<br/>(ConfigWatcher is not wired into Engine::init in v0.0.1)"]
         W1["Name: dologger-config-watcher<br/>Work: Poll config file every 1s (500ms debounce)"]
     end
 ```
@@ -607,7 +627,7 @@ Built-in Sinks section below.
 
 All VTable functions follow this contract:
 
-(pseudocode — illustrative contract template; the real v0.1.0 VTable functions return `int` and are defined per type in `core/include/dologger_core.h`):
+(pseudocode — illustrative contract template; the real v0.0.1 VTable functions return `int` and are defined per type in `core/include/dologger_core.h`):
 
 ```c
 // (pseudocode — illustrative, not compiled)
@@ -632,7 +652,7 @@ sequenceDiagram
         E->>P: dlopen(plugin_path) — load shared library
         E->>P: dlsym("plugin_query") → PluginInfo
         Note over E,P: Validate ABI version, type, license SPDX
-        Note over E,P: VTable read via PluginInfo.vtable pointer (no separate symbol export in v0.1.0)
+        Note over E,P: VTable read via PluginInfo.vtable pointer (no separate symbol export in v0.0.1)
         Note over E,P: Validate required function pointers
         Note over E: (Blue only) Verify Ed25519 signature
         Note over E: Apply sandbox policy (seccomp / AppContainer)
@@ -648,7 +668,7 @@ sequenceDiagram
 
 ### Required C ABI Exports
 
-Every plugin MUST export (v0.1.0 actual signatures, see `core/include/dologger_core.h`):
+Every plugin MUST export (v0.0.1 actual signatures, see `core/include/dologger_core.h`):
 
 ```c
 /* 1. Identity + VTable — called once at load */
@@ -710,7 +730,7 @@ The FlatBuffer schema lives at `core/sif/dologger_sif.fbs`; bindings are
 generated by `core/build.rs` (`flatc --rust`) and committed as a fallback.
 The schema supports evolution, so older consumers ignore unknown fields.
 
-### Status — v0.1.0
+### Status — v0.0.1
 
 The wire format and the `encode_record` / `decode_record` / `validate_frame`
 API are delivered and already used by the shared-memory sink and the CLI. The

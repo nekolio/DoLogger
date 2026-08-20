@@ -70,6 +70,7 @@ impl<'a> Record<'a> {
   pub const VT_EXT_CRC32C: ::flatbuffers::VOffsetT = 78;
   pub const VT_POOL_INDEX: ::flatbuffers::VOffsetT = 80;
   pub const VT_FLAGS: ::flatbuffers::VOffsetT = 82;
+  pub const VT_CONTENT_HASH: ::flatbuffers::VOffsetT = 84;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -92,6 +93,7 @@ impl<'a> Record<'a> {
     builder.add_flags(args.flags);
     builder.add_pool_index(args.pool_index);
     builder.add_ext_crc32c(args.ext_crc32c);
+    if let Some(x) = args.content_hash { builder.add_content_hash(x); }
     if let Some(x) = args.ext_data { builder.add_ext_data(x); }
     if let Some(x) = args.audit_tags { builder.add_audit_tags(x); }
     if let Some(x) = args.prev_hash { builder.add_prev_hash(x); }
@@ -470,6 +472,16 @@ impl<'a> Record<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u32>(Record::VT_FLAGS, Some(0)).unwrap()}
   }
+  /// SHA-256 canonical-serialization hash (A.3) of the record content.
+  /// 32 bytes; nonzero for AUDIT records (part of the tamper-evident chain).
+  /// Absent on records written before this field existed (schema evolution).
+  #[inline]
+  pub fn content_hash(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(Record::VT_CONTENT_HASH, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for Record<'_> {
@@ -518,6 +530,7 @@ impl ::flatbuffers::Verifiable for Record<'_> {
      .visit_field::<u32>("ext_crc32c", Self::VT_EXT_CRC32C, false)?
      .visit_field::<u32>("pool_index", Self::VT_POOL_INDEX, false)?
      .visit_field::<u32>("flags", Self::VT_FLAGS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("content_hash", Self::VT_CONTENT_HASH, false)?
      .finish();
     Ok(())
   }
@@ -563,6 +576,7 @@ pub struct RecordArgs<'a> {
     pub ext_crc32c: u32,
     pub pool_index: u32,
     pub flags: u32,
+    pub content_hash: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
 }
 impl<'a> Default for RecordArgs<'a> {
   #[inline]
@@ -608,6 +622,7 @@ impl<'a> Default for RecordArgs<'a> {
       ext_crc32c: 0,
       pool_index: 0,
       flags: 0,
+      content_hash: None,
     }
   }
 }
@@ -778,6 +793,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> RecordBuilder<'a, 'b, A> {
     self.fbb_.push_slot::<u32>(Record::VT_FLAGS, flags, 0);
   }
   #[inline]
+  pub fn add_content_hash(&mut self, content_hash: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Record::VT_CONTENT_HASH, content_hash);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> RecordBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     RecordBuilder {
@@ -837,6 +856,7 @@ impl ::core::fmt::Debug for Record<'_> {
       ds.field("ext_crc32c", &self.ext_crc32c());
       ds.field("pool_index", &self.pool_index());
       ds.field("flags", &self.flags());
+      ds.field("content_hash", &self.content_hash());
       ds.finish()
   }
 }

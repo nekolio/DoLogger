@@ -2,7 +2,7 @@
 
 > 🌐 **语言 / Language**: [中文](PluginDevelopmentGuide.md) | [English: Plugin Development Guide](../../en_US/guides/PluginDevelopmentGuide.md)
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 插件开发者
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 插件开发者
 
 ## 目录
 
@@ -71,8 +71,8 @@ static dologger_filter_vtable_t g_vtable = {
 
 static dologger_plugin_info_t g_info = {
     .name        = "example-filter",
-    .version     = 0x000100,    // 0.1.0
-    .abi_version = 0x000100,    // 核心 ABI 0.1.0
+    .version     = 0x000001,    // 0.0.1
+    .abi_version = 0x000001,    // 核心 ABI 0.0.1
     .phase       = DO_LOG_PHASE_FILTER,
     .vtable      = &g_vtable,
 };
@@ -118,7 +118,7 @@ cl /LD /Fe:example_filter.dll filter.c /I C:\path\to\dologger\include
 ### 加载插件
 
 ```toml
-# （示意 — v0.1.0 引擎不会从 dologger.toml 读取 [plugins] 段；
+# （示意 — v0.0.1 引擎不会从 dologger.toml 读取 [plugins] 段；
 # 插件在 ./plugins 和 /usr/lib/dologger/plugins 中被发现）
 # dologger.toml
 [plugins.drop-debug]
@@ -149,7 +149,7 @@ DoLogger 定义了 9 种插件类型，每种都有自己的 VTable。插件按�
 ### 管道阶段顺序
 
 ```text
-（示意性管道顺序 — 随附的 v0.1.0 阶段定义于
+（示意性管道顺序 — 随附的 v0.0.1 阶段定义于
 core/include/dologger_core.h，为 DO_LOG_PHASE_* 位标志）
 PreFilter → Filter → Field → Process → Format → Sink
    (2)       (1)     (3,4)    (5)      (6)      (7)
@@ -167,14 +167,14 @@ PreFilter → Filter → Field → Process → Format → Sink
 
 ```toml
 # （结构已对照 plugins/official/*/PluginManifest.toml 校验；
-# 标记“规划中”的段 v0.1.0 引擎尚不解析）
+# 标记“规划中”的段 v0.0.1 引擎尚不解析）
 [plugin]
 name = "json-formatter"
 version = "2.1.0"
 plugin_type = "formatter"
 mount_phase = ["format"]
 abi_version = 1
-min_core_abi = "0.1.0"     # 所需的最低核心版本
+min_core_abi = "0.0.1"     # 所需的最低核心版本
 description = "将日志记录格式化为换行分隔的 JSON"
 
 [plugin.trust]
@@ -186,7 +186,7 @@ email = "nekoliowork+DoLogger@gmail.com"
 url = "https://github.com/dologger/json-formatter"
 
 [dependencies]
-# （规划中 — v0.1.0 引擎尚未解析；字段级校验
+# （规划中 — v0.0.1 引擎尚未解析；字段级校验
 # 已在 core/src/plugin/dependency.rs 准备）
 requires_fields = ["record.id", "record.timestamp", "host.name"]
 
@@ -203,9 +203,9 @@ third_party = [  # （规划中）
 ]
 
 [compatibility]
-# （规划中 — v0.1.0 目前只强制校验 `abi_version` 相等）
-min_engine_version = "0.1.0"
-max_engine_version = "0.1.0"
+# （规划中 — v0.0.1 目前只强制校验 `abi_version` 相等）
+min_engine_version = "0.0.1"
+max_engine_version = "0.0.1"
 ```
 
 ### Manifest 字段参考
@@ -250,14 +250,14 @@ max_engine_version = "0.1.0"
 ## C ABI 接口规范
 
 > [!NOTE]
-> 随附的 v0.1.0 头文件（`core/include/dologger_core.h`）定义了下面各代码块中首先展示的 ABI：`plugin_query(uint32_t core_abi_version)` 返回带有 `{name, version, abi_version, phase, vtable}` 的 `dologger_plugin_info_t`，另有 `int plugin_init(const void *config)` / `int plugin_shutdown(void)`，以及仅含必需回调的 VTable 布局（例如 Filter = 单个返回非零即丢弃的 `filter` 函数）。所有标记为伪代码的内容描述的是规划中的 v1.0 ABI（未编译）。编写代码时始终以随附的头文件为准；本指南跟踪的是既定方向。
+> 随附的 v0.0.1 头文件（`core/include/dologger_core.h`）定义了下面各代码块中首先展示的 ABI：`plugin_query(uint32_t core_abi_version)` 返回带有 `{name, version, abi_version, phase, vtable}` 的 `dologger_plugin_info_t`，另有 `int plugin_init(const void *config)` / `int plugin_shutdown(void)`，以及仅含必需回调的 VTable 布局（例如 Filter = 单个返回非零即丢弃的 `filter` 函数）。所有标记为伪代码的内容描述的是规划中的 v1.0 ABI（未编译）。编写代码时始终以随附的头文件为准；本指南跟踪的是既定方向。
 
 ### 必要导出符号
 
 每个单插件库**必须**导出以下符号：
 
 ```c
-// （v0.1.0 实际签名 — 见 core/include/dologger_core.h）
+// （v0.0.1 实际签名 — 见 core/include/dologger_core.h）
 // 查询插件信息（必须导出）。
 dologger_plugin_info_t *plugin_query(uint32_t core_abi_version);
 
@@ -275,7 +275,7 @@ int plugin_shutdown(void);
 而非一个插件一个文件。捆绑库导出多插件注册表契约，**取代** `plugin_query`：
 
 ```c
-// （v0.1.0 实际 — 见 core/include/dologger_core.h）
+// （v0.0.1 实际 — 见 core/include/dologger_core.h）
 // 查询捆绑库承载的每个插件（捆绑库必须导出）。
 dologger_plugin_info_list_t *plugin_query_multi(uint32_t core_abi_version);
 
@@ -347,7 +347,7 @@ $ dologctl plugin list   --trust-store plugins/official/trust-anchors
 ### 可选导出符号
 
 ```c
-// （伪代码 — 规划中的热重载可选导出；v0.1.0 尚无
+// （伪代码 — 规划中的热重载可选导出；v0.0.1 尚无
 // dologger_state_buf_t）
 // dologger_error_t plugin_state_serialize(dologger_state_buf_t *out);
 // dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
@@ -357,7 +357,7 @@ $ dologctl plugin list   --trust-store plugins/official/trust-anchors
 
 ### VTable 导出约定
 
-在 v0.1.0 中，VTable **不是**单独导出的符号：加载器只解析
+在 v0.0.1 中，VTable **不是**单独导出的符号：加载器只解析
 `plugin_query`，VTable 由返回的 `dologger_plugin_info_t`
 （`vtable` 字段）携带。导出独立的 `dologger_vtable` 符号属于规划中的
 v1.0 ABI：
@@ -383,7 +383,7 @@ const dologger_formatter_vtable_t dologger_vtable;
 - `dologger_plugin_info_t` 结构体变更
 - 回调函数签名变更
 
-v0.1.0 的头文件**没有全局 `DO_LOG_ABI_VERSION` 宏**：引擎将自身的 `core_abi_version` 传给 `plugin_query()`，插件则在 `dologger_plugin_info_t::abi_version` 中声明其构建所针对的 ABI（例如 `0x000100` = 0.1.0）。生产插件应校验传入的版本，不匹配时返回 `NULL`；引擎会拒绝加载声明 `abi_version` 不匹配的插件。
+v0.0.1 的头文件**没有全局 `DO_LOG_ABI_VERSION` 宏**：引擎将自身的 `core_abi_version` 传给 `plugin_query()`，插件则在 `dologger_plugin_info_t::abi_version` 中声明其构建所针对的 ABI（例如 `0x000001` = 0.0.1）。生产插件应校验传入的版本，不匹配时返回 `NULL`；引擎会拒绝加载声明 `abi_version` 不匹配的插件。
 
 ---
 
@@ -392,7 +392,7 @@ v0.1.0 的头文件**没有全局 `DO_LOG_ABI_VERSION` 宏**：引擎将自身�
 ### Filter 插件
 
 ```c
-// （v0.1.0 实际定义 — 见 core/include/dologger_core.h）
+// （v0.0.1 实际定义 — 见 core/include/dologger_core.h）
 typedef struct {
     /** 返回非零以丢弃记录。不得执行 I/O。 */
     int (*filter)(const dologger_record_handle_t *rec, void *config);
@@ -418,7 +418,7 @@ typedef dologger_error_t (*dologger_filter_batch_fn_t)(
 );
 ```
 
-**Filter 动作（规划中的 v1.0 ABI — v0.1.0 的过滤器只需返回非零即丢弃）：**
+**Filter 动作（规划中的 v1.0 ABI — v0.0.1 的过滤器只需返回非零即丢弃）：**
 
 | 动作 | 含义 |
 |:-:|:-:|
@@ -632,13 +632,13 @@ cargo test -p my-plugin -- test_filter_drop_debug
 ### 集成测试
 
 ```bash
-# 启动 DoLogger 并加载插件 — v0.1.0 会自动扫描 ./plugins 和
+# 启动 DoLogger 并加载插件 — v0.0.1 会自动扫描 ./plugins 和
 # /usr/lib/dologger/plugins（配置中的 [plugins] 段不会被读取）
 cp ./target/debug/libmy_filter.so ./plugins/
 dologctl run --trace
 
 # 备选：运行 simple logger 示例（使用
-# DologgerConfig::dev_profile() — v0.1.0 不读取配置路径参数）
+# DologgerConfig::dev_profile() — v0.0.1 不读取配置路径参数）
 cargo run --example simple_logger
 ```
 
@@ -709,9 +709,9 @@ dologctl plugin sign ./my-plugin-1.0.0/libmy_plugin.so /secure/dologger-signing.
 种子，并用 `--wrapped-key` 签名；用 `dologctl plugin verify --trust-store
 plugins/official/trust-anchors` 对照已提交的信任库校验。
 
-### 插件分发（v0.1.0）
+### 插件分发（v0.0.1）
 
-v0.1.0 仅提供本地插件管理——没有远程注册表。签名、加载时校验以及 Red 门槛
+v0.0.1 仅提供本地插件管理——没有远程注册表。签名、加载时校验以及 Red 门槛
 （非开发模式拒绝未签名插件）均已实现；Blue 信任级插件在本地签名后随 `.sig`
 旁路文件一同分发。
 

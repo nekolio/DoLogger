@@ -1,6 +1,6 @@
 # DoLogger 快速开始指南
 
-> **版本**: v0.1.0 | **最后更新**: 2026-08-12 | **目标受众**: 新用户
+> **版本**: v0.0.1 | **最后更新**: 2026-08-12 | **目标受众**: 新用户
 >
 > **用途**: 5 分钟上手 DoLogger。无需任何先验知识。
 >
@@ -74,7 +74,7 @@ enable_signature = false
 ./target/release/dologctl run --trace
 ```
 
-`--trace` 模式启动引擎并提交 10 条跟踪记录，逐条报告管道阶段计时（v0.1.0 的长驻前台模式尚未实现）。典型输出：
+`--trace` 模式启动引擎并提交 10 条跟踪记录，逐条报告管道阶段计时（v0.0.1 的长驻前台模式尚未实现）。典型输出：
 
 ```text
 Configuration file: dologger.toml (auto-detected)
@@ -226,13 +226,13 @@ dologctl config validate --config dologger.toml --strict
 # 列出已加载的插件
 dologctl plugin list
 
-# 检查引擎健康状态（需要运行中的引擎；v0.1.0 控制面尚未启用 — 示意）
+# 检查引擎健康状态（需要运行中的引擎；v0.0.1 控制面尚未启用 — 示意）
 # curl http://127.0.0.1:9090/status
 
 # 验证审计链（对单个 SIF/WORM 文件）
 dologctl verify-log audit-000001.worm
 
-# 收集诊断报告（伪代码 — 该子命令在 v0.1.0 尚不存在）
+# 收集诊断报告（伪代码 — 该子命令在 v0.0.1 尚不存在）
 # dologctl diag collect --output diag-report.tar.gz
 ```
 
@@ -241,7 +241,7 @@ dologctl verify-log audit-000001.worm
 | 症状 | 解决方案 |
 |:-:|:-:|
 | 构建失败，提示"CMake not found" | 安装 CMake 3.20+：`apt install cmake` / `brew install cmake` |
-| `dologctl run` 立即退出 | v0.1.0 尚未实现引擎长驻启动；使用 `dologctl run --trace` 运行管道，或 `dologctl run --dry-run` 校验配置 |
+| `dologctl run` 立即退出 | v0.0.1 尚未实现引擎长驻启动；使用 `dologctl run --trace` 运行管道，或 `dologctl run --dry-run` 校验配置 |
 | 无输出出现 | 验证在 `[sinks.*]` 中至少定义了一个接收器 |
 | 插件加载失败 | 检查 `dologger_internal.log` 以获取 ABI 不匹配详情 |
 

@@ -31,9 +31,9 @@ const DO_LOG_ERR_INVALID_ARG: i32 = -0x0101;
 const PHASE_FILTER: u32 = 0x0002;
 
 // Plugin info versioning — abi_version MUST match the core's declared ABI
-// (0.1.0); the host validates it when the bundle is loaded.
+// (0.0.1); the host validates it when the bundle is loaded.
 const CORE_ABI_VERSION: u32 = dologger_core::plugin::CORE_ABI_VERSION;
-const PLUGIN_VERSION: u32 = 1; // 0.1.0 (packed major.minor.patch)
+const PLUGIN_VERSION: u32 = 1; // 0.0.1 (packed major.minor.patch)
 
 // ---------------------------------------------------------------------------
 // Plugin state (init-time defaults, mutable via plugin_init)

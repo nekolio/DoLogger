@@ -58,7 +58,16 @@ pub struct StageStats {
 // Pipeline context — shared state across stages
 // ===========================================================================
 
+/// Signature slot produced by the post-processing signing step: `(lsn,
+/// content_hash, signature)`. Stored per pipeline context so the consumer loop
+/// can drain it and persist it to the `<log>.sig` sidecar (ADR-002 A.6).
+type SignatureSlot = Option<(u64, [u8; 32], [u8; 64])>;
+
 /// Context shared across all pipeline stages within a single drain cycle.
+///
+/// Persistent chain state (LSN counter, predecessor hash inputs) is *borrowed*
+/// from the consumer loop: a fresh context is created per drain cycle, so any
+/// state that must survive batch boundaries cannot live here as an owned field.
 pub struct PipelineContext<'a> {
     /// Signature engine (for assembly stage)
     pub signature_engine: &'a SignatureEngine,
@@ -70,17 +79,27 @@ pub struct PipelineContext<'a> {
     pub enable_signature: bool,
     /// Per-stage statistics
     pub stage_stats: [StageStats; 7],
-    /// Monotonically increasing LSN counter (persists across batches)
-    pub lsn_counter: AtomicU64,
-    /// SHA-256 hash of the previous record's (lsn || signature)
-    pub prev_hash: Mutex<[u8; 32]>,
+    /// Monotonically increasing LSN counter. Borrowed from the consumer loop so
+    /// the sequence survives batch boundaries (0 is reserved for uninitialized
+    /// records, so the first assigned LSN is 1).
+    pub lsn_counter: &'a AtomicU64,
+    /// A.6 predecessor content_hash for the derived prev_hash (persists across
+    /// batches; owned by the consumer loop).
+    pub prev_content_hash: &'a Mutex<[u8; 32]>,
+    /// A.6 predecessor LSN for the derived prev_hash (persists across batches;
+    /// owned by the consumer loop).
+    pub prev_lsn: &'a Mutex<u64>,
+    /// Slot for the most recently produced AUDIT signature `(lsn, content_hash,
+    /// signature)`. The consumer drains it right after each accepted record and
+    /// writes the sidecar line when the LSN matches the record.
+    last_signature: Mutex<SignatureSlot>,
     /// Format kind set by the Formatting stage (e.g., "plain", "sif", "json")
     pub format_kind: Mutex<Option<String>>,
     /// Resolved plugin dispatch (formatter + field-provider vtables, M6). The
     /// consumer loop holds one `PluginDispatch` and loans it to every batch.
     /// Empty by default (no plugins loaded), in which case the FieldProvider
     /// and Formatting stages dispatch nothing and the built-in plain-text
-    /// formatting is used — behaviour unchanged from v0.1.0.
+    /// formatting is used — behaviour unchanged from v0.0.1.
     pub dispatch: &'a PluginDispatch,
 }
 
@@ -93,6 +112,9 @@ impl<'a> PipelineContext<'a> {
         drop_level_policy: &'a DropLevelPolicy,
         enable_signature: bool,
         dispatch: &'a PluginDispatch,
+        lsn_counter: &'a AtomicU64,
+        prev_content_hash: &'a Mutex<[u8; 32]>,
+        prev_lsn: &'a Mutex<u64>,
     ) -> Self {
         Self {
             signature_engine,
@@ -100,16 +122,27 @@ impl<'a> PipelineContext<'a> {
             drop_level_policy,
             enable_signature,
             stage_stats: Default::default(),
-            // LSN counter starts at 1 (0 is reserved for uninitialized records)
-            lsn_counter: AtomicU64::new(1),
-            // First record's prev_hash is all zeros
-            prev_hash: Mutex::new([0u8; 32]),
+            lsn_counter,
+            prev_content_hash,
+            prev_lsn,
+            // The signature slot is drained per record by the consumer loop.
+            last_signature: Mutex::new(None),
             // Format kind defaults to "plain"; the Formatting stage may
             // override this when a formatter plugin selects a different format.
             // Pre-initialized to avoid a per-record allocation in the hot path.
             format_kind: Mutex::new(Some("plain".to_string())),
             dispatch,
         }
+    }
+
+    /// Drain the most recently produced AUDIT signature.
+    ///
+    /// The consumer loop calls this after `run_pipeline` accepts a record and
+    /// writes the sidecar line only when the returned LSN matches that record's
+    /// LSN — a signature left behind by a record dropped at a later stage must
+    /// never be attributed to a different record.
+    pub fn take_last_signature(&self) -> SignatureSlot {
+        self.last_signature.lock().unwrap().take()
     }
 
     /// Record a statistic for a stage.
@@ -147,39 +180,6 @@ pub enum StageIndex {
 // ===========================================================================
 // Pipeline stage runner
 // ===========================================================================
-
-/// Build the signing payload for the Assembly stage.
-///
-/// This mirrors `SignatureEngine::build_signing_payload_static` and covers
-/// Ring 0 + Ring 1 fields: id, timestamp, lsn, prev_hash, level, message,
-/// source location, thread_id, and process_id.
-fn build_assembly_signing_payload(record: &Record) -> Vec<u8> {
-    let mut data = Vec::with_capacity(256);
-
-    // Ring 0: id, timestamp
-    data.extend_from_slice(&record.id.hi.to_le_bytes());
-    data.extend_from_slice(&record.id.lo.to_le_bytes());
-    data.extend_from_slice(&record.timestamp.hi.to_le_bytes());
-    data.extend_from_slice(&record.timestamp.lo.to_le_bytes());
-
-    // LSN + prev_hash
-    data.extend_from_slice(&record.lsn.to_le_bytes());
-    data.extend_from_slice(&record.prev_hash);
-
-    // Ring 1: level + message
-    data.push(record.level as u8);
-    data.extend_from_slice(record.message.as_str().as_bytes());
-
-    // Source location
-    data.extend_from_slice(&record.source_line.to_le_bytes());
-    data.extend_from_slice(&record.source_column.to_le_bytes());
-
-    // Thread/process
-    data.extend_from_slice(&record.thread_id.to_le_bytes());
-    data.extend_from_slice(&record.process_id.to_le_bytes());
-
-    data
-}
 
 /// Runs a single record through all pipeline stages.
 ///
@@ -231,64 +231,25 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
     ctx.record(StageIndex::FieldProvider, StageAction::Continue);
 
     // ── Stage 3: Assembly ───────────────────────────────────────────
-    // Assign LSN, compute prev_hash, and optionally sign AUDIT records.
+    // Assign LSN and set audit/signed flags. Content hashing and signing run
+    // AFTER the Processing stage (below) so the signature covers the final
+    // content — secret masking at Processing mutates the message.
+    let lsn = ctx.lsn_counter.fetch_add(1, Ordering::Relaxed);
+    record.lsn = lsn;
     {
-        // 1. Allocate a unique LSN for every record passing Assembly
-        let lsn = ctx.lsn_counter.fetch_add(1, Ordering::Relaxed);
-        record.lsn = lsn;
-
-        // 2. Set prev_hash from the previous record's (lsn || signature)
-        {
-            let prev = ctx.prev_hash.lock().unwrap();
-            record.prev_hash = *prev;
-        }
-
-        // 3. Sign only AUDIT records when signing is enabled
-        if record.level == LogLevel::Audit && ctx.enable_signature {
-            // Build the signing payload (same schema as SignatureEngine)
-            let payload = build_assembly_signing_payload(record);
-            // SAFETY: sign_bytes uses the Ed25519 signing key to produce a
-            // cryptographic signature over the provided bytes. The key is
-            // always valid (initialised at engine startup). The caller is
-            // responsible for building a correct payload.
-            record.signature = ctx.signature_engine.sign_bytes(&payload);
-        }
-
-        // 4. Update prev_hash for the next record: SHA-256(lsn || signature)
-        {
-            let mut hasher = Sha256::new();
-            hasher.update(lsn.to_le_bytes());
-            hasher.update(record.signature);
-            let new_prev_hash: [u8; 32] = hasher.finalize().into();
-            // SAFETY: Mutex::lock returns a poisoned lock if a previous holder
-            // panicked. We unwrap() to propagate the panic — there is no safe
-            // recovery path if pipeline prev_hash state is corrupted.
-            let mut prev = ctx.prev_hash.lock().unwrap();
-            *prev = new_prev_hash;
+        // Flags are part of the canonical serialization (A.3), so they are set
+        // before content_hash is computed. AUDIT records carry the AUDIT flag;
+        // signing additionally marks RECORD_FLAG_SIGNED.
+        if record.level == LogLevel::Audit {
+            record.flags |= crate::record::RECORD_FLAG_AUDIT;
+            if ctx.enable_signature {
+                record.flags |= crate::record::RECORD_FLAG_SIGNED;
+            }
         }
     }
     ctx.record(StageIndex::Assembly, StageAction::Continue);
 
     // ── Stage 4: Processing ─────────────────────────────────────────
-    // Verify Ring 3 ext_data integrity via CRC32C.
-    // If ext_data is non-empty, recompute its CRC32C and compare against
-    // the stored ext_crc32c. A mismatch indicates data corruption or
-    // tampering by an untrusted plugin — log a security warning and
-    // zero out the extension data.
-    if !record.ext_data.is_empty() {
-        let computed_crc = crate::security::crc32c(record.ext_data.as_str().as_bytes());
-        if computed_crc != record.ext_crc32c {
-            // CRC mismatch — tampering or corruption detected
-            diagnostics::warn(
-                "security",
-                &format!(
-                    "CRC32C mismatch on ext_data for record LSN={}: expected=0x{:08x}, got=0x{:08x}. Zeroing ext_data.",
-                    record.lsn, record.ext_crc32c, computed_crc
-                ),
-            );
-            record.ext_data.set("");
-        }
-    }
     // Secret leak detection — scan the record message for leaked credentials
     // (AWS keys, GitHub tokens, JWT, private keys, etc.).  The detector is
     // created once per pipeline instance (lightweight, no heap allocation in
@@ -316,6 +277,38 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
                 "security",
                 &format!("Secret leak MASKED in record LSN={}", record.lsn),
             );
+        }
+    }
+
+    // ── Post-Processing signing (ADR-002 A.6) ──────────────────────
+    // Content hash + signature run after Processing so the signed digest
+    // covers the final serialized content. Non-audit records stay unsigned
+    // with a zero content_hash (they are outside the tamper-evident chain).
+    if record.level == LogLevel::Audit {
+        record.compute_content_hash();
+        if ctx.enable_signature {
+            // Derive the A.6 predecessor hash from the persistent chain state.
+            let (prev_ch, prev_lsn) = {
+                let ch = ctx.prev_content_hash.lock().unwrap();
+                let l = ctx.prev_lsn.lock().unwrap();
+                (*ch, *l)
+            };
+            let mut hasher = Sha256::new();
+            hasher.update(prev_ch);
+            hasher.update(prev_lsn.to_le_bytes());
+            let prev_hash: [u8; 32] = hasher.finalize().into();
+
+            // Digest = SHA-256(lsn || content_hash || prev_hash); the 64-byte
+            // signature is exposed to the consumer, never stored on the record
+            // (A.2.2 fixed layout keeps no signature field).
+            let digest = SignatureEngine::build_signing_payload_static(record, &prev_hash);
+            let sig = ctx.signature_engine.sign_bytes(&digest);
+
+            // Expose (lsn, content_hash, signature) for the sidecar write; the
+            // signed record becomes the chain predecessor.
+            *ctx.last_signature.lock().unwrap() = Some((lsn, record.content_hash, sig));
+            *ctx.prev_content_hash.lock().unwrap() = record.content_hash;
+            *ctx.prev_lsn.lock().unwrap() = lsn;
         }
     }
     ctx.record(StageIndex::Processing, StageAction::Continue);
