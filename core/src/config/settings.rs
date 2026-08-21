@@ -15,9 +15,14 @@ pub struct DologgerConfig {
     pub batch_size: usize,
     /// Enable Ed25519 signatures
     pub enable_signature: bool,
+    /// Enable the isolated AUDIT pipeline. This is independent from signing:
+    /// audit persistence uses WORM and Security sinks, while signatures are
+    /// added only when `enable_signature` is also enabled.
+    pub enable_audit: bool,
     /// Path to the `.sig` sidecar file where the pipeline appends audit-record
     /// signatures (`lsn:content_hash_hex:signature_hex` per line, ADR-002 A.6).
-    /// None disables sidecar writing even when `enable_signature` is set.
+    /// None disables the signature sidecar; it is required when both
+    /// `enable_audit` and `enable_signature` are enabled.
     pub sig_sidecar_path: Option<PathBuf>,
     /// Path to the active config file (for diagnostics)
     pub config_path: Option<PathBuf>,
@@ -161,6 +166,7 @@ performance_profile = "prod-performance"
 ring_buffer_size = 262144
 batch_size = 256
 enable_signature = false
+enable_audit = false
 "#;
 
     std::fs::write(path, default_toml)
@@ -243,6 +249,7 @@ impl Default for DologgerConfig {
             ring_buffer_size: 262144, // 256K records
             batch_size: 256,
             enable_signature: false,
+            enable_audit: false,
             sig_sidecar_path: None,
             config_path: None,
             shutdown_policy: "graceful".into(),
@@ -277,6 +284,7 @@ impl DologgerConfig {
             ring_buffer_size: 65536, // 64K
             batch_size: 32,
             enable_signature: false,
+            enable_audit: false,
             sig_sidecar_path: None,
             config_path: None,
             shutdown_policy: "graceful".into(),
@@ -328,14 +336,21 @@ impl DologgerConfig {
 
         // --- Config-level mandatory checks (all profiles) ---
 
-        // 1. Cryptographic signatures required for non-repudiation
+        // 1. The audit pipeline must be explicitly enabled for compliance.
+        if !self.enable_audit {
+            gaps.push(format!(
+                "{name}: enable_audit must be true — the isolated audit pipeline is required"
+            ));
+        }
+
+        // 2. Cryptographic signatures required for non-repudiation
         if !self.enable_signature {
             gaps.push(format!(
                 "{name}: enable_signature must be true — cryptographic non-repudiation is required"
             ));
         }
 
-        // 2. Performance profile must be prod-audit (enables signatures + audit batching)
+        // 3. Performance profile must be prod-audit (enables signatures + audit batching)
         if self.performance_profile != PerformanceProfile::ProdAudit {
             gaps.push(format!(
                 "{name}: performance_profile must be \"prod-audit\", currently {:?}",
@@ -549,8 +564,8 @@ impl DologgerConfig {
         // fsync_on_write, require_tls, sign_ring2) are enforced by
         // DomainManager at domain inheritance time, not here.
         //
-        // enable_signature is config-level but should not be forced true
-        // unconditionally — it defaults based on the performance profile.
+        // enable_audit and enable_signature are config-level but should not be
+        // forced true unconditionally — they default based on the profile.
         // Compliance templates validate it separately via
         // validate_compliance_template().
         let _ = warnings;
@@ -593,6 +608,12 @@ impl DologgerConfig {
             if enable || !self.enable_signature {
                 self.enable_signature = enable;
                 overridden.push("enable_signature");
+            }
+        }
+        if let Some(enable) = api.enable_audit {
+            if enable || !self.enable_audit {
+                self.enable_audit = enable;
+                overridden.push("enable_audit");
             }
         }
         if let Some(coop) = api.ring_buffer_coop_helping {
@@ -665,6 +686,8 @@ pub struct ApiOverrides {
     pub batch_size: Option<usize>,
     /// Enable Ed25519 signatures
     pub enable_signature: Option<bool>,
+    /// Enable the isolated AUDIT pipeline
+    pub enable_audit: Option<bool>,
     /// Enable cooperative helping
     pub ring_buffer_coop_helping: Option<bool>,
     /// Shutdown policy: "graceful" or "immediate"
@@ -844,6 +867,9 @@ impl DologgerConfig {
             if let Some(sig) = dologger.get("enable_signature").and_then(|v| v.as_bool()) {
                 config.enable_signature = sig;
             }
+            if let Some(audit) = dologger.get("enable_audit").and_then(|v| v.as_bool()) {
+                config.enable_audit = audit;
+            }
             if let Some(path) = dologger.get("sig_sidecar").and_then(|v| v.as_str()) {
                 config.sig_sidecar_path = Some(PathBuf::from(path));
             }
@@ -967,6 +993,7 @@ impl DologgerConfig {
             PerformanceProfile::Dev => {
                 self.batch_size = self.batch_size.min(32);
                 self.enable_signature = false;
+                self.enable_audit = false;
                 self.ring_buffer_coop_helping = false;
             }
             PerformanceProfile::ProdPerformance => {
@@ -975,6 +1002,7 @@ impl DologgerConfig {
             }
             PerformanceProfile::ProdAudit => {
                 self.batch_size = 128;
+                self.enable_audit = true;
                 self.enable_signature = true;
                 self.ring_buffer_coop_helping = false;
             }
@@ -1032,6 +1060,7 @@ mod tests {
             ring_buffer_size: 262144,
             batch_size: 128,
             enable_signature: true,
+            enable_audit: true,
             sig_sidecar_path: None,
             config_path: None,
             shutdown_policy: "graceful".into(),
@@ -1244,6 +1273,8 @@ plugin_allow_red_plugins = true
         let def = DologgerConfig::default();
         assert!(def.plugin_trust_store.is_none());
         assert!(def.plugin_trust_anchor.is_none());
+        assert!(!def.enable_audit);
+        assert!(!def.enable_signature);
         assert!(!def.plugin_allow_red_plugins);
 
         // A config file that omits the new keys must still parse.
@@ -1253,6 +1284,7 @@ level = "INFO"
 "#;
         let (cfg2, _) = DologgerConfig::parse(bare, None).unwrap();
         assert!(cfg2.plugin_trust_store.is_none());
+        assert!(!cfg2.enable_audit);
         assert!(!cfg2.plugin_allow_red_plugins);
     }
 
@@ -1275,7 +1307,11 @@ level = "INFO"
 
             match DologgerConfig::load_from_file(full_path.to_str().unwrap()) {
                 Ok((config, warnings)) => {
-                    // After apply_profile, ProdAudit sets enable_signature=true
+                    // After apply_profile, ProdAudit explicitly enables audit and signatures
+                    assert!(
+                        config.enable_audit,
+                        "[{path}] enable_audit must be true after parse+profile apply"
+                    );
                     assert!(
                         config.enable_signature,
                         "[{path}] enable_signature must be true after parse+profile apply"
@@ -1295,5 +1331,16 @@ level = "INFO"
                 }
             }
         }
+    }
+    #[test]
+    fn test_audit_enablement_is_independent_from_signature() {
+        let toml = r#"
+[dologger]
+enable_audit = true
+enable_signature = false
+"#;
+        let (config, _warnings) = DologgerConfig::parse(toml, None).unwrap();
+        assert!(config.enable_audit);
+        assert!(!config.enable_signature);
     }
 }

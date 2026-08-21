@@ -503,7 +503,8 @@ ps -o pid,rss,comm -p $(pgrep -f dologger)
 performance_profile = "prod-performance"
 ring_buffer_size = 1048576      # 1M slots for burst headroom
 batch_size = 512                 # Large batches for throughput
-enable_signature = false         # No audit requirement
+enable_audit = false              # No audit pipeline
+enable_signature = false         # No audit signatures
 
 [sinks.kafka]
 type = "kafka"

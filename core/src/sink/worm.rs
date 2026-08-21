@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::sink::{Sink, SinkError, SinkResult};
+use sha2::{Digest, Sha256};
 
 /// WORM durability level controlling fsync behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -79,6 +80,7 @@ struct PendingRecord {
     data: Vec<u8>,
     /// Previous hash for chain continuity
     prev_hash: [u8; 32],
+    content_hash: Option<[u8; 32]>,
 }
 
 /// WORM File Sink — append-only, fsync-backed, LSN-chain-verified.
@@ -98,6 +100,12 @@ pub struct WormSink {
     is_open: bool,
 }
 
+fn derive_chain_link(content_hash: &[u8; 32], lsn: u64) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(content_hash);
+    hasher.update(lsn.to_le_bytes());
+    hasher.finalize().into()
+}
 impl WormSink {
     /// Create a new WORM sink.
     pub fn new(config: WormSinkConfig) -> Self {
@@ -118,22 +126,39 @@ impl WormSink {
     /// This is the preferred API for AUDIT records — it writes raw bytes
     /// and performs LSN ordering + chain continuity checks.
     pub fn write_worm_record(&mut self, lsn: u64, prev_hash: &[u8; 32], data: &[u8]) -> SinkResult {
+        self.write_worm_record_internal(lsn, prev_hash, None, data)
+    }
+
+    /// Write a record while retaining its current content hash for the next link.
+    pub fn write_worm_record_with_hash(
+        &mut self,
+        lsn: u64,
+        prev_hash: &[u8; 32],
+        content_hash: &[u8; 32],
+        data: &[u8],
+    ) -> SinkResult {
+        self.write_worm_record_internal(lsn, prev_hash, Some(*content_hash), data)
+    }
+
+    fn write_worm_record_internal(
+        &mut self,
+        lsn: u64,
+        prev_hash: &[u8; 32],
+        content_hash: Option<[u8; 32]>,
+        data: &[u8],
+    ) -> SinkResult {
         if !self.is_open {
             return Err(SinkError::Closed);
         }
 
         let expected_lsn = self.last_lsn + 1;
-
         if lsn == expected_lsn {
-            // Verify prev_hash against last persisted record for chain continuity
             if self.last_lsn > 0 && *prev_hash != self.last_hash {
                 crate::sys::diagnostics::error(
                     "worm_sink",
                     &format!(
                         "prev_hash MISMATCH at LSN={}: expected {:02x?}.., got {:02x?}.. — chain broken",
-                        lsn,
-                        &self.last_hash[..4],
-                        &prev_hash[..4]
+                        lsn, &self.last_hash[..4], &prev_hash[..4]
                     ),
                 );
                 return Err(SinkError::WriteFailed(
@@ -141,40 +166,33 @@ impl WormSink {
                 ));
             }
 
-            // Normal case: next sequential LSN → write immediately
             self.flush_reorder_buffer()?;
             self.write_raw(data)?;
-
             if self.config.durability == WormDurability::Media
                 || self.config.durability == WormDurability::MediaWithFua
             {
                 self.fsync()?;
             }
-
             self.last_lsn = lsn;
-            self.last_hash = *prev_hash;
+            self.last_hash = content_hash
+                .map(|hash| derive_chain_link(&hash, lsn))
+                .unwrap_or(*prev_hash);
         } else if lsn > expected_lsn {
-            // LSN gap detected → buffer for reorder
             self.reorder_buffer.insert(
                 lsn,
                 PendingRecord {
                     data: data.to_vec(),
                     prev_hash: *prev_hash,
+                    content_hash,
                 },
             );
-
             if self.reorder_start.is_none() {
                 self.reorder_start = Some(Instant::now());
             }
-
-            // Check if reorder window has expired
             self.check_reorder_window()?;
         }
-        // lsn < expected_lsn: duplicate or late arrival → drop (already persisted)
-
         Ok(())
     }
-
     /// Flush any buffered records that are now in sequence.
     fn flush_reorder_buffer(&mut self) -> SinkResult {
         while let Some((&lsn, _)) = self.reorder_buffer.first_key_value() {
@@ -183,7 +201,10 @@ impl WormSink {
                 let record = self.reorder_buffer.remove(&lsn).unwrap();
                 self.write_raw(&record.data)?;
                 self.last_lsn = lsn;
-                self.last_hash = record.prev_hash;
+                self.last_hash = record
+                    .content_hash
+                    .map(|hash| derive_chain_link(&hash, lsn))
+                    .unwrap_or(record.prev_hash);
             } else if lsn < expected {
                 // Duplicate, remove silently
                 self.reorder_buffer.remove(&lsn);

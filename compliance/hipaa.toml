@@ -43,6 +43,7 @@ level = "AUDIT"
 # unauthorized manner. Ed25519 cryptographic signatures on every log
 # record provide irrefutable evidence of log integrity, satisfying the
 # "mechanism to authenticate ePHI" requirement.
+enable_audit = true
 enable_signature = true
 
 # worm_enabled = true

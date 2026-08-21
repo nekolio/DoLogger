@@ -66,6 +66,7 @@ performance_profile = "dev"
 ring_buffer_size = 65536
 batch_size = 32
 enable_signature = false
+enable_audit = false
 ```
 
 ### 步骤 3：开始记录日志（10 秒）

@@ -620,7 +620,7 @@ impl ShmSinkConfig {
         Ok(())
     }
 
-    /// Check that this sink is not being used for an AUDIT domain.
+    /// Check that this sink is not being used when the AUDIT pipeline is enabled.
     pub fn check_audit_forbidden(is_audit_domain: bool) -> Result<(), String> {
         if is_audit_domain {
             return Err(

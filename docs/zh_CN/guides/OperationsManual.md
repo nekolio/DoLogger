@@ -137,7 +137,8 @@ level = "INFO"
 performance_profile = "prod-performance"
 ring_buffer_size = 262144       # 必须是 2 的幂
 batch_size = 256
-enable_signature = false        # 审计部署时设为 true
+enable_audit = false           # 审计部署时设为 true
+enable_signature = false        # 需要逐条签名时设为 true
 # 以下五项域级不可降级项由 DomainManager 强制执行，
 # 在 v0.0.1 中不读取自 [dologger] 段 — 此处仅为完整性列出：
 escape_html = true              # 防止 CRLF / 日志注入
@@ -332,7 +333,7 @@ auto_cleanup = true              # 引擎关闭时 unlink 该区域
 allowed_consumers = []           # 空 = 允许所有
 ```
 
-`sink_shm` **非持久化**——`durability_level` 被强制为 `UNSAFE`。因此它在 AUDIT 模式（`enable_signature = true` / `prod-audit`）下被禁止，该模式需要持久化 WORM 存储；引擎以 `DO_LOG_ERR_AUDIT_SHM_FORBIDDEN` 拒绝此组合。
+`sink_shm` **非持久化**——`durability_level` 被强制为 `UNSAFE`。因此它在 AUDIT 模式（`enable_audit = true` / `prod-audit`）下被禁止，该模式需要持久化 WORM 存储；引擎以 `DO_LOG_ERR_AUDIT_SHM_FORBIDDEN` 拒绝此组合。
 
 ### 通过 CLI 启用
 

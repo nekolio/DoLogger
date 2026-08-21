@@ -555,7 +555,8 @@ Go 适配器使用 cgo 链接 `libdologger_core`。
 |:-:|:-:|:-:|:-:|
 | `ring_buffer_size` | 262144 | 突发型工作负载可调大 | 更大的缓冲 = 更高的峰值吞吐。必须是 2 的幂。 |
 | `batch_size` | 256 | 视记录大小在 128–512 之间 | 更大的批次 = 更高吞吐、更高延迟。 |
-| `enable_signature` | false | 开发环境 `false`；审计生产环境 `true` | 签名每条记录增加约 17 us（Ed25519）。 |
+| `enable_audit` | false | 默认 `false`；审计部署设为 `true` | 启用隔离 WORM/Security 持久化。 |
+| `enable_signature` | false | 审计签名的可选项；合规签名输出必须为 `true` | 每条签名记录增加约 17 us。 |
 | `fsync_on_write` | false | WORM 审计 Sink 设为 `true` | 强制介质持久化；受 I/O 延迟约束。 |
 
 ### 基准测试

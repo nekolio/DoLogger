@@ -40,6 +40,7 @@ level = "AUDIT"
 # ensure that log entries cannot be altered or forged after writing. This
 # supports Art. 5(1)(f) (integrity and confidentiality) and Art. 32
 # (security of processing). Auditors must be able to trust the log chain.
+enable_audit = true
 enable_signature = true
 
 # worm_enabled = true

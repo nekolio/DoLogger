@@ -562,7 +562,8 @@ The Go adapter uses cgo to link against `libdologger_core`.
 |:-:|:-:|:-:|:-:|
 | `ring_buffer_size`   | 262144   | Increase for bursty workloads       | Larger buffer = higher peak throughput. Must be a power of two. |
 | `batch_size`         | 256      | 128–512 depending on record size    | Larger batches = higher throughput, higher latency. |
-| `enable_signature`   | false    | `false` in dev; `true` in audit prod | Signing adds ~17 us per record (Ed25519). |
+| `enable_audit`       | false    | `false` by default; `true` for audit deployments | Enables isolated WORM/Security persistence. |
+| `enable_signature`   | false    | Optional in audit mode; required for signed compliance output | Signing adds ~17 us per record. |
 | `fsync_on_write`     | false    | `true` for WORM audit sinks         | Forces media durability; I/O latency bound. |
 
 ### Benchmarking

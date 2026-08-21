@@ -22,7 +22,9 @@ ring_buffer_size = 262144
 # Number of records to drain per batch from the ring buffer
 batch_size = 256
 
-# Enable Ed25519 signatures (required for AUDIT domain)
+# Enable the opt-in isolated AUDIT pipeline.
+enable_audit = false
+# Add per-record Ed25519 signatures inside the AUDIT pipeline.
 enable_signature = false
 
 # Shutdown behavior: "graceful" (drain all pending) or "immediate" (drop pending)

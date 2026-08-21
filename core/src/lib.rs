@@ -233,7 +233,7 @@ pub struct Engine {
     /// Time source for timestamps and IDs.
     pub time_source: TimeSource,
     /// Ed25519 signature engine — owns the signing key
-    pub signature_engine: SignatureEngine,
+    pub signature_engine: Arc<SignatureEngine>,
     /// Plugin manager
     pub plugin_manager: PluginManager,
     /// Sysmon self-monitoring channel
@@ -294,7 +294,7 @@ impl Engine {
                     .to_string(),
             );
         }
-        let signature_engine = SignatureEngine::new();
+        let signature_engine = Arc::new(SignatureEngine::new());
 
         // Initialise policy components
         let rate_limiter = Arc::new(RateLimiter::default());
@@ -377,10 +377,10 @@ impl Engine {
         // Wire the optional shared-memory sink before the main pipeline so the
         // consumer thread can mirror accepted records into it. sink_shm is
         // wired separately from `[sinks.*]` (see sink/registry) and is never
-        // used for the AUDIT domain — it is rejected when signatures are on.
+        // used for the AUDIT domain — it is rejected when the audit pipeline is on.
         let shm_sink = match &config.shm {
             Some(shm_config) => {
-                ShmSinkConfig::check_audit_forbidden(config.enable_signature)?;
+                ShmSinkConfig::check_audit_forbidden(config.enable_audit)?;
                 shm_config.validate()?;
                 let sink = Arc::new(ShmSink::new(shm_config.clone()));
                 sink.open(&sysmon)
@@ -391,54 +391,61 @@ impl Engine {
         };
         let pipeline_shm = shm_sink.clone();
 
-        // Create pipeline with all stage dependencies.
-        // Each pipeline and the main engine use independent SignatureEngine
-        // instances for key isolation.  The audit pipeline (below) also
-        // receives its own key pair.
-        let pipeline_sig_engine = Arc::new(SignatureEngine::new());
-        let pipeline = Pipeline::new(
+        // Create the main pipeline for ordinary records. AUDIT records are
+        // routed away before they can enter this ring.
+        let mut pipeline = Pipeline::new(
             &config,
             Arc::clone(&ring_buffer),
             Arc::clone(&pool),
             Arc::clone(&sink),
-            pipeline_sig_engine,
+            Arc::clone(&signature_engine),
             Arc::clone(&rate_limiter),
             Arc::clone(&drop_level_policy),
             dispatch,
             None,
             pipeline_shm,
         )?;
+        if config.enable_audit && config.enable_signature && config.sig_sidecar_path.is_none() {
+            return Err("signed audit mode requires sig_sidecar_path".to_string());
+        }
 
-        // Create audit pipeline with its own ring buffer partition
-        let (audit_pipeline, external_anchor) = if config.enable_signature {
+        // Create the dedicated audit partition only when explicitly enabled.
+        // Signing is an independent option within that partition.
+        let (audit_pipeline, external_anchor) = if config.enable_audit {
+            let sidecar_path = config.sig_sidecar_path.as_deref();
             let worm_sink = WormSink::new(Default::default());
             let security_sink = SecuritySink::new(Default::default());
-            let sig_engine = Arc::new(SignatureEngine::new());
-
-            // Create external anchor manager for periodic chain anchoring
-            let anchor = Arc::new(Mutex::new(ExternalAnchor::new(3600))); // 1 hour default
-            let anchor_for_pipeline = Arc::clone(&anchor);
-
-            match AuditPipeline::new(
+            let anchor = config
+                .enable_signature
+                .then(|| Arc::new(Mutex::new(ExternalAnchor::new(3600))));
+            let anchor_for_pipeline = anchor.clone();
+            let audit_pipeline = match AuditPipeline::new(
                 config.ring_buffer_size,
                 crate::audit::DEFAULT_AUDIT_BUFFER_RATIO,
                 Arc::clone(&pool),
                 worm_sink,
                 security_sink,
-                sig_engine,
-                Some(anchor_for_pipeline),
+                Arc::clone(&signature_engine),
+                anchor_for_pipeline,
+                sidecar_path,
+                config.enable_signature,
             ) {
-                Ok(ap) => {
-                    sysmon.info("engine", "Audit pipeline started with external anchoring");
-                    (Some(ap), Some(anchor))
+                Ok(audit_pipeline) => audit_pipeline,
+                Err(error) => {
+                    pipeline.shutdown();
+                    return Err(error);
                 }
-                Err(e) => {
-                    sysmon.error("engine", &format!("Audit pipeline failed: {e}"));
-                    (None, None)
-                }
-            }
+            };
+            sysmon.info(
+                "engine",
+                &format!(
+                    "Audit pipeline started (signed={}, external_anchor={})",
+                    config.enable_signature, config.enable_signature
+                ),
+            );
+            (Some(audit_pipeline), anchor)
         } else {
-            sysmon.info("engine", "Audit pipeline disabled (enable_signature=false)");
+            sysmon.info("engine", "Audit pipeline disabled (enable_audit=false)");
             (None, None)
         };
 

@@ -141,7 +141,8 @@ level = "INFO"
 performance_profile = "prod-performance"
 ring_buffer_size = 262144       # MUST be a power of two
 batch_size = 256
-enable_signature = false        # Set true for audit deployments
+enable_audit = false           # Set true for audit deployments
+enable_signature = false        # Add signatures when required
 # The five domain-level non-downgradable items below are enforced by
 # DomainManager, not read from [dologger] in v0.0.1 — listed for completeness:
 escape_html = true              # Prevent CRLF / log injection
@@ -352,7 +353,7 @@ allowed_consumers = []           # empty = allow all
 ```
 
 `sink_shm` is **non-persistent** — `durability_level` is forced to `UNSAFE`. It
-is therefore forbidden in AUDIT mode (`enable_signature = true` / `prod-audit`),
+is therefore forbidden in AUDIT mode (`enable_audit = true` / `prod-audit`),
 which requires durable WORM storage; the engine rejects that combination with
 `DO_LOG_ERR_AUDIT_SHM_FORBIDDEN`.
 

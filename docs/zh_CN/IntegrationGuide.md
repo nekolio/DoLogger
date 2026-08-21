@@ -162,7 +162,8 @@ performance_profile = "prod-performance" # 性能预设
 # -- 性能 --
 ring_buffer_size = 262144               # 必须是 2 的幂
 batch_size = 256                        # 每管道批次的记录数
-enable_signature = false                # Ed25519 签名（AUDIT 必需）
+enable_audit = false                   # 显式启用隔离 AUDIT 管线
+enable_signature = false                # 可选 Ed25519 签名
 ring_buffer_coop_helping = true         # 90% 满时生产者帮助排空
 
 # -- 关闭 --

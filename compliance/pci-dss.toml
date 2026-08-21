@@ -45,6 +45,7 @@ level = "AUDIT"
 # records cannot be altered without detection. This maps directly to
 # 10.5.1 — limit viewing of audit trails to those with a job-related need,
 # and 10.5.2 — protect audit trail files from unauthorized modifications.
+enable_audit = true
 enable_signature = true
 
 # worm_enabled = true

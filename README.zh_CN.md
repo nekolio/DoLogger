@@ -23,7 +23,7 @@
 ## 概述
 
 DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防篡改审计日志
-的应用而设计。它将纳秒级延迟的无锁记录提交与 TPM 支撑的 Ed25519 审计链、插件
+的应用而设计。它将纳秒级延迟的无锁记录提交与可选 AUDIT 管线、可选 Ed25519 签名、明确的 TPM 门控、插件
 沙箱隔离、以及 11 种内置输出接收器相结合——全部由 TOML 配置驱动,支持
 域继承与不可降级的安全保障。
 
@@ -31,7 +31,7 @@ DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防�
 |:-:|:-:|:-:|
 | **提交延迟（P50）** | 102 ns | 500–2000 ns |
 | **批量吞吐量** | 13.3M rec/s | 1–5M rec/s |
-| **审计链** | content_hash + LSN 链，TPM 支撑的 Ed25519 侧车签名 | 少见 / 外挂 |
+| **审计链** | 可选 content_hash + LSN WORM 链，及可选 Ed25519 侧车签名 | 少见 / 外挂 |
 | **插件沙箱** | seccomp-bpf / AppContainer / Sandbox | 无 |
 | **性能配置** | 4 种配置（Dev/Prod/ProdAudit/Balanced） | 手动调优 |
 | **输出接收器** | 11 种内置（Console、File、Callback、Kafka、Syslog、Webhook、SQLite、WORM、Security、Shared Memory、OTel） | 通常 1–3 种 |
@@ -42,7 +42,7 @@ DoLogger 是一个跨平台、高安全性的日志引擎,为需要签名、防�
 ## 特性
 
 - `[PERF]` **无锁热路径** — 基于 CAS 的环形缓冲区 + Treiber 栈对象池;记录提交零堆分配(本地 P50 ≈ 102 ns)。
-- `[SIGN]` **TPM 支撑的 Ed25519 审计链** — 每条审计记录携带由 LSN 链接的 content_hash;不可导出的 TPM 密钥逐条签名(默认)写入 `audit.log.sig` 侧车文件;离线可用 `dologctl verify-log --sidecar` 校验。
+- `[SIGN]` **可选 Ed25519 审计签名** — 设置 `enable_audit` 启用隔离的 WORM/Security 管线，再设置 `enable_signature` 写入逐条 `audit.log.sig` 签名。当前代码将 TPM 保留为明确的供给边界，尚不宣称硬件后端已实现。
 - `[SINK]` **11 种接收器 + 沙箱插件** — Console、File、Kafka、Syslog、Webhook、SQLite、WORM、Security、Shared Memory、OTel、Callback;插件在 seccomp-bpf / AppContainer / Sandbox 隔离下运行,按信任级别着色。
 - `[OBSV]` **内置可观测性** — 逐记录管道耗时(`--trace`)、SIF 录制/回放、`dologctl perf` 基准测试、崩溃恢复报告。
 
@@ -112,12 +112,12 @@ use dologger_sdk::Logger;
 fn main() {
     let mut logger = Logger::init(None).expect("init"); // 默认配置
     logger.info("Application started");
-    logger.audit("User 42 deleted record #7"); // 签名 + WORM
+    logger.audit("User 42 deleted record #7"); // 持久化审计；启用签名后附带签名
     logger.shutdown();
 }
 ```
 
-审计记录经 Ed25519 签名（TPM 持有密钥，签名存于 `audit.log.sig` 侧车）;离线校验日志:
+设置 `enable_audit = true` 后，AUDIT 记录进入隔离的 WORM/Security 管线；再设置 `enable_signature = true` 才写入逐条签名的 `audit.log.sig` 侧车。当前开发供给器为软件路径，显式 TPM 模式在经过审查的硬件后端可用前拒绝启动。离线校验日志:
 
 ```shell
 dologctl verify-log audit.log --sidecar audit.log.sig
@@ -242,7 +242,7 @@ Shared Memory、OTel)在管道第 6 阶段运行,由核心直接驱动;插件在
 
 ## 安全
 
-- **Ed25519 审计链**:每条审计记录携带 content_hash;LSN + prev_hash 形成防篡改链条。签名由 TPM 供给(密钥不可导出、硬件签名),存于 `audit.log.sig` 侧车文件——audit 模式无 TPM 时拒绝启动
+- **审计链**：设置 `enable_audit = true` 后，每条 AUDIT 记录携带 content_hash 并进入 LSN 链接的 WORM 链；`enable_signature = true` 额外写入 `audit.log.sig` 逐条签名。TPM 保留为明确的供给边界，当前代码不宣称硬件后端已实现。
 - **WORM 存储**:一次写入多次读取,fsync + 只读权限强制
 - **插件沙箱**:seccomp-bpf(Linux)、AppContainer(Windows)、Sandbox(macOS),信任颜色能力矩阵
 - **密钥检测**:14 条前缀匹配规则,覆盖 Critical/High/Medium 三个严重级别(AWS、GCP、GitHub Token、私钥等)

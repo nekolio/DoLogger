@@ -79,25 +79,10 @@ impl Pipeline {
         let batch_size = config.batch_size;
         let enable_signature = config.enable_signature;
 
-        // Open the optional audit-signature sidecar (ADR-002 A.6). Failure is
-        // non-fatal: the pipeline keeps running and signatures are simply not
-        // persisted to the sidecar (a diagnostic is emitted instead).
-        let sig_sidecar = config.sig_sidecar_path.as_ref().and_then(|p| {
-            match std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(p)
-            {
-                Ok(f) => Some(BufWriter::new(f)),
-                Err(e) => {
-                    crate::sys::diagnostics::error(
-                        "pipeline",
-                        &format!("Failed to open signature sidecar {}: {e}", p.display()),
-                    );
-                    None
-                }
-            }
-        });
+        // The dedicated AuditPipeline owns the signature sidecar. The normal
+        // pipeline must never open or write it because AUDIT records are routed
+        // away before entering this ring.
+        let sig_sidecar: Option<BufWriter<std::fs::File>> = None;
 
         // When io_pool is Some, set up a channel-based dispatch.
         // The sink is moved into a worker running on the io_pool; the

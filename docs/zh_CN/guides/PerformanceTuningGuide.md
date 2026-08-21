@@ -498,7 +498,8 @@ ps -o pid,rss,comm -p $(pgrep -f dologger)
 performance_profile = "prod-performance"
 ring_buffer_size = 1048576      # 1M 槽用于突发余量
 batch_size = 512                 # 大批量以提高吞吐量
-enable_signature = false         # 无审计要求
+enable_audit = false              # 无审计管线
+enable_signature = false         # 无审计签名
 
 [sinks.kafka]
 type = "kafka"

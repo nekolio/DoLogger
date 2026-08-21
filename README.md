@@ -24,7 +24,8 @@
 
 DoLogger is a cross-platform, high-security logging engine for applications that
 need signed, tamper-evident audit logs. It combines nanosecond-latency lock-free
-record submission with TPM-backed Ed25519 audit chains, plugin sandboxing, and
+record submission with an optional AUDIT pipeline, optional Ed25519 signatures,
+explicit TPM gating, plugin sandboxing, and 11 built-in output sinks — all
 11 built-in output sinks — all driven by TOML configuration with domain
 inheritance and non-downgradable security guarantees.
 
@@ -32,7 +33,7 @@ inheritance and non-downgradable security guarantees.
 |:-:|:-:|:-:|
 | **Submit latency (P50)** | 102 ns | 500–2000 ns |
 | **Batch throughput** | 13.3M rec/s | 1–5M rec/s |
-| **Audit chain** | content_hash + LSN chain, TPM-backed Ed25519 sidecar sigs | Rare / bolt-on |
+| **Audit chain** | opt-in content_hash + LSN WORM chain, optional Ed25519 sidecar signatures | Rare / bolt-on |
 | **Plugin sandbox** | seccomp-bpf / AppContainer / Sandbox | None |
 | **Performance profiles** | 4 profiles (Dev/Prod/ProdAudit/Balanced) | Manual tuning |
 | **Output sinks** | 11 built-in (Console, File, Callback, Kafka, Syslog, Webhook, SQLite, WORM, Security, Shared Memory, OTel) | 1–3 typical |
@@ -43,7 +44,7 @@ inheritance and non-downgradable security guarantees.
 ## Features
 
 - `[PERF]` **Lock-free hot path** — CAS-based ring buffer with a Treiber object pool; record submission does no heap allocation (P50 ≈ 102 ns locally).
-- `[SIGN]` **TPM-backed Ed25519 audit chain** — every audit record carries a content_hash linked by LSN; non-exportable TPM keys sign each record (per-record default) into the `audit.log.sig` sidecar; verify offline with `dologctl verify-log --sidecar`.
+- `[SIGN]` **Optional Ed25519 audit signatures** — enable `enable_audit` for the isolated WORM/Security pipeline; add `enable_signature` for per-record `audit.log.sig` signatures. The current tree keeps TPM as an explicit provider boundary and does not claim a hardware backend.
 - `[SINK]` **11 sinks + sandboxed plugins** — Console, File, Kafka, Syslog, Webhook, SQLite, WORM, Security, Shared Memory, OTel, Callback; plugins run under seccomp-bpf / AppContainer / Sandbox isolation with color-coded trust levels.
 - `[OBSV]` **Observability built in** — per-record pipeline timing (`--trace`), SIF recording/replay, `dologctl perf` benchmarks, crash recovery reports.
 
@@ -114,12 +115,12 @@ use dologger_sdk::Logger;
 fn main() {
     let mut logger = Logger::init(None).expect("init"); // default config
     logger.info("Application started");
-    logger.audit("User 42 deleted record #7"); // signed + WORM
+    logger.audit("User 42 deleted record #7"); // durable audit; signed when enabled
     logger.shutdown();
 }
 ```
 
-Audit records are Ed25519-signed (TPM-held key, signatures in the `audit.log.sig` sidecar); verify the log offline:
+When `enable_audit = true`, AUDIT records use the isolated WORM/Security pipeline. Adding `enable_signature = true` also writes the per-record `audit.log.sig` sidecar; the current development provider is software-backed and explicit TPM mode refuses startup until a reviewed hardware backend exists. Verify the log offline:
 
 ```shell
 dologctl verify-log audit.log --sidecar audit.log.sig
@@ -249,7 +250,7 @@ output.
 
 ## Security
 
-- **Ed25519 audit chain**: Every audit record carries a content_hash; LSN + prev_hash forms a tamper-evident chain. Signatures are TPM-provisioned (non-exportable keys, hardware signing) and stored in the `audit.log.sig` sidecar — audit mode refuses startup without a TPM
+- **Audit chain**: With `enable_audit = true`, each AUDIT record carries a content hash and LSN-linked WORM chain. `enable_signature = true` adds per-record signatures in `audit.log.sig`; TPM remains an explicit provider boundary and the current tree does not claim a hardware backend.
 - **WORM storage**: Write-Once-Read-Many with fsync + read-only permission enforcement
 - **Plugin sandbox**: seccomp-bpf (Linux), AppContainer (Windows), Sandbox (macOS) with trust-colored capability matrices
 - **Secret detection**: 14 prefix-matching rules across Critical/High/Medium severity (AWS, GCP, GitHub tokens, private keys)

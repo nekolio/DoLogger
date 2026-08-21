@@ -18,6 +18,7 @@
 //! | ring_buffer_race | Multi-thread push corruption | CAS atomic sequencing prevents |
 //! | worm_gap_injection | LSN gap in WORM stream | Gap marker generated |
 
+use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -501,7 +502,43 @@ fn test_worm_gap_marker_when_timeout_expires() {
 }
 
 // ===========================================================================
-// Dependency cycle attack — circular field requirements
+// WORM content-hash chain — current record hash must become the next link
+// ===========================================================================
+
+#[test]
+fn test_worm_content_hash_chain_rejects_wrong_predecessor() {
+    let path = std::env::temp_dir().join(format!("dologger-worm-chain-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+
+    let mut sink = WormSink::new(WormSinkConfig {
+        path: path.clone(),
+        durability: dologger_core::sink::WormDurability::OsCache,
+        lock_readonly_on_close: false,
+        lsn_reorder_window_ms: 0,
+        ..Default::default()
+    });
+    sink.open().expect("WORM sink opens");
+
+    let first_hash = [1u8; 32];
+    let second_hash = [2u8; 32];
+    let mut hasher = Sha256::new();
+    hasher.update(first_hash);
+    hasher.update(1u64.to_le_bytes());
+    let first_link: [u8; 32] = hasher.finalize().into();
+    sink.write_worm_record_with_hash(1, &[0u8; 32], &first_hash, b"one\n")
+        .expect("genesis record writes");
+    sink.write_worm_record_with_hash(2, &first_link, &second_hash, b"two\n")
+        .expect("linked record writes");
+
+    let error = sink
+        .write_worm_record_with_hash(3, &[9u8; 32], &[3u8; 32], b"three\n")
+        .expect_err("broken predecessor must fail closed");
+    assert!(error.to_string().contains("chain broken"));
+
+    sink.close().expect("WORM sink closes");
+    let _ = std::fs::remove_file(path);
+}
+// ===========================================================================\n// Dependency cycle attack — circular field requirements
 // ===========================================================================
 
 #[test]

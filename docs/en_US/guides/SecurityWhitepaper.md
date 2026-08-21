@@ -437,7 +437,8 @@ Six configuration items are designated as non-downgradable. They can only be **t
 
 | Item              | Loosened State | Security Consequence |
 |:-:|:-:|:-:|
-| `enable_signature`| `false`        | Non-repudiation is lost. All audit records become forgeable. |
+| `enable_audit`   | `false`        | The isolated audit pipeline is disabled; AUDIT calls fail closed. |
+| `enable_signature`| `false`       | Signed non-repudiation is disabled; unsigned hash-chain audit is not compliance output. |
 | `escape_html`     | `false`        | Log injection attacks become possible. Terminal escape sequences and CRLF injection can hide or forge log output. |
 | `durability`      | `os_cache`     | Audit log files become mutable. Historical records can be deleted or modified without cryptographic detection. |
 | `fsync_on_write`  | `false`        | Crash durability is voided. In-flight audit records lost during a crash leave undetectable gaps. |

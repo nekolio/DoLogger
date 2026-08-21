@@ -13,7 +13,7 @@ use std::ffi::{c_char, c_void, CStr};
 use crate::config::DologgerConfig;
 use crate::error::{
     DologgerError, DO_LOG_ERR_BUFFER_TOO_SMALL, DO_LOG_ERR_INVALID_ARG, DO_LOG_ERR_SIF_INVALID,
-    DO_LOG_OK,
+    DO_LOG_ERR_SINK_WRITE_FAILED, DO_LOG_OK,
 };
 use crate::record::thread_id_u64;
 use crate::record::{FieldRing, LogLevel, Record};
@@ -229,48 +229,72 @@ pub extern "C" fn dologger_log(
         record.process_id = std::process::id();
     }
 
-    // Push to ring buffer — with cooperative helping
+    // AUDIT records bypass the ordinary ring, rate limiter, drop policy, and
+    // plugin stages. The dedicated queue blocks until admission succeeds.
+    if record_level_is_audit(record_ptr) {
+        if let Some(audit_pipeline) = engine.audit_pipeline.as_ref() {
+            match audit_pipeline.push_audit(record_ptr) {
+                Ok(()) => {
+                    engine.control_stats.record_accepted();
+                    return DO_LOG_OK;
+                }
+                Err(ptr) => {
+                    // SAFETY: the audit queue rejected the pointer and no
+                    // consumer owns it, so returning it to the same pool is safe.
+                    unsafe { engine.pool.free(&*ptr) };
+                    engine.control_stats.record_error();
+                    set_last_error(
+                        DO_LOG_ERR_SINK_WRITE_FAILED,
+                        "AUDIT pipeline rejected the record after a fatal persistence failure",
+                    );
+                    return DO_LOG_ERR_SINK_WRITE_FAILED;
+                }
+            }
+        }
+
+        // Explicit audit use without a live isolated pipeline is a
+        // startup/runtime invariant violation; never silently send AUDIT to
+        // normal sinks.
+        // SAFETY: the pointer is still exclusively owned by this producer.
+        unsafe { engine.pool.free(&*record_ptr) };
+        engine.control_stats.record_error();
+        set_last_error(
+            crate::error::DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK,
+            "AUDIT pipeline is unavailable",
+        );
+        return crate::error::DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK;
+    }
+
+    // Push ordinary records to the normal ring, with optional cooperative help.
     match engine.ring_buffer.try_push(record_ptr) {
         Ok(()) => {
             engine.control_stats.record_accepted();
             DO_LOG_OK
         }
         Err(ptr) => {
-            // Cooperative helping — when enabled and the ring buffer
-            // is ≥90% full, try to help drain a small batch inline before
-            // giving up. This prevents the calling application thread from
-            // blocking while the consumer catches up.
             if let Some(ref helping) = engine.coop_helping {
                 let helped = helping.try_help();
                 if helped > 0 {
-                    // We helped drain some records — retry the push once.
                     match engine.ring_buffer.try_push(ptr) {
                         Ok(()) => {
                             engine.control_stats.record_accepted();
                             return DO_LOG_OK;
                         }
                         Err(ptr2) => {
-                            // Still full after helping — relinquish to pool.
-                            // SAFETY: ptr2 was allocated from the pool and has
-                            // exclusive ownership at this point.
-                            unsafe {
-                                engine.pool.free(&*ptr2);
-                            }
+                            // SAFETY: ptr2 remains exclusively owned by this producer.
+                            unsafe { engine.pool.free(&*ptr2) };
                             engine.control_stats.record_dropped();
                             set_last_error(
                                 crate::error::DO_LOG_ERR_BUFFER_FULL,
-                                "Ring buffer full (after cooperative helping)",
+                                "Ring buffer full after cooperative helping",
                             );
                             return crate::error::DO_LOG_ERR_BUFFER_FULL;
                         }
                     }
                 }
             }
-            // No helping or helping was not triggered — drop the record.
-            // SAFETY: ptr is valid, and we're relinquishing ownership back to pool.
-            unsafe {
-                engine.pool.free(&*ptr);
-            }
+            // SAFETY: ptr remains exclusively owned by this producer.
+            unsafe { engine.pool.free(&*ptr) };
             engine.control_stats.record_dropped();
             set_last_error(crate::error::DO_LOG_ERR_BUFFER_FULL, "Ring buffer full");
             crate::error::DO_LOG_ERR_BUFFER_FULL
@@ -278,8 +302,12 @@ pub extern "C" fn dologger_log(
     }
 }
 
-// ==========================================================================
-// Error query
+fn record_level_is_audit(record_ptr: *mut Record) -> bool {
+    // SAFETY: the record is fully initialized by dologger_log before this
+    // helper is called, and the producer retains exclusive ownership.
+    unsafe { (*record_ptr).level == LogLevel::Audit }
+}
+// ==========================================================================\n// Error query
 // ==========================================================================
 
 #[no_mangle]

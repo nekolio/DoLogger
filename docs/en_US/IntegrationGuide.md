@@ -171,7 +171,8 @@ performance_profile = "prod-performance" # Performance preset
 # ── Performance ─────────────────────────────────────────────
 ring_buffer_size = 262144               # Power of two required
 batch_size = 256                        # Records per pipeline batch
-enable_signature = false                # Ed25519 signing (required for AUDIT)
+enable_audit = false                   # Opt-in isolated AUDIT pipeline
+enable_signature = false                # Optional Ed25519 signing
 ring_buffer_coop_helping = true         # Producer helps drain at 90% full
 
 # ── Shutdown ────────────────────────────────────────────────

@@ -730,7 +730,8 @@ FlatBuffer 模式位于 `core/sif/dologger_sif.fbs`；绑定由 `core/build.rs`
 |:-:|:-:|:-:|
 | `ring_buffer_size` | 262144 | 突发性工作负载时可增大。必须是 2 的幂。 |
 | `batch_size` | 256 | 128-512。越大吞吐量越高，延迟也越高。 |
-| `enable_signature` | false | 每条记录增加约 17 us。仅用于 AUDIT/合规。 |
+| `enable_audit` | false | 显式启用隔离 AUDIT/WORM 管线。 |
+| `enable_signature` | false | 每条签名审计记录增加约 17 us。 |
 | `fsync_on_write` | false | 强制介质持久化。受 IO 延迟限制。 |
 | `ring_buffer_coop_helping` | true | 防止溢出，代价是热路径增加约 1 us。 |
 
