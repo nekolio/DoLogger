@@ -771,6 +771,8 @@ emits plain text internally).
 | `ring_buffer_size` | 262144 | Increase for bursty workloads. Must be power of two. |
 | `batch_size` | 256 | 128-512. Larger = higher throughput, higher latency. |
 | `enable_audit` | false | Opt-in isolated AUDIT/WORM pipeline. |
+| `audit_worm_path` | `dologger_audit.worm` | WORM file used only by the isolated AUDIT pipeline. |
+| `audit_security_path` | `dologger_security.log` | Security file used only by the isolated AUDIT pipeline. |
 | `enable_signature` | false | Adds ~17 us per signed audit record. |
 | `fsync_on_write` | false | Forces media durability. I/O latency bound. |
 | `ring_buffer_coop_helping` | true | Prevents overflow at cost of ~1 us on hot path. |

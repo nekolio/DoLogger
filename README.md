@@ -120,7 +120,7 @@ fn main() {
 }
 ```
 
-When `enable_audit = true`, AUDIT records use the isolated WORM/Security pipeline. Adding `enable_signature = true` also writes the per-record `audit.log.sig` sidecar; the current development provider is software-backed and explicit TPM mode refuses startup until a reviewed hardware backend exists. Verify the log offline:
+When `enable_audit = true`, AUDIT records use the isolated WORM/Security pipeline. Adding `enable_signature = true` also writes the per-record `audit.log.sig` sidecar; the current development provider is software-backed and explicit TPM mode refuses startup until a reviewed hardware backend exists. Set `audit_worm_path` and `audit_security_path` to choose the two audit files; both paths are used only when audit is explicitly enabled. Verify the log offline:
 
 ```shell
 dologctl verify-log audit.log --sidecar audit.log.sig

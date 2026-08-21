@@ -41,10 +41,12 @@ use crate::security::ExternalAnchor;
 use crate::security::{SignatureEngine, TpmKeyProvider};
 use crate::sink::ConsoleSink;
 use crate::sink::SecuritySink;
+use crate::sink::SecuritySinkConfig;
 use crate::sink::ShmSink;
 use crate::sink::ShmSinkConfig;
 use crate::sink::SinkRef;
 use crate::sink::WormSink;
+use crate::sink::WormSinkConfig;
 use crate::sys::control_plane::{ControlPlane, ControlPlaneConfig, ControlPlaneStats, ReloadCb};
 use crate::sys::Sysmon;
 use crate::sys::TimeSource;
@@ -413,8 +415,14 @@ impl Engine {
         // Signing is an independent option within that partition.
         let (audit_pipeline, external_anchor) = if config.enable_audit {
             let sidecar_path = config.sig_sidecar_path.as_deref();
-            let worm_sink = WormSink::new(Default::default());
-            let security_sink = SecuritySink::new(Default::default());
+            let worm_sink = WormSink::new(WormSinkConfig {
+                path: config.audit_worm_path.clone(),
+                ..Default::default()
+            });
+            let security_sink = SecuritySink::new(SecuritySinkConfig {
+                path: config.audit_security_path.clone(),
+                ..Default::default()
+            });
             let anchor = config
                 .enable_signature
                 .then(|| Arc::new(Mutex::new(ExternalAnchor::new(3600))));

@@ -117,7 +117,7 @@ fn main() {
 }
 ```
 
-设置 `enable_audit = true` 后，AUDIT 记录进入隔离的 WORM/Security 管线；再设置 `enable_signature = true` 才写入逐条签名的 `audit.log.sig` 侧车。当前开发供给器为软件路径，显式 TPM 模式在经过审查的硬件后端可用前拒绝启动。离线校验日志:
+设置 `enable_audit = true` 后，AUDIT 记录进入隔离的 WORM/Security 管线；再设置 `enable_signature = true` 才写入逐条签名的 `audit.log.sig` 侧车。当前开发供给器为软件路径，显式 TPM 模式在经过审查的硬件后端可用前拒绝启动。 设置 `audit_worm_path` 与 `audit_security_path` 可选择两个审计文件；只有显式启用审计时才会使用这些路径。离线校验日志:
 
 ```shell
 dologctl verify-log audit.log --sidecar audit.log.sig

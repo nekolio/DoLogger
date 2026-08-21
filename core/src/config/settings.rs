@@ -24,6 +24,10 @@ pub struct DologgerConfig {
     /// None disables the signature sidecar; it is required when both
     /// `enable_audit` and `enable_signature` are enabled.
     pub sig_sidecar_path: Option<PathBuf>,
+    /// WORM file path for the isolated AUDIT pipeline.
+    pub audit_worm_path: PathBuf,
+    /// Security file path for the isolated AUDIT pipeline.
+    pub audit_security_path: PathBuf,
     /// Path to the active config file (for diagnostics)
     pub config_path: Option<PathBuf>,
     /// Shutdown policy: "graceful" (drain all) or "immediate" (drop pending)
@@ -167,6 +171,8 @@ ring_buffer_size = 262144
 batch_size = 256
 enable_signature = false
 enable_audit = false
+audit_worm_path = "dologger_audit.worm"
+audit_security_path = "dologger_security.log"
 "#;
 
     std::fs::write(path, default_toml)
@@ -251,6 +257,8 @@ impl Default for DologgerConfig {
             enable_signature: false,
             enable_audit: false,
             sig_sidecar_path: None,
+            audit_worm_path: PathBuf::from("dologger_audit.worm"),
+            audit_security_path: PathBuf::from("dologger_security.log"),
             config_path: None,
             shutdown_policy: "graceful".into(),
             shutdown_timeout_ms: 5000,
@@ -286,6 +294,8 @@ impl DologgerConfig {
             enable_signature: false,
             enable_audit: false,
             sig_sidecar_path: None,
+            audit_worm_path: PathBuf::from("dologger_audit.worm"),
+            audit_security_path: PathBuf::from("dologger_security.log"),
             config_path: None,
             shutdown_policy: "graceful".into(),
             shutdown_timeout_ms: 5000,
@@ -873,6 +883,12 @@ impl DologgerConfig {
             if let Some(path) = dologger.get("sig_sidecar").and_then(|v| v.as_str()) {
                 config.sig_sidecar_path = Some(PathBuf::from(path));
             }
+            if let Some(path) = dologger.get("audit_worm_path").and_then(|v| v.as_str()) {
+                config.audit_worm_path = PathBuf::from(path);
+            }
+            if let Some(path) = dologger.get("audit_security_path").and_then(|v| v.as_str()) {
+                config.audit_security_path = PathBuf::from(path);
+            }
             if let Some(policy) = dologger.get("shutdown_policy").and_then(|v| v.as_str()) {
                 if policy == "graceful" || policy == "immediate" {
                     config.shutdown_policy = policy.to_string();
@@ -1062,6 +1078,8 @@ mod tests {
             enable_signature: true,
             enable_audit: true,
             sig_sidecar_path: None,
+            audit_worm_path: PathBuf::from("dologger_audit.worm"),
+            audit_security_path: PathBuf::from("dologger_security.log"),
             config_path: None,
             shutdown_policy: "graceful".into(),
             shutdown_timeout_ms: 10000,
@@ -1342,5 +1360,33 @@ enable_signature = false
         let (config, _warnings) = DologgerConfig::parse(toml, None).unwrap();
         assert!(config.enable_audit);
         assert!(!config.enable_signature);
+    }
+
+    #[test]
+    fn test_audit_sink_paths_parse_and_default() {
+        let defaults = DologgerConfig::default();
+        assert_eq!(
+            defaults.audit_worm_path,
+            PathBuf::from("dologger_audit.worm")
+        );
+        assert_eq!(
+            defaults.audit_security_path,
+            PathBuf::from("dologger_security.log")
+        );
+
+        let toml = r#"
+[dologger]
+audit_worm_path = "var/audit/events.worm"
+audit_security_path = "var/audit/security.log"
+"#;
+        let (config, _warnings) = DologgerConfig::parse(toml, None).unwrap();
+        assert_eq!(
+            config.audit_worm_path,
+            PathBuf::from("var/audit/events.worm")
+        );
+        assert_eq!(
+            config.audit_security_path,
+            PathBuf::from("var/audit/security.log")
+        );
     }
 }

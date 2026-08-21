@@ -369,7 +369,7 @@ fn process_audit_record(
         )
         .map_err(|error| format!("WORM write: {error}"))?;
     security_sink
-        .write(&formatted)
+        .write_security_record(record)
         .map_err(|error| format!("Security write: {error}"))?;
     if let (Some(sidecar), Some(signature)) = (sidecar.as_mut(), signature.as_ref()) {
         write_sidecar_line(sidecar, record.lsn, &record.content_hash, signature)

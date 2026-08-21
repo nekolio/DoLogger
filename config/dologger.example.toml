@@ -26,7 +26,9 @@ batch_size = 256
 enable_audit = false
 # Add per-record Ed25519 signatures inside the AUDIT pipeline.
 enable_signature = false
-
+# WORM and Security files used only when enable_audit is true.
+audit_worm_path = "dologger_audit.worm"
+audit_security_path = "dologger_security.log"
 # Shutdown behavior: "graceful" (drain all pending) or "immediate" (drop pending)
 shutdown_policy = "graceful"
 
