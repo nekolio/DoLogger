@@ -39,7 +39,7 @@ pub struct PluginState {
 }
 
 /// Result of a hot reload attempt.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReloadResult {
     /// Plugin name
     pub plugin_name: String,
@@ -259,6 +259,54 @@ impl HotReloadManager {
     }
 }
 
+/// Transaction state for an engine configuration reload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigReloadTicket {
+    /// Monotonic epoch allocated when the reload started.
+    pub epoch: u64,
+    /// Epoch of the configuration that was active before the reload.
+    pub previous_epoch: u64,
+}
+
+impl HotReloadManager {
+    /// Begin a configuration reload without serialising plugin state.
+    ///
+    /// Configuration reloads and plugin reloads share the same epoch counter,
+    /// which makes `/status` and diagnostics able to order both operations.
+    pub fn begin_config_reload(&self) -> ConfigReloadTicket {
+        let previous_epoch = self.current_epoch();
+        let epoch = self.next_epoch();
+        ConfigReloadTicket {
+            epoch,
+            previous_epoch,
+        }
+    }
+
+    /// Complete a configuration reload and retain its outcome in history.
+    pub fn complete_config_reload(
+        &self,
+        ticket: ConfigReloadTicket,
+        success: bool,
+        error: Option<String>,
+    ) -> ReloadResult {
+        let result = ReloadResult {
+            plugin_name: "__engine_config__".to_string(),
+            success,
+            old_version: ticket.previous_epoch as u32,
+            new_version: ticket.epoch as u32,
+            error,
+            state_migrated: false,
+            epoch: ticket.epoch,
+        };
+        self.record_reload(result.clone());
+        result
+    }
+
+    /// Return the most recent reload outcome, if one exists.
+    pub fn last_reload(&self) -> Option<ReloadResult> {
+        self.history.lock().unwrap().last().cloned()
+    }
+}
 impl Default for HotReloadManager {
     fn default() -> Self {
         Self::new()
@@ -327,6 +375,33 @@ mod tests {
         assert!(history[0].success);
     }
 
+    #[test]
+    fn config_reload_ticket_is_monotonic_and_recorded() {
+        let manager = HotReloadManager::new();
+        let first = manager.begin_config_reload();
+        let second = manager.begin_config_reload();
+        assert!(second.epoch > first.epoch);
+        let result = manager.complete_config_reload(first.clone(), true, None);
+        assert!(result.success);
+        assert_eq!(result.epoch, first.epoch);
+        assert_eq!(manager.last_reload(), Some(result));
+    }
+
+    #[test]
+    fn failed_config_reload_preserves_failure_reason() {
+        let manager = HotReloadManager::new();
+        let ticket = manager.begin_config_reload();
+        let result = manager.complete_config_reload(
+            ticket,
+            false,
+            Some("sink rejected new configuration".into()),
+        );
+        assert!(!result.success);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("sink rejected new configuration")
+        );
+    }
     #[test]
     fn test_rollback_clears_state() {
         let mgr = HotReloadManager::new();

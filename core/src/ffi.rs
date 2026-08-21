@@ -193,6 +193,7 @@ pub extern "C" fn dologger_log(
     let record_ptr = match engine.pool.alloc() {
         Some(r) => r,
         None => {
+            engine.control_stats.record_error();
             set_last_error(DO_LOG_ERR_INVALID_ARG, "Record pool exhausted");
             return DO_LOG_ERR_INVALID_ARG;
         }
@@ -230,7 +231,10 @@ pub extern "C" fn dologger_log(
 
     // Push to ring buffer — with cooperative helping
     match engine.ring_buffer.try_push(record_ptr) {
-        Ok(()) => DO_LOG_OK,
+        Ok(()) => {
+            engine.control_stats.record_accepted();
+            DO_LOG_OK
+        }
         Err(ptr) => {
             // Cooperative helping — when enabled and the ring buffer
             // is ≥90% full, try to help drain a small batch inline before
@@ -241,7 +245,10 @@ pub extern "C" fn dologger_log(
                 if helped > 0 {
                     // We helped drain some records — retry the push once.
                     match engine.ring_buffer.try_push(ptr) {
-                        Ok(()) => return DO_LOG_OK,
+                        Ok(()) => {
+                            engine.control_stats.record_accepted();
+                            return DO_LOG_OK;
+                        }
                         Err(ptr2) => {
                             // Still full after helping — relinquish to pool.
                             // SAFETY: ptr2 was allocated from the pool and has
@@ -249,6 +256,7 @@ pub extern "C" fn dologger_log(
                             unsafe {
                                 engine.pool.free(&*ptr2);
                             }
+                            engine.control_stats.record_dropped();
                             set_last_error(
                                 crate::error::DO_LOG_ERR_BUFFER_FULL,
                                 "Ring buffer full (after cooperative helping)",
@@ -263,6 +271,7 @@ pub extern "C" fn dologger_log(
             unsafe {
                 engine.pool.free(&*ptr);
             }
+            engine.control_stats.record_dropped();
             set_last_error(crate::error::DO_LOG_ERR_BUFFER_FULL, "Ring buffer full");
             crate::error::DO_LOG_ERR_BUFFER_FULL
         }

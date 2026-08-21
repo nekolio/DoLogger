@@ -13,8 +13,8 @@
 //! --sidecar` re-derives the chain offline). Any deletion or reordering of
 //! audit records is detectable by offline verification.
 
+use crate::security::os_random::fill_bytes;
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 use crate::record::Record;
@@ -33,7 +33,7 @@ impl SignatureEngine {
     /// Create a new SignatureEngine with a randomly generated key pair.
     pub fn new() -> Self {
         let mut seed = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut seed);
+        fill_bytes(&mut seed).expect("OS CSPRNG unavailable for signature key generation");
         let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
 

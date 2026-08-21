@@ -25,25 +25,27 @@ pub mod sink;
 pub mod sys;
 pub mod util;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use crate::audit::AuditPipeline;
 use crate::buffer::RecordPool;
 use crate::buffer::RingBuffer;
-use crate::config::DologgerConfig;
+use crate::config::{ConfigWatcher, DologgerConfig, HotReloadManager};
 use crate::ffi::DologgerHandle;
 use crate::pipeline::Pipeline;
 use crate::plugin::PluginManager;
 use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::security::ExternalAnchor;
-use crate::security::SignatureEngine;
+use crate::security::{SignatureEngine, TpmKeyProvider};
 use crate::sink::ConsoleSink;
 use crate::sink::SecuritySink;
 use crate::sink::ShmSink;
 use crate::sink::ShmSinkConfig;
 use crate::sink::SinkRef;
 use crate::sink::WormSink;
+use crate::sys::control_plane::{ControlPlane, ControlPlaneConfig, ControlPlaneStats, ReloadCb};
 use crate::sys::Sysmon;
 use crate::sys::TimeSource;
 
@@ -218,7 +220,17 @@ pub struct Engine {
     pub shm_sink: Option<Arc<ShmSink>>,
     /// Active configuration
     pub config: DologgerConfig,
-    /// Time source for timestamps and IDs
+    /// Live counters shared with the optional control plane.
+    pub control_stats: Arc<ControlPlaneStats>,
+    /// Epoch-aware state manager for plugin and configuration reloads.
+    pub hot_reload_manager: Arc<HotReloadManager>,
+    /// Pending configuration parsed by the watcher thread.
+    pending_reload: Arc<Mutex<Option<DologgerConfig>>>,
+    /// Optional native config watcher owned by the engine.
+    config_watcher: Option<ConfigWatcher>,
+    /// Optional operational control-plane listener.
+    control_plane: Option<ControlPlane>,
+    /// Time source for timestamps and IDs.
     pub time_source: TimeSource,
     /// Ed25519 signature engine — owns the signing key
     pub signature_engine: SignatureEngine,
@@ -255,7 +267,33 @@ impl Engine {
         sink.open()
             .map_err(|e| format!("Failed to open sink: {e}"))?;
 
+        // Initialise live operational metrics before any producer can submit.
+        let pending_reload = Arc::new(Mutex::new(None));
+        let control_stats = Arc::new(ControlPlaneStats::new());
+        control_stats.configure(
+            &format!("{:?}", config.performance_profile),
+            pool_capacity,
+            config.enable_signature,
+        );
+
+        // Initialise epoch-aware reload state.
+        let hot_reload_manager = Arc::new(HotReloadManager::new());
+        control_stats.set_hot_reload_epoch(hot_reload_manager.current_epoch());
+
         // Initialise signature engine with a fresh key pair
+        if config.enable_signature
+            && std::env::var_os("DO_LOGGER_KEY_PROVIDER").as_deref()
+                == Some(std::ffi::OsStr::new("tpm"))
+        {
+            let mut tpm_provider = TpmKeyProvider::new(None);
+            tpm_provider
+                .open()
+                .map_err(|error| format!("TPM key provider required but unavailable: {error}"))?;
+            return Err(
+                "TPM backend is available but SignatureEngine integration is not enabled"
+                    .to_string(),
+            );
+        }
         let signature_engine = SignatureEngine::new();
 
         // Initialise policy components
@@ -329,6 +367,8 @@ impl Engine {
         } else {
             crate::plugin::vtable::PluginDispatch::default()
         };
+
+        control_stats.set_plugins(plugin_manager.plugin_names().len());
 
         // Start sysmon channel before building sinks, so early telemetry
         // (e.g. SHM_INIT) is captured.
@@ -435,6 +475,11 @@ impl Engine {
             sink,
             shm_sink,
             config,
+            control_stats,
+            hot_reload_manager,
+            pending_reload,
+            config_watcher: None,
+            control_plane: None,
             time_source: TimeSource::new(),
             signature_engine,
             plugin_manager,
@@ -458,6 +503,11 @@ impl Engine {
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED
     pub fn reload_config(&mut self, new_config: DologgerConfig) -> Result<(), i32> {
+        let reload_ticket = self.hot_reload_manager.begin_config_reload();
+        let reload_epoch = reload_ticket.epoch;
+        self.control_stats.set_hot_reload_epoch(reload_epoch);
+        self.control_stats.record_reload();
+
         use crate::error::{
             DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED, DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID,
         };
@@ -474,6 +524,11 @@ impl Engine {
                         "Config reload rejected: {e} (err {DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID})"
                     ),
                 );
+                self.hot_reload_manager.complete_config_reload(
+                    reload_ticket.clone(),
+                    false,
+                    Some(e.to_string()),
+                );
                 return Err(DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID);
             }
         };
@@ -482,6 +537,11 @@ impl Engine {
             self.sysmon.error(
                 "engine",
                 &format!("Config reload failed to open sink: {e} (err {DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED})"),
+            );
+            self.hot_reload_manager.complete_config_reload(
+                reload_ticket.clone(),
+                false,
+                Some(e.to_string()),
             );
             return Err(DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED);
         }
@@ -497,12 +557,99 @@ impl Engine {
         }
 
         self.config = new_config;
+        self.hot_reload_manager
+            .complete_config_reload(reload_ticket, true, None);
         self.sysmon.info("engine", "Configuration hot-reloaded");
         Ok(())
     }
 
+    /// Start the configured native watcher for one TOML file.
+    ///
+    /// The watcher callback only parses and queues a new configuration. It
+    /// never mutates sinks or engine state from the background thread.
+    pub fn start_config_watcher(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
+        let path = path.as_ref().to_path_buf();
+        let pending = Arc::clone(&self.pending_reload);
+        let watcher_config = self.config.watcher.clone();
+        let watcher = ConfigWatcher::start(
+            vec![path],
+            Box::new(move |changed| {
+                let path = changed
+                    .to_str()
+                    .ok_or_else(|| "Config watcher path is not valid UTF-8".to_string())?;
+                let (config, warnings) =
+                    DologgerConfig::load_from_file(path).map_err(|(_, message)| message)?;
+                for warning in warnings {
+                    crate::sys::diagnostics::warn("config_watcher", &warning);
+                }
+                *pending
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(config);
+                Ok(())
+            }),
+            watcher_config,
+        )?;
+        self.config_watcher = Some(watcher);
+        Ok(())
+    }
+
+    /// Apply one configuration queued by the watcher, if any.
+    pub fn poll_config_reload(&mut self) -> Result<bool, i32> {
+        let next = self
+            .pending_reload
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        match next {
+            Some(config) => self.reload_config(config).map(|()| true),
+            None => Ok(false),
+        }
+    }
+
+    /// Stop the watcher and discard a configuration that has not been applied.
+    pub fn stop_config_watcher(&mut self) {
+        if let Some(mut watcher) = self.config_watcher.take() {
+            watcher.shutdown();
+        }
+        self.pending_reload
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+    }
+
+    /// Start the opt-in operational control plane for this engine.
+    ///
+    /// The listener receives the same atomic metrics object returned by
+    /// [`Engine::status_stats`]. Reload requests are acknowledged only after
+    /// the caller has installed a watcher and polls `poll_config_reload`.
+    pub fn start_control_plane(&mut self, config: ControlPlaneConfig) -> Result<(), String> {
+        if self.control_plane.is_some() {
+            return Err("control plane is already running".into());
+        }
+        let level = Arc::new(Mutex::new(self.config.level.clone()));
+        let reload_callback: ReloadCb = Arc::new(Mutex::new(Some(Box::new(|| Ok(())))));
+        let control_plane =
+            ControlPlane::start_with_stats(config, level, reload_callback, self.status_stats())?;
+        self.control_plane = Some(control_plane);
+        Ok(())
+    }
+
+    /// Stop the opt-in operational control plane.
+    pub fn stop_control_plane(&mut self) {
+        if let Some(mut control_plane) = self.control_plane.take() {
+            control_plane.shutdown();
+        }
+    }
+
+    /// Return the live metrics object used by the control plane.
+    pub fn status_stats(&self) -> Arc<ControlPlaneStats> {
+        Arc::clone(&self.control_stats)
+    }
+
     /// Shutdown the engine gracefully.
     pub fn shutdown(&mut self) {
+        self.stop_control_plane();
+        self.stop_config_watcher();
         self.sysmon.info("core", "Engine shutdown initiated");
 
         // Shutdown audit pipeline first (independent drain)

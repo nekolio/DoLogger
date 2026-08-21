@@ -11,8 +11,8 @@
 //! KeyProvider plugins can delegate signing to external HSM/KMS,
 //! in which case the core never holds the private key.
 
+use crate::security::os_random::fill_bytes;
 use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
-use rand::RngCore;
 
 /// Result type for KeyProvider operations.
 pub type KeyResult<T> = Result<T, KeyError>;
@@ -38,6 +38,29 @@ impl std::fmt::Display for KeyError {
     }
 }
 
+impl std::error::Error for KeyError {}
+/// Common lifecycle contract for signing-key backends.
+///
+/// The trait is intentionally limited to operations needed by the audit
+/// pipeline. Implementations must not expose private key bytes; a TPM/HSM
+/// backend can keep an opaque handle while the software provider keeps its key
+/// in process memory.
+pub trait SigningProvider {
+    /// Backend-specific error type.
+    type Error: std::error::Error;
+
+    /// Open the provider and make signing available.
+    fn open(&mut self) -> Result<(), Self::Error>;
+
+    /// Return the public verification key.
+    fn public_key(&self) -> Result<[u8; 32], Self::Error>;
+
+    /// Produce a detached Ed25519 signature.
+    fn sign(&self, data: &[u8]) -> Result<[u8; 64], Self::Error>;
+
+    /// Close the provider and release backend state.
+    fn close(&mut self);
+}
 /// Default KeyProvider — generates an ephemeral key pair in memory.
 ///
 /// The private key never leaves process memory. On shutdown, it is
@@ -53,7 +76,7 @@ impl DefaultKeyProvider {
     pub fn new() -> KeyResult<Self> {
         // ed25519-dalek 2.x: generate from random 32-byte seed
         let mut seed = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut seed);
+        fill_bytes(&mut seed).map_err(|_| KeyError::GenerationFailed)?;
         let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
 
@@ -105,6 +128,25 @@ impl DefaultKeyProvider {
     }
 }
 
+impl SigningProvider for DefaultKeyProvider {
+    type Error = KeyError;
+
+    fn open(&mut self) -> Result<(), Self::Error> {
+        Self::open(self)
+    }
+
+    fn public_key(&self) -> Result<[u8; 32], Self::Error> {
+        Self::public_key(self)
+    }
+
+    fn sign(&self, data: &[u8]) -> Result<[u8; 64], Self::Error> {
+        Self::sign(self, data)
+    }
+
+    fn close(&mut self) {
+        Self::close(self);
+    }
+}
 impl Drop for DefaultKeyProvider {
     fn drop(&mut self) {
         self.close();
@@ -120,6 +162,16 @@ mod tests {
     use super::*;
     use ed25519_dalek::Verifier;
 
+    #[test]
+    fn trait_contract_matches_default_provider() {
+        let mut provider = DefaultKeyProvider::new().expect("provider");
+        SigningProvider::open(&mut provider).expect("open");
+        let public_key = SigningProvider::public_key(&provider).expect("public key");
+        let signature = SigningProvider::sign(&provider, b"trait contract").expect("sign");
+        assert_eq!(public_key.len(), 32);
+        assert_eq!(signature.len(), 64);
+        SigningProvider::close(&mut provider);
+    }
     #[test]
     fn test_generate_and_sign() {
         let mut kp = DefaultKeyProvider::new().unwrap();

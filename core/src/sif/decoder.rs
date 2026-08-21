@@ -12,6 +12,65 @@ use crate::record::{LogLevel, Record};
 use crate::sif::generated::{root_as_record, Record as SifRecord};
 use crate::sif::{SifHeader, SIF_MAGIC, SIF_VERSION};
 
+/// Compatibility facts observed while decoding a SIF frame.
+///
+/// The current Record model intentionally does not restore removed fields such
+/// as `signature`, `origin_lsn`, or `ext_data`. Instead, a caller that accepts
+/// legacy frames can inspect this report and decide whether the frame is
+/// suitable for replay, archival, or audit verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SifCompatibility {
+    /// Header schema version carried by the frame.
+    pub schema_version: u32,
+    /// Whether the frame carried the optional SHA-256 content hash.
+    pub content_hash_present: bool,
+    /// Whether a legacy in-record signature was present and intentionally ignored.
+    pub legacy_signature_present: bool,
+    /// Whether a legacy replay origin LSN was present and intentionally ignored.
+    pub legacy_origin_lsn_present: bool,
+    /// Whether a legacy Ring 3 extension payload was present and intentionally ignored.
+    pub legacy_ext_data_present: bool,
+}
+
+impl SifCompatibility {
+    /// True when the frame predates the content-hash field.
+    pub fn is_pre_content_hash(&self) -> bool {
+        !self.content_hash_present
+    }
+
+    /// Return a stable diagnostic summary for logs and migration reports.
+    pub fn summary(&self) -> String {
+        let mut fields = Vec::new();
+        if self.is_pre_content_hash() {
+            fields.push("missing-content-hash");
+        }
+        if self.legacy_signature_present {
+            fields.push("ignored-signature");
+        }
+        if self.legacy_origin_lsn_present {
+            fields.push("ignored-origin-lsn");
+        }
+        if self.legacy_ext_data_present {
+            fields.push("ignored-ext-data");
+        }
+        if fields.is_empty() {
+            "current".to_string()
+        } else {
+            fields.join(",")
+        }
+    }
+
+    /// Whether replay is safe without a separate audit verification step.
+    pub fn replay_requires_audit_review(&self) -> bool {
+        self.is_pre_content_hash() || self.dropped_legacy_fields()
+    }
+    /// True when decoding required dropping any removed legacy semantics.
+    pub fn dropped_legacy_fields(&self) -> bool {
+        self.legacy_signature_present
+            || self.legacy_origin_lsn_present
+            || self.legacy_ext_data_present
+    }
+}
 /// Errors produced while validating or decoding a SIF frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SifError {
@@ -96,10 +155,27 @@ pub fn validate_frame(frame: &[u8]) -> Result<SifHeader, SifError> {
 /// not pooled. `pool_index`/`flags` are carried through for round-trip
 /// fidelity when snapshotting.
 pub fn decode_record(frame: &[u8]) -> Result<Record, SifError> {
-    let _header = validate_frame(frame)?;
+    decode_record_compat(frame).map(|(record, _compatibility)| record)
+}
+
+/// Decode a SIF frame and return compatibility facts alongside the Record.
+///
+/// This is the migration-safe entry point for replay and archival consumers.
+/// Missing `content_hash` is accepted because it was optional in the original
+/// v1 table. Removed legacy fields are reported, never copied into the current
+/// Record model, so callers cannot accidentally treat them as authoritative.
+pub fn decode_record_compat(frame: &[u8]) -> Result<(Record, SifCompatibility), SifError> {
+    let header = validate_frame(frame)?;
     let payload = &frame[SifHeader::FRAME_OVERHEAD..];
     let sif = root_as_record(payload).map_err(|e| SifError::FlatBuffer(e.to_string()))?;
-    Ok(sif_to_record(&sif))
+    let compatibility = SifCompatibility {
+        schema_version: header.version,
+        content_hash_present: sif.content_hash().is_some(),
+        legacy_signature_present: sif.signature().bytes().iter().any(|byte| *byte != 0),
+        legacy_origin_lsn_present: sif.origin_lsn() != 0,
+        legacy_ext_data_present: sif.ext_data().is_some_and(|value| !value.is_empty()),
+    };
+    Ok((sif_to_record(&sif), compatibility))
 }
 
 /// Materialise a parsed FlatBuffer `Record` into an in-memory [`Record`].
@@ -358,5 +434,30 @@ mod tests {
         // The frame layout depends on magic (4) + SifHeader (12) = 16.
         assert_eq!(SifHeader::FRAME_OVERHEAD, 16);
         assert_eq!(core::mem::size_of::<SifHeader>(), 12);
+    }
+    #[test]
+    fn compatibility_report_is_clean_for_current_frames() {
+        let original = full_record();
+        let frame = encode_record(&original);
+        let (decoded, compatibility) = decode_record_compat(&frame).expect("compat decode");
+
+        assert_eq!(decoded.message.as_str(), original.message.as_str());
+        assert!(compatibility.content_hash_present);
+        assert!(!compatibility.dropped_legacy_fields());
+    }
+
+    #[test]
+    fn current_compatibility_summary_is_stable() {
+        let frame = encode_record(&full_record());
+        let (_, compatibility) = decode_record_compat(&frame).expect("compat decode");
+        assert_eq!(compatibility.summary(), "current");
+        assert!(!compatibility.replay_requires_audit_review());
+    }
+
+    #[test]
+    fn ordinary_decode_discards_compatibility_metadata() {
+        let frame = encode_record(&full_record());
+        let decoded = decode_record(&frame).expect("ordinary decode");
+        assert_eq!(decoded.lsn, 1000);
     }
 }

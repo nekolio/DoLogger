@@ -168,7 +168,9 @@ mod generated {
 pub mod decoder;
 pub mod encoder;
 
-pub use decoder::{decode_record, validate_frame, SifError};
+pub use decoder::{
+    decode_record, decode_record_compat, validate_frame, SifCompatibility, SifError,
+};
 pub use encoder::encode_record;
 
 // ---------------------------------------------------------------------------
