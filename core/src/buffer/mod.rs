@@ -5,8 +5,10 @@
 
 pub mod emergency_buffer;
 pub mod object_pool;
+pub mod record_pointer;
 pub mod ring_buffer;
 
 pub use emergency_buffer::{EmergencyBuffer, EmergencyPushResult, EmergencyStats};
 pub use object_pool::RecordPool;
+pub use record_pointer::RecordPtr;
 pub use ring_buffer::{RingBuffer, DEFAULT_CAPACITY};

@@ -30,12 +30,12 @@
   光点）、离开页面淡出、按压缩放简洁克制。
 - `public/assets/icons.svg` — 图标符号库（含心形/分支等）。
 - `vite.config.js` — `base: './'`；`heroSingleSource` 插件使
-  `docs/assets/hero.svg` 成为 hero 图像的唯一来源（dev 直接服务、build 发射进
+  `docs/assets/svg/hero.svg` 成为 hero 图像的唯一来源（dev 直接服务、build 发射进
   dist；`public/` 下不保存副本）。
 
 ## 资源约定 / Asset rules
 
-- hero 图像唯一来源：`docs/assets/hero.svg`（由
+- hero 图像唯一来源：`docs/assets/svg/hero.svg`（由
   `peripheral/tools/hero-svg/hero_generator.py` 重新生成）。
 - 源码中一律使用相对路径（`./assets/...`），不硬编码绝对地址。
 - 站点构建：`bash peripheral/github/scripts/build-site.sh [OUT]`（构建 + 烘焙

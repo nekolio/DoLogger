@@ -3,7 +3,7 @@
 > 下一代安全日志引擎 — 无锁速度下的 Ed25519 审计链。
 
 <p align="center">
-  <img src="./docs/assets/hero.svg" alt="DoLogger 启动序列 — Hello DoLogger、4 个沙箱插件、Ed25519 审计链已武装、7 级管道在线" width="880">
+  <img src="./docs/assets/svg/hero.svg" alt="DoLogger 启动序列 — Hello DoLogger、4 个沙箱插件、Ed25519 审计链已武装、7 级管道在线" width="880">
 </p>
 
 [English](README.md) | [中文](README.zh_CN.md)
@@ -142,7 +142,7 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 > [!IMPORTANT]
 > DoLogger 目前处于 **1.0 之前**阶段。MINOR 版本可能包含破坏性变更,ABI 也可能发生变化——生产环境请锁定到确切版本。详见[版本管理与弃用策略](docs/zh_CN/guides/VersioningAndDeprecation.md)。
 
-![架构](./docs/assets/architecture-zh.svg)
+![架构](./docs/assets/svg/architecture-zh.svg)
 
 应用将记录直接推入无锁 MPSC 环形缓冲区——热路径上没有任何锁。后台
 管道运行七个阶段(PreFilter → Filter → FieldProvider → Assembly →
@@ -302,7 +302,7 @@ DoLogger/
 ├── config/                     # 示例配置（dologger.example.toml）
 ├── docker/                     # 容器镜像（Dockerfile.dev；运行时镜像在 v1.0.0）
 ├── docs/                       # 技术文档（中英双语，自动同步至 wiki）
-│   └── assets/                 # hero.svg、architecture.svg/-zh（mmd 源 + 渲染 SVG）
+│   └── assets/                 # mmd/ 源文件 + svg/ 生成资源
 ├── tests/                      # 测试套件（common/、perf/、smoke/）
 ├── scripts/                    # 构建与开发环境脚本（本地 + CI）
 ├── cmake/                      # CMake 辅助模块（交叉编译、Conan 工具链）
@@ -348,6 +348,7 @@ cargo check --target aarch64-apple-darwin
 | [插件开发快速入门](docs/zh_CN/PluginDevelopmentQuickStart.md) | C/C++/Go 插件开发 |
 | [插件开发指南](docs/zh_CN/guides/PluginDevelopmentGuide.md) | Rust 插件开发 |
 | [安全白皮书](docs/zh_CN/guides/SecurityWhitepaper.md) | 威胁模型与加密设计 |
+| [多语言本地化架构](docs/zh_CN/guides/LocalizationArchitecture.md) | 语言回退、OS 代码页检测与日志编码边界 |
 | [仓库布局](docs/zh_CN/guides/RepositoryLayout.md) | 六区根地图 —— 产品 / 构建 / 外围 |
 | [命名规范](docs/zh_CN/guides/NamingConvention.md) | 路径即命名空间、角色词表、缩写规则 |
 | [文档总索引](docs/README.md) | 全部指南,英文 + 中文 |

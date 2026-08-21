@@ -58,6 +58,8 @@ pub struct DologgerError {
     pub source_file: [u8; 128],
     /// Source line number
     pub source_line: u32,
+    /// Reserved ABI space for future structured error metadata.
+    pub _reserved: [u8; 12],
 }
 
 impl DologgerError {
@@ -68,6 +70,7 @@ impl DologgerError {
             message: [0u8; 256],
             source_file: [0u8; 128],
             source_line: 0,
+            _reserved: [0u8; 12],
         }
     }
 }
@@ -304,6 +307,172 @@ pub const DO_LOG_ERR_SIF_VERSION_UNSUPPORTED: i32 = -0x0D02;
 /// Engine-fatal condition (plugin unloaded; sink triggers `SINK_CIRCUIT_OPEN`).
 pub const DO_LOG_ERR_FATAL: i32 = -0x0E01;
 
+/// Stable metadata for an error code.
+///
+/// `key` is the locale-independent lookup key. `default_message` is the
+/// English fallback used when no message catalog is installed. Callers must
+/// branch on `code`, never parse either string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ErrorDescriptor {
+    /// Machine-stable error code.
+    pub code: i32,
+    /// Locale-independent message key.
+    pub key: &'static str,
+    /// English fallback message.
+    pub default_message: &'static str,
+}
+
+/// Return the stable descriptor for a core or plugin-defined error code.
+pub const fn error_descriptor(code: i32) -> ErrorDescriptor {
+    let (key, default_message) = match code {
+        DO_LOG_OK => ("ok", "ok"),
+        DO_LOG_ERR_INVALID_ARG => ("error.invalid_arg", "invalid argument"),
+        DO_LOG_ERR_NOT_SUPPORTED => ("error.not_supported", "operation not supported"),
+        DO_LOG_ERR_NOT_INITIALIZED => ("error.not_initialized", "engine not initialized"),
+        DO_LOG_ERR_ALREADY_INITIALIZED => {
+            ("error.already_initialized", "engine already initialized")
+        }
+        DO_LOG_ERR_OUT_OF_MEMORY => ("error.out_of_memory", "memory allocation failed"),
+        DO_LOG_ERR_BUFFER_TOO_SMALL => ("error.buffer_too_small", "buffer too small"),
+        DO_LOG_ERR_TIMEOUT => ("error.timeout", "operation timed out"),
+        DO_LOG_ERR_INTERNAL => ("error.internal", "internal error"),
+        DO_LOG_ERR_INIT_FAILED => ("error.init_failed", "engine initialization failed"),
+        DO_LOG_ERR_CONFIG_NOT_FOUND => ("config.not_found", "configuration not found"),
+        DO_LOG_ERR_CONFIG_PERMISSION => ("config.permission", "configuration permission denied"),
+        DO_LOG_ERR_CONFIG_PARSE => ("config.parse", "configuration parse failed"),
+        DO_LOG_ERR_CONFIG_VALIDATION => ("config.validation", "configuration validation failed"),
+        DO_LOG_ERR_CONFIG_MERGE => ("config.merge", "configuration merge failed"),
+        DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED => (
+            "config.hot_reload_failed",
+            "configuration hot reload failed",
+        ),
+        DO_LOG_ERR_CONFIG_HASH_MISMATCH => ("config.hash_mismatch", "configuration hash mismatch"),
+        DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID => (
+            "config.hot_reload_invalid",
+            "hot reload configuration is invalid",
+        ),
+        DO_LOG_ERR_PLUGIN_NOT_FOUND => ("plugin.not_found", "plugin not found"),
+        DO_LOG_ERR_PLUGIN_LOAD_FAILED => ("plugin.load_failed", "plugin load failed"),
+        DO_LOG_ERR_PLUGIN_MANIFEST_INVALID => {
+            ("plugin.manifest_invalid", "plugin manifest is invalid")
+        }
+        DO_LOG_ERR_PLUGIN_VERSION_MISMATCH => {
+            ("plugin.version_mismatch", "plugin version mismatch")
+        }
+        DO_LOG_ERR_PLUGIN_ABI => ("plugin.abi", "plugin ABI mismatch"),
+        DO_LOG_ERR_PLUGIN_DEPENDENCY_MISSING => {
+            ("plugin.dependency_missing", "plugin dependency missing")
+        }
+        DO_LOG_ERR_PLUGIN_LOCK_MISMATCH => ("plugin.lock_mismatch", "plugin lock mismatch"),
+        DO_LOG_ERR_PLUGIN_SIGNATURE_INVALID => {
+            ("plugin.signature_invalid", "plugin signature invalid")
+        }
+        DO_LOG_ERR_MISSING_CAPABILITY => ("plugin.capability_missing", "plugin capability missing"),
+        DO_LOG_ERR_CIRCULAR_DEPENDENCY => (
+            "plugin.circular_dependency",
+            "plugin dependency cycle detected",
+        ),
+        DO_LOG_ERR_TOKEN_EXCEEDED_DEPTH => ("plugin.token_depth", "plugin token depth exceeded"),
+        DO_LOG_ERR_CALL_DEADLOCK => ("plugin.call_deadlock", "plugin call deadlock detected"),
+        DO_LOG_ERR_STATE_FORMAT_UNSUPPORTED => {
+            ("plugin.state_format", "plugin state format unsupported")
+        }
+        DO_LOG_ERR_STATE_ROLLBACK_REJECTED => {
+            ("plugin.state_rollback", "plugin state rollback rejected")
+        }
+        DO_LOG_ERR_STATE_MIGRATE_FAILED => {
+            ("plugin.state_migration", "plugin state migration failed")
+        }
+        DO_LOG_ERR_RECORD_INVALID => ("record.invalid", "record is invalid"),
+        DO_LOG_ERR_FIELD_NOT_FOUND => ("field.not_found", "field not found"),
+        DO_LOG_ERR_FIELD_PERMISSION_DENIED => {
+            ("field.permission_denied", "field permission denied")
+        }
+        DO_LOG_ERR_FIELD_TYPE_MISMATCH => ("field.type_mismatch", "field type mismatch"),
+        DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET => {
+            ("field.dependency_not_met", "field dependency not met")
+        }
+        DO_LOG_ERR_BUFFER_FULL => ("buffer.full", "buffer is full"),
+        DO_LOG_ERR_PIPELINE_STAGE => ("pipeline.stage", "pipeline stage failed"),
+        DO_LOG_ERR_AUDIT_QUEUE_FULL => ("audit.queue_full", "audit queue is full"),
+        DO_LOG_ERR_SIGN_FAILED => ("audit.sign_failed", "record signing failed"),
+        DO_LOG_ERR_VERIFY_FAILED => ("audit.verify_failed", "record verification failed"),
+        DO_LOG_ERR_LSN_CHAIN_BROKEN => ("audit.lsn_chain_broken", "audit LSN chain is broken"),
+        DO_LOG_ERR_LSN_GAP_DETECTED => ("audit.lsn_gap", "audit LSN gap detected"),
+        DO_LOG_ERR_KEY_NOT_AVAILABLE => ("audit.key_unavailable", "signing key unavailable"),
+        DO_LOG_ERR_KEY_PROVIDER_FAILED => ("audit.key_provider_failed", "key provider failed"),
+        DO_LOG_ERR_AUDIT_DROP_FORBIDDEN => ("audit.drop_forbidden", "audit record drop forbidden"),
+        DO_LOG_ERR_AUDIT_CALLBACK_ONLY => {
+            ("audit.callback_only", "audit callback-only mode rejected")
+        }
+        DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK => (
+            "audit.no_persistent_sink",
+            "audit persistence sink unavailable",
+        ),
+        DO_LOG_ERR_SANDBOX_INIT_FAILED => {
+            ("security.sandbox_init", "sandbox initialization failed")
+        }
+        DO_LOG_ERR_SANDBOX_VIOLATION => ("security.sandbox_violation", "sandbox violation"),
+        DO_LOG_ERR_UNTRUSTED_PLUGIN => ("security.untrusted_plugin", "untrusted plugin"),
+        DO_LOG_ERR_SINK_WRITE_FAILED => ("sink.write_failed", "sink write failed"),
+        DO_LOG_ERR_SINK_CONNECTION_FAILED => ("sink.connection_failed", "sink connection failed"),
+        DO_LOG_ERR_SINK_CONNECTION_LOST => ("sink.connection_lost", "sink connection lost"),
+        DO_LOG_ERR_SINK_FORMAT_INVALID => ("sink.format_invalid", "sink format invalid"),
+        DO_LOG_ERR_SINK_CONFIG_INVALID => ("sink.config_invalid", "sink configuration invalid"),
+        DO_LOG_ERR_SINK_NO_FALLBACK => ("sink.no_fallback", "sink fallback unavailable"),
+        DO_LOG_ERR_CALLBACK_TIMEOUT => ("sink.callback_timeout", "sink callback timed out"),
+        DO_LOG_ERR_WORM_WRITE_FAILED => ("sink.worm_write_failed", "WORM write failed"),
+        DO_LOG_ERR_SHM_INIT_FAILED => (
+            "sink.shm_init_failed",
+            "shared-memory sink initialization failed",
+        ),
+        DO_LOG_ERR_SHM_RING_FULL => ("sink.shm_ring_full", "shared-memory ring is full"),
+        DO_LOG_ERR_AUDIT_SHM_FORBIDDEN => (
+            "audit.shm_forbidden",
+            "shared-memory sink forbidden for audit",
+        ),
+        DO_LOG_ERR_CIRCUIT_OPEN => ("network.circuit_open", "sink circuit is open"),
+        DO_LOG_ERR_TLS_FAILED => ("network.tls_failed", "TLS operation failed"),
+        DO_LOG_ERR_SASL_FAILED => ("network.sasl_failed", "SASL operation failed"),
+        DO_LOG_ERR_REMOTE_TIMEOUT => ("network.remote_timeout", "remote operation timed out"),
+        DO_LOG_ERR_QUOTA_MEMORY_EXCEEDED => ("resource.memory_quota", "memory quota exceeded"),
+        DO_LOG_ERR_QUOTA_CPU_EXCEEDED => ("resource.cpu_quota", "CPU quota exceeded"),
+        DO_LOG_ERR_RECURSION_DEPTH_EXCEEDED => {
+            ("resource.recursion_depth", "recursion depth exceeded")
+        }
+        DO_LOG_ERR_COMPLIANCE_VIOLATION => {
+            ("compliance.violation", "compliance requirement violated")
+        }
+        DO_LOG_ERR_AUDIT_DURABILITY_INSUFFICIENT => (
+            "compliance.audit_durability",
+            "audit durability is insufficient",
+        ),
+        DO_LOG_ERR_TIME_BACKWARD => ("time.backward", "clock moved backward"),
+        DO_LOG_ERR_SIF_INVALID => ("sif.invalid", "SIF frame invalid"),
+        DO_LOG_ERR_SIF_VERSION_UNSUPPORTED => {
+            ("sif.version_unsupported", "SIF version unsupported")
+        }
+        DO_LOG_ERR_FATAL => ("fatal", "fatal engine error"),
+        _ if code <= -0x8000_0000 => ("plugin.custom", "plugin-defined error"),
+        _ => ("error.unknown", "unknown error"),
+    };
+    ErrorDescriptor {
+        code,
+        key,
+        default_message,
+    }
+}
+
+/// Return the locale-independent key for an error code.
+pub const fn error_key(code: i32) -> &'static str {
+    error_descriptor(code).key
+}
+
+/// Return the English fallback message for an error code.
+pub const fn error_default_message(code: i32) -> &'static str {
+    error_descriptor(code).default_message
+}
+
 // ---------------------------------------------------------------------------
 // Domain event structure
 // ---------------------------------------------------------------------------
@@ -358,6 +527,14 @@ mod tests {
     #[test]
     fn success_is_zero() {
         assert_eq!(DO_LOG_OK, 0);
+    }
+
+    #[test]
+    fn descriptors_keep_machine_key_separate_from_default_text() {
+        let descriptor = error_descriptor(DO_LOG_ERR_INVALID_ARG);
+        assert_eq!(descriptor.code, DO_LOG_ERR_INVALID_ARG);
+        assert_eq!(descriptor.key, "error.invalid_arg");
+        assert_ne!(descriptor.key, descriptor.default_message);
     }
 
     #[test]

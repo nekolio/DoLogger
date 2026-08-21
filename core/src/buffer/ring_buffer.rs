@@ -15,8 +15,8 @@
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Default ring buffer capacity (256K records).
-pub const DEFAULT_CAPACITY: usize = 262144;
+/// Default ring buffer capacity (64K records).
+pub const DEFAULT_CAPACITY: usize = 65536;
 
 /// A single slot in the ring buffer.
 ///
@@ -61,13 +61,14 @@ pub struct RingBuffer<T> {
     consumer_sequence: AtomicU64,
 }
 
-// SAFETY: All shared state in RingBuffer uses atomic operations (AtomicU64).
-// Access to individual slots is coordinated via CAS-based sequence numbers,
-// ensuring exclusive access to each slot. T may be !Send; the buffer provides
-// thread-safe producer-consumer semantics regardless.
-unsafe impl<T> Send for RingBuffer<T> {}
-// SAFETY: See Send impl — atomic sequence coordination ensures no data races.
-unsafe impl<T> Sync for RingBuffer<T> {}
+// SAFETY: All shared state in RingBuffer uses atomic operations (AtomicU64),
+// and each slot is exclusively claimed by the sequence protocol. Requiring T:
+// Send ensures a value can legally cross from a producer to the consumer.
+unsafe impl<T: Send> Send for RingBuffer<T> {}
+// SAFETY: Producers submit owned T values through &self, while the consumer
+// removes them after the same sequence protocol grants exclusive ownership.
+// T: Send is therefore the required cross-thread bound; T: Sync is not needed.
+unsafe impl<T: Send> Sync for RingBuffer<T> {}
 
 impl<T> RingBuffer<T> {
     /// Create a new ring buffer with the given capacity.

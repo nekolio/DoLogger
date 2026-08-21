@@ -30,6 +30,7 @@
 //! Persisted data (log files, WORM records, signed audit bytes) is never
 //! transcoded — encoding conversion exists only at this display boundary.
 
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Output encoding policy for console text (see the module docs).
@@ -46,6 +47,7 @@ pub enum OutputEncoding {
 }
 
 static OUTPUT_ENCODING: AtomicU8 = AtomicU8::new(OutputEncoding::Auto as u8);
+static OUTPUT_CODE_PAGE: AtomicU32 = AtomicU32::new(0);
 
 /// Set the process-wide output encoding policy.
 pub fn set_output_encoding(enc: OutputEncoding) {
@@ -59,6 +61,40 @@ pub fn output_encoding() -> OutputEncoding {
         1 => OutputEncoding::Utf8,
         _ => OutputEncoding::Native,
     }
+}
+
+/// Set an optional manual Windows console code page for native display.
+pub fn set_output_code_page(code_page: Option<u32>) {
+    OUTPUT_CODE_PAGE.store(code_page.unwrap_or(0), Ordering::Release);
+}
+
+/// Return the manually selected console code page, if any.
+pub fn output_code_page() -> Option<u32> {
+    match OUTPUT_CODE_PAGE.load(Ordering::Acquire) {
+        0 => None,
+        value => Some(value),
+    }
+}
+
+/// Detect the active Windows console code page without changing console state.
+#[cfg(windows)]
+pub fn detected_console_code_page() -> Option<u32> {
+    extern "system" {
+        fn GetConsoleOutputCP() -> u32;
+    }
+    // SAFETY: GetConsoleOutputCP has no pointer arguments and returns the
+    // active process console code page, or zero when no console is attached.
+    match unsafe { GetConsoleOutputCP() } {
+        0 => None,
+        value => Some(value),
+    }
+}
+
+/// POSIX/macOS console encoding is represented by the locale environment and
+/// does not expose a portable numeric code page through this layer.
+#[cfg(not(windows))]
+pub const fn detected_console_code_page() -> Option<u32> {
+    None
 }
 
 /// Write bytes to stdout using a direct syscall (no libc buffering).
@@ -105,7 +141,6 @@ fn raw_write(fd: i32, buf: &[u8]) {
             lpOverlapped: *mut c_void,
         ) -> i32;
         fn GetConsoleMode(hConsoleHandle: isize, lpMode: *mut u32) -> i32;
-        fn GetConsoleOutputCP() -> u32;
         fn WriteConsoleW(
             hConsoleOutput: isize,
             lpBuffer: *const u16,
@@ -201,7 +236,9 @@ fn raw_write(fd: i32, buf: &[u8]) {
         OutputEncoding::Utf8 => write_file(handle, buf),
         OutputEncoding::Native if is_console => {
             // SAFETY: GetConsoleOutputCP takes no arguments.
-            let cp = unsafe { GetConsoleOutputCP() };
+            let cp = output_code_page()
+                .or_else(detected_console_code_page)
+                .unwrap_or(CP_UTF8);
             if cp == CP_UTF8 || cp == 0 {
                 write_file(handle, buf);
                 return;

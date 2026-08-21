@@ -34,9 +34,9 @@ mkdir -p "$OUT/data"
 
 # 2. docs assets are the source of truth for the hero/architecture art —
 #    overwrite whatever Vite copied so a regenerated SVG always ships.
-cp "$ROOT"/docs/assets/hero.svg "$OUT/assets/hero.svg"
-cp "$ROOT"/docs/assets/architecture.svg "$OUT/assets/architecture.svg"
-cp "$ROOT"/docs/assets/architecture-zh.svg "$OUT/assets/architecture-zh.svg"
+cp "$ROOT"/docs/assets/svg/hero.svg "$OUT/assets/hero.svg"
+cp "$ROOT"/docs/assets/svg/architecture.svg "$OUT/assets/architecture.svg"
+cp "$ROOT"/docs/assets/svg/architecture-zh.svg "$OUT/assets/architecture-zh.svg"
 
 # 3. Bake live data.
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then

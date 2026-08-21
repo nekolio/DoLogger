@@ -19,13 +19,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::buffer::RecordPool;
-use crate::buffer::RingBuffer;
+use crate::buffer::{RecordPool, RecordPtr, RingBuffer};
 use crate::config::DologgerConfig;
 use crate::error::DO_LOG_ERR_BUFFER_TOO_SMALL;
+use crate::pipeline::policy::{DropLevelPolicy, RateLimiter};
 use crate::pipeline::{report_stats, run_pipeline, PipelineContext};
 use crate::plugin::vtable::{OutputBuffer, PluginDispatch};
-use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::record::Record;
 use crate::security::SignatureEngine;
 use crate::sink::ShmSink;
@@ -64,7 +63,7 @@ impl Pipeline {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         config: &DologgerConfig,
-        ring_buffer: Arc<RingBuffer<*mut Record>>,
+        ring_buffer: Arc<RingBuffer<RecordPtr>>,
         pool: Arc<RecordPool>,
         sink: Arc<SinkRef>,
         signature_engine: Arc<SignatureEngine>,
@@ -205,7 +204,7 @@ impl Pipeline {
 /// the channel. When `sink_tx` is `None`, `sink` provides inline
 /// access.
 struct ConsumerCtx<'a> {
-    ring_buffer: Arc<RingBuffer<*mut Record>>,
+    ring_buffer: Arc<RingBuffer<RecordPtr>>,
     pool: Arc<RecordPool>,
     shutdown: Arc<AtomicBool>,
     batch_size: usize,
@@ -392,7 +391,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
 
         let drained = c.ring_buffer.drain(c.batch_size, |record_ptr| {
             // SAFETY: record_ptr has exclusive ownership during drain.
-            let record = unsafe { &mut *record_ptr };
+            let record = unsafe { &mut *record_ptr.as_ptr() };
 
             if run_pipeline(record, &mut pctx) {
                 // Persist the audit signature to the sidecar when the produced
@@ -468,7 +467,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
     let mut final_writes: Vec<String> = Vec::new();
     let remaining = c.ring_buffer.drain(usize::MAX, |record_ptr| {
         // SAFETY: final drain on shutdown — record_ptr has exclusive ownership.
-        let record = unsafe { &mut *record_ptr };
+        let record = unsafe { &mut *record_ptr.as_ptr() };
         if run_pipeline(record, &mut pctx) {
             if let Some((lsn, ch, sig)) = pctx.take_last_signature() {
                 if lsn == record.lsn {
@@ -625,7 +624,7 @@ mod tests {
                 record.set_environment("test");
             }
             ring_buffer
-                .try_push(record_ptr)
+                .try_push(RecordPtr::new(record_ptr))
                 .expect("Ring buffer should accept");
         }
 
@@ -696,7 +695,7 @@ mod tests {
                 record.set_environment("test");
             }
             ring_buffer
-                .try_push(record_ptr)
+                .try_push(RecordPtr::new(record_ptr))
                 .expect("Ring buffer should accept");
         }
 

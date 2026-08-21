@@ -35,6 +35,7 @@
 
 use std::sync::Arc;
 
+use dologger_core::buffer::RecordPtr;
 use dologger_core::config::DologgerConfig;
 use dologger_core::record::{thread_id_u64, LogLevel};
 use dologger_core::Engine;
@@ -208,7 +209,10 @@ impl Logger {
         }
 
         // Push to ring buffer — with cooperative helping retry
-        match self.engine.ring_buffer.try_push(record_ptr) {
+        // SAFETY: record_ptr is a live allocation from this engine's pool and
+        // ownership moves into the ring token exactly once.
+        let record_token = unsafe { RecordPtr::from_raw(record_ptr) };
+        match self.engine.ring_buffer.try_push(record_token) {
             Ok(()) => { /* record accepted */ }
             Err(ptr) => {
                 // Attempt cooperative helping once
@@ -220,7 +224,7 @@ impl Logger {
                             Err(ptr2) => {
                                 // SAFETY: ptr2 is exclusively owned at this point
                                 unsafe {
-                                    self.engine.pool.free(&*ptr2);
+                                    self.engine.pool.free(&*ptr2.into_raw());
                                 }
                                 return;
                             }
@@ -230,7 +234,7 @@ impl Logger {
                 // Still full — drop the record
                 // SAFETY: ptr is exclusively owned at this point
                 unsafe {
-                    self.engine.pool.free(&*ptr);
+                    self.engine.pool.free(&*ptr.into_raw());
                 }
             }
         }

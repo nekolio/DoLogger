@@ -4,6 +4,7 @@
 //! submits a batch of test records, and reports per-record pipeline stage
 //! timing with a summary at the end.
 
+use dologger_core::buffer::RecordPtr;
 use dologger_core::config::{ConfigWatcher, DologgerConfig};
 use dologger_core::record::{thread_id_u64, LogLevel};
 use dologger_core::sink::ShmSinkConfig;
@@ -141,7 +142,10 @@ pub fn cmd_run_trace(config_path: Option<&str>, shm_path: Option<&str>) {
 
         // Push to ring buffer — measure submit latency
         let t0 = Instant::now();
-        match engine.ring_buffer.try_push(record_ptr) {
+        // SAFETY: record_ptr is a live allocation from this engine's pool and
+        // ownership moves into the ring token exactly once.
+        let record_token = unsafe { RecordPtr::from_raw(record_ptr) };
+        match engine.ring_buffer.try_push(record_token) {
             Ok(()) => {
                 let push_ns = t0.elapsed().as_nanos() as f64;
 
@@ -166,7 +170,7 @@ pub fn cmd_run_trace(config_path: Option<&str>, shm_path: Option<&str>) {
             Err(ptr) => {
                 // SAFETY: ptr came from engine.pool.alloc() on this same pool
                 unsafe {
-                    engine.pool.free(ptr);
+                    engine.pool.free(ptr.into_raw());
                 }
                 stderr!("{y}Warning:{reset} Ring buffer full at record {i} — skipped");
             }

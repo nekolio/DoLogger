@@ -10,10 +10,11 @@
 
 use std::ffi::{c_char, c_void, CStr};
 
+use crate::buffer::RecordPtr;
 use crate::config::DologgerConfig;
 use crate::error::{
-    DologgerError, DO_LOG_ERR_BUFFER_TOO_SMALL, DO_LOG_ERR_INVALID_ARG, DO_LOG_ERR_SIF_INVALID,
-    DO_LOG_ERR_SINK_WRITE_FAILED, DO_LOG_OK,
+    error_default_message, error_key, DologgerError, DO_LOG_ERR_BUFFER_TOO_SMALL,
+    DO_LOG_ERR_INVALID_ARG, DO_LOG_ERR_SIF_INVALID, DO_LOG_ERR_SINK_WRITE_FAILED, DO_LOG_OK,
 };
 use crate::record::thread_id_u64;
 use crate::record::{FieldRing, LogLevel, Record};
@@ -94,6 +95,33 @@ fn set_last_error(code: i32, msg: &str) {
     });
 }
 
+fn set_last_error_code(code: i32) {
+    set_last_error(code, error_default_message(code));
+}
+
+/// Copy a stable, locale-independent error key into a caller buffer.
+#[no_mangle]
+pub extern "C" fn dologger_error_key(code: i32, buffer: *mut c_char, capacity: usize) -> i32 {
+    if buffer.is_null() || capacity == 0 {
+        return crate::error::DO_LOG_ERR_BUFFER_TOO_SMALL;
+    }
+
+    let key = error_key(code).as_bytes();
+    let writable = capacity.saturating_sub(1);
+    let copy_len = key.len().min(writable);
+    // SAFETY: buffer is non-null and the caller provided `capacity` writable
+    // bytes; copy_len is strictly less than capacity and the terminator fits.
+    unsafe {
+        std::ptr::copy_nonoverlapping(key.as_ptr(), buffer.cast::<u8>(), copy_len);
+        *buffer.add(copy_len) = 0;
+    }
+    if copy_len != key.len() {
+        crate::error::DO_LOG_ERR_BUFFER_TOO_SMALL
+    } else {
+        copy_len as i32
+    }
+}
+
 // ==========================================================================
 // Core lifecycle
 // ==========================================================================
@@ -118,7 +146,7 @@ pub extern "C" fn dologger_init(
                 (DologgerConfig::hardcoded_defaults(), vec![msg])
             }),
             Err(_) => {
-                set_last_error(DO_LOG_ERR_INVALID_ARG, "Config path not valid UTF-8");
+                set_last_error_code(DO_LOG_ERR_INVALID_ARG);
                 // SAFETY: err is non-null (validated at function entry)
                 unsafe {
                     (*err).code = DO_LOG_ERR_INVALID_ARG;
@@ -194,8 +222,8 @@ pub extern "C" fn dologger_log(
         Some(r) => r,
         None => {
             engine.control_stats.record_error();
-            set_last_error(DO_LOG_ERR_INVALID_ARG, "Record pool exhausted");
-            return DO_LOG_ERR_INVALID_ARG;
+            set_last_error_code(crate::error::DO_LOG_ERR_OUT_OF_MEMORY);
+            return crate::error::DO_LOG_ERR_OUT_OF_MEMORY;
         }
     };
 
@@ -243,10 +271,7 @@ pub extern "C" fn dologger_log(
                     // consumer owns it, so returning it to the same pool is safe.
                     unsafe { engine.pool.free(&*ptr) };
                     engine.control_stats.record_error();
-                    set_last_error(
-                        DO_LOG_ERR_SINK_WRITE_FAILED,
-                        "AUDIT pipeline rejected the record after a fatal persistence failure",
-                    );
+                    set_last_error_code(DO_LOG_ERR_SINK_WRITE_FAILED);
                     return DO_LOG_ERR_SINK_WRITE_FAILED;
                 }
             }
@@ -258,15 +283,12 @@ pub extern "C" fn dologger_log(
         // SAFETY: the pointer is still exclusively owned by this producer.
         unsafe { engine.pool.free(&*record_ptr) };
         engine.control_stats.record_error();
-        set_last_error(
-            crate::error::DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK,
-            "AUDIT pipeline is unavailable",
-        );
+        set_last_error_code(crate::error::DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK);
         return crate::error::DO_LOG_ERR_AUDIT_NO_PERSISTENT_SINK;
     }
 
     // Push ordinary records to the normal ring, with optional cooperative help.
-    match engine.ring_buffer.try_push(record_ptr) {
+    match engine.ring_buffer.try_push(RecordPtr::new(record_ptr)) {
         Ok(()) => {
             engine.control_stats.record_accepted();
             DO_LOG_OK
@@ -282,21 +304,18 @@ pub extern "C" fn dologger_log(
                         }
                         Err(ptr2) => {
                             // SAFETY: ptr2 remains exclusively owned by this producer.
-                            unsafe { engine.pool.free(&*ptr2) };
+                            unsafe { engine.pool.free(&*ptr2.as_ptr()) };
                             engine.control_stats.record_dropped();
-                            set_last_error(
-                                crate::error::DO_LOG_ERR_BUFFER_FULL,
-                                "Ring buffer full after cooperative helping",
-                            );
+                            set_last_error_code(crate::error::DO_LOG_ERR_BUFFER_FULL);
                             return crate::error::DO_LOG_ERR_BUFFER_FULL;
                         }
                     }
                 }
             }
             // SAFETY: ptr remains exclusively owned by this producer.
-            unsafe { engine.pool.free(&*ptr) };
+            unsafe { engine.pool.free(&*ptr.as_ptr()) };
             engine.control_stats.record_dropped();
-            set_last_error(crate::error::DO_LOG_ERR_BUFFER_FULL, "Ring buffer full");
+            set_last_error_code(crate::error::DO_LOG_ERR_BUFFER_FULL);
             crate::error::DO_LOG_ERR_BUFFER_FULL
         }
     }
@@ -307,7 +326,8 @@ fn record_level_is_audit(record_ptr: *mut Record) -> bool {
     // helper is called, and the producer retains exclusive ownership.
     unsafe { (*record_ptr).level == LogLevel::Audit }
 }
-// ==========================================================================\n// Error query
+// ==========================================================================
+// Error query
 // ==========================================================================
 
 #[no_mangle]
@@ -349,14 +369,14 @@ pub extern "C" fn dologger_field_set(
     let name_str = match name.to_str() {
         Ok(s) => s,
         Err(_) => {
-            set_last_error(DO_LOG_ERR_INVALID_ARG, "field_name not valid UTF-8");
+            set_last_error_code(DO_LOG_ERR_INVALID_ARG);
             return DO_LOG_ERR_INVALID_ARG;
         }
     };
     let val_str = match val.to_str() {
         Ok(s) => s,
         Err(_) => {
-            set_last_error(DO_LOG_ERR_INVALID_ARG, "value not valid UTF-8");
+            set_last_error_code(DO_LOG_ERR_INVALID_ARG);
             return DO_LOG_ERR_INVALID_ARG;
         }
     };
@@ -374,13 +394,13 @@ pub extern "C" fn dologger_field_set(
     let rec = unsafe { &mut *(record as *mut Record) };
     match rec.field_set(name_str, val_str, FieldRing::Ring3) {
         Ok(()) => {
-            set_last_error(DO_LOG_OK, "ok");
+            set_last_error_code(DO_LOG_OK);
             DO_LOG_OK
         }
         Err(e) => {
             // Preserve the fine-grained failure cause (not found vs permission
             // denied vs type mismatch) instead of collapsing to one code.
-            set_last_error(e.abi_code(), e.as_str());
+            set_last_error_code(e.abi_code());
             e.abi_code()
         }
     }
@@ -399,7 +419,7 @@ pub extern "C" fn dologger_field_get(
     }
 
     if buffer_size == 0 {
-        set_last_error(DO_LOG_ERR_BUFFER_TOO_SMALL, "buffer size 0");
+        set_last_error_code(DO_LOG_ERR_BUFFER_TOO_SMALL);
         return DO_LOG_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -408,7 +428,7 @@ pub extern "C" fn dologger_field_get(
     let name_str = match name.to_str() {
         Ok(s) => s,
         Err(_) => {
-            set_last_error(DO_LOG_ERR_INVALID_ARG, "field_name not valid UTF-8");
+            set_last_error_code(DO_LOG_ERR_INVALID_ARG);
             return DO_LOG_ERR_INVALID_ARG;
         }
     };
@@ -420,7 +440,7 @@ pub extern "C" fn dologger_field_get(
         Err(e) => {
             // Reads can only fail with FIELD_NOT_FOUND today, but keep the
             // typed mapping so new read failures stay distinguishable.
-            set_last_error(e.abi_code(), e.as_str());
+            set_last_error_code(e.abi_code());
             return e.abi_code();
         }
     };
@@ -436,7 +456,7 @@ pub extern "C" fn dologger_field_get(
             std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer as *mut u8, buffer_size - 1);
             *buffer.add(buffer_size - 1) = 0;
         }
-        set_last_error(DO_LOG_ERR_BUFFER_TOO_SMALL, "field value truncated");
+        set_last_error_code(DO_LOG_ERR_BUFFER_TOO_SMALL);
         return DO_LOG_ERR_BUFFER_TOO_SMALL;
     }
 
@@ -447,7 +467,7 @@ pub extern "C" fn dologger_field_get(
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), buffer as *mut u8, n);
         *buffer.add(n) = 0;
     }
-    set_last_error(DO_LOG_OK, "ok");
+    set_last_error_code(DO_LOG_OK);
     n as i32
 }
 
@@ -507,7 +527,7 @@ pub extern "C" fn dologger_config_load_from_string(
     let toml_str = match unsafe { CStr::from_ptr(toml_data) }.to_str() {
         Ok(s) => s,
         Err(_) => {
-            set_last_error(DO_LOG_ERR_INVALID_ARG, "TOML data not valid UTF-8");
+            set_last_error_code(crate::error::DO_LOG_ERR_CONFIG_PARSE);
             return DO_LOG_ERR_INVALID_ARG;
         }
     };
@@ -586,7 +606,7 @@ pub extern "C" fn dologger_sif_validate_frame(
     let buf = unsafe { std::slice::from_raw_parts(frame, frame_len) };
     match crate::sif::validate_frame(buf) {
         Ok(_) => {
-            set_last_error(DO_LOG_OK, "ok");
+            set_last_error_code(DO_LOG_OK);
             DO_LOG_OK
         }
         Err(e) => {
@@ -620,7 +640,7 @@ pub extern "C" fn dologger_sif_encode_record(
     // SAFETY: allocates `len` bytes of host-owned memory (never freed here).
     let ptr = dologger_alloc(len) as *mut u8;
     if ptr.is_null() {
-        set_last_error(crate::error::DO_LOG_ERR_OUT_OF_MEMORY, "alloc failed");
+        set_last_error_code(crate::error::DO_LOG_ERR_OUT_OF_MEMORY);
         return crate::error::DO_LOG_ERR_OUT_OF_MEMORY;
     }
     // SAFETY: `ptr` points to `len` freshly-allocated bytes; copy the frame in.
@@ -629,7 +649,7 @@ pub extern "C" fn dologger_sif_encode_record(
         *out = ptr;
         *out_len = len;
     }
-    set_last_error(DO_LOG_OK, "ok");
+    set_last_error_code(DO_LOG_OK);
     DO_LOG_OK
 }
 
@@ -655,7 +675,7 @@ pub extern "C" fn dologger_sif_decode_record(
             let ptr = Box::into_raw(Box::new(rec)) as *mut DologgerRecord;
             // SAFETY: `out_record` is non-null; store the fresh handle.
             unsafe { *out_record = ptr };
-            set_last_error(DO_LOG_OK, "ok");
+            set_last_error_code(DO_LOG_OK);
             DO_LOG_OK
         }
         Err(e) => {

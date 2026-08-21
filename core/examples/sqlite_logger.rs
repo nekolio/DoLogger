@@ -19,9 +19,9 @@ fn main() {
         use dologger_core::buffer::RecordPool;
         use dologger_core::buffer::RingBuffer;
         use dologger_core::config::DologgerConfig;
+        use dologger_core::pipeline::policy::{DropLevelPolicy, RateLimiter};
         use dologger_core::pipeline::Pipeline;
         use dologger_core::plugin::vtable::PluginDispatch;
-        use dologger_core::policy::{DropLevelPolicy, RateLimiter};
         use dologger_core::record::{thread_id_u64, LogLevel};
         use dologger_core::security::SignatureEngine;
         use dologger_core::sink::SinkRef;

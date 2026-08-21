@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Generate docs/assets/hero.svg - animated CRT boot hero, pure SMIL.
+"""Generate docs/assets/svg/hero.svg - animated CRT boot hero, pure SMIL.
 
 AUXILIARY TOOL - NOT part of the DoLogger runtime, build, or CI.
 This script only regenerates a decorative README/landing-page image.
@@ -29,7 +29,7 @@ glitch bursts, and the CYCLE length) is COMPUTED from the LINES table and the
 Cargo.toml version - there are no hardcoded per-line delays or cursor
 distances. Output is deterministic (all randomness is seeded by fixed
 timeline values), so regenerating produces a byte-identical file unless the
-LINES data or the Cargo.toml version change. Writes docs/assets/hero.svg only
+LINES data or the Cargo.toml version change. Writes docs/assets/svg/hero.svg only
 (the single source of truth; the site references it at build time).
 """
 
@@ -40,7 +40,7 @@ import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
-OUT = os.path.join(ROOT, "docs", "assets", "hero.svg")
+OUT = os.path.join(ROOT, "docs", "assets", "svg", "hero.svg")
 
 # ---------------- layout ----------------
 X0 = 44                      # text left edge

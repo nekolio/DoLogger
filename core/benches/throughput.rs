@@ -3,27 +3,25 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use std::sync::Arc;
 
-use dologger_core::buffer::RecordPool;
-use dologger_core::buffer::RingBuffer;
+use dologger_core::buffer::{RecordPool, RecordPtr, RingBuffer};
 use dologger_core::config::DologgerConfig;
-use dologger_core::record::{LogLevel, Record};
+use dologger_core::record::LogLevel;
 use dologger_core::sys::TimeSource;
 
 fn bench_ring_buffer_push(c: &mut Criterion) {
     let config = DologgerConfig::dev_profile();
     let pool = Arc::new(RecordPool::new(config.ring_buffer_size));
-    let ring_buffer = Arc::new(RingBuffer::new(config.ring_buffer_size));
+    let ring_buffer = Arc::new(RingBuffer::<RecordPtr>::new(config.ring_buffer_size));
     let time_source = TimeSource::new();
     let tid = 1u64;
     let pid = std::process::id();
 
-    // 1,000 records per batch
     c.bench_function("ring_buffer_push_1k", |b| {
         b.iter_batched(
             || {
-                // Setup: drain to free pool slots
-                ring_buffer.drain(usize::MAX, |ptr| {
-                    // SAFETY: ptr was allocated from this pool and not yet freed
+                ring_buffer.drain(usize::MAX, |token| {
+                    let ptr = token.into_raw();
+                    // SAFETY: the token came from this pool and is consumed once.
                     unsafe {
                         pool.free(ptr);
                     }
@@ -42,26 +40,32 @@ fn bench_ring_buffer_push(c: &mut Criterion) {
                         record.thread_id = tid as u32;
                         record.process_id = pid;
                     }
-                    let _ = ring_buffer.try_push(record_ptr);
+                    let token = unsafe { RecordPtr::from_raw(record_ptr) };
+                    if let Err(token) = ring_buffer.try_push(token) {
+                        // SAFETY: a rejected token remains owned by this producer.
+                        unsafe {
+                            pool.free(token.into_raw());
+                        }
+                    }
                 }
             },
             BatchSize::PerIteration,
         )
     });
 
-    // 256-record batch pre-allocation
     c.bench_function("ring_buffer_push_batch_256", |b| {
         b.iter_batched(
             || {
-                ring_buffer.drain(usize::MAX, |ptr| {
-                    // SAFETY: ptr was allocated from this pool and not yet freed
+                ring_buffer.drain(usize::MAX, |token| {
+                    let ptr = token.into_raw();
+                    // SAFETY: the token came from this pool and is consumed once.
                     unsafe {
                         pool.free(ptr);
                     }
                 });
             },
             |_| {
-                let batch: Vec<*mut Record> = (0..256)
+                let batch: Vec<RecordPtr> = (0..256)
                     .map(|_| {
                         let record_ptr = pool.alloc().expect("Pool exhausted");
                         unsafe {
@@ -74,21 +78,26 @@ fn bench_ring_buffer_push(c: &mut Criterion) {
                             record.thread_id = tid as u32;
                             record.process_id = pid;
                         }
-                        record_ptr
+                        unsafe { RecordPtr::from_raw(record_ptr) }
                     })
                     .collect();
 
-                for ptr in batch {
-                    let _ = ring_buffer.try_push(ptr);
+                for token in batch {
+                    if let Err(token) = ring_buffer.try_push(token) {
+                        // SAFETY: a rejected token remains owned by this producer.
+                        unsafe {
+                            pool.free(token.into_raw());
+                        }
+                    }
                 }
             },
             BatchSize::PerIteration,
         )
     });
 
-    // Final drain
-    ring_buffer.drain(usize::MAX, |ptr| {
-        // SAFETY: ptr was allocated from this pool and not yet freed
+    ring_buffer.drain(usize::MAX, |token| {
+        let ptr = token.into_raw();
+        // SAFETY: the token came from this pool and is consumed once.
         unsafe {
             pool.free(ptr);
         }

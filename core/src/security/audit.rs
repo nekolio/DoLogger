@@ -1,8 +1,8 @@
-//! Isolated runtime pipeline for AUDIT-level records.
+//! Optional security pipeline for AUDIT-level records.
 //!
-//! AUDIT records are admitted through this pipeline only when the caller
-//! explicitly enables auditing. The normal ring, rate limiter, drop policy,
-//! and user plugins never see them.
+//! AUDIT is a use-case capability, not a default runtime mode. Records enter
+//! this isolated pipeline only when the caller explicitly enables auditing.
+//! The normal ring, rate limiter, drop policy, and user plugins never see them.
 
 use std::fs::{File, OpenOptions};
 use std::io::{BufWriter, Write};
@@ -12,8 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use crate::buffer::RecordPool;
-use crate::buffer::RingBuffer;
+use crate::buffer::{RecordPool, RecordPtr, RingBuffer};
 use crate::record::{LogLevel, Record, RECORD_FLAG_AUDIT, RECORD_FLAG_SIGNED};
 use crate::security::ExternalAnchor;
 use crate::security::SignatureEngine;
@@ -34,7 +33,7 @@ const MIN_AUDIT_SLOTS: usize = 1024;
 /// durable signature sidecar; otherwise the WORM envelope carries the audit
 /// hash chain without a signature field.
 pub struct AuditPipeline {
-    ring_buffer: Arc<RingBuffer<*mut Record>>,
+    ring_buffer: Arc<RingBuffer<RecordPtr>>,
     consumer_thread: Option<thread::JoinHandle<()>>,
     shutdown: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
@@ -130,12 +129,12 @@ impl AuditPipeline {
 
         let mut spins = 0u32;
         loop {
-            match self.ring_buffer.try_push(record_ptr) {
+            match self.ring_buffer.try_push(RecordPtr::new(record_ptr)) {
                 Ok(()) => return Ok(()),
                 Err(ptr) => {
                     if self.shutdown.load(Ordering::Acquire) || self.failed.load(Ordering::Acquire)
                     {
-                        return Err(ptr);
+                        return Err(ptr.as_ptr());
                     }
                     std::hint::spin_loop();
                     spins = spins.saturating_add(1);
@@ -198,7 +197,7 @@ fn open_sidecar(path: &Path) -> Result<BufWriter<File>, String> {
     reason = "Consumer loop owns each isolated runtime resource explicitly"
 )]
 fn audit_consumer_loop(
-    ring_buffer: Arc<RingBuffer<*mut Record>>,
+    ring_buffer: Arc<RingBuffer<RecordPtr>>,
     pool: Arc<RecordPool>,
     shutdown: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
@@ -223,7 +222,7 @@ fn audit_consumer_loop(
 
             let result = {
                 // SAFETY: the ring CAS grants this consumer exclusive ownership.
-                let record = unsafe { &mut *record_ptr };
+                let record = unsafe { &mut *record_ptr.as_ptr() };
                 process_audit_record(
                     record,
                     &mut worm_sink,
@@ -252,7 +251,7 @@ fn audit_consumer_loop(
         if !failed.load(Ordering::Acquire) {
             let result = {
                 // SAFETY: shutdown drain has exclusive ownership of the slot.
-                let record = unsafe { &mut *record_ptr };
+                let record = unsafe { &mut *record_ptr.as_ptr() };
                 process_audit_record(
                     record,
                     &mut worm_sink,
@@ -454,10 +453,10 @@ fn record_failure(
     shutdown.store(true, Ordering::Release);
 }
 
-fn free_record(pool: &RecordPool, record_ptr: *mut Record) {
+fn free_record(pool: &RecordPool, record_ptr: RecordPtr) {
     // SAFETY: each pointer is claimed once by the ring consumer and returned to
     // the same object pool after all persistence attempts finish.
-    unsafe { pool.free(&*record_ptr) }
+    unsafe { pool.free(&*record_ptr.as_ptr()) }
 }
 #[cfg(test)]
 mod tests {

@@ -1,0 +1,46 @@
+flowchart LR
+    host[Host / CLI / Adapter]
+    ffi[core/ffi
+C ABI boundary]
+    record[core/record
+Canonical records]
+    pipeline[core/pipeline
+Stages + policy]
+    plugin[core/plugin
+Versioned optional extensions]
+    codec[core/codec
+Trusted text codec service]
+    locale[core/localization
+Human messages + fallback]
+    io[core/sys/io
+Display output]
+    persistence[core/sif + core/sink
+Canonical persistence]
+    security[core/security
+Crypto + keys + optional audit]
+    audit[security/audit
+Opt-in AUDIT pipeline]
+
+    host --> ffi --> record --> pipeline
+    plugin -. declared phases .-> pipeline
+    pipeline --> persistence
+    pipeline --> security
+    security --> audit
+    audit --> persistence
+    host --> locale
+    ffi --> locale
+    locale --> codec
+    codec --> io
+    io --> host
+
+    codec -. no authority over .-> persistence
+    locale -. never transforms .-> audit
+    plugin -. cannot replace .-> codec
+    plugin -. cannot rewrite .-> security
+
+    classDef trusted fill:#e8f4ff,stroke:#2463a6,color:#102a43
+    classDef optional fill:#fff4e5,stroke:#b7791f,color:#5f370e
+    classDef display fill:#f0fff4,stroke:#2f855a,color:#1c4532
+    class ffi,record,pipeline,codec,persistence,security trusted
+    class plugin,audit optional
+    class locale,io,host display

@@ -62,6 +62,10 @@ struct Cli {
     #[arg(long, global = true, default_value = "auto", value_enum)]
     encoding: output::OutputEncoding,
 
+    /// Explicit Windows console code page for --encoding native (for example 936 or 65001)
+    #[arg(long, global = true)]
+    code_page: Option<u32>,
+
     /// Display third-party license attributions (use with version/about)
     #[arg(long, global = true, default_value_t = false)]
     licenses: bool,
@@ -355,6 +359,7 @@ fn main() {
         color: cli.color,
         quiet: cli.quiet,
         encoding: cli.encoding,
+        code_page: cli.code_page,
     };
     output::init(&cfg);
 

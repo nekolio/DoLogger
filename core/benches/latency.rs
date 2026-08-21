@@ -3,8 +3,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use std::sync::Arc;
 
-use dologger_core::buffer::RecordPool;
-use dologger_core::buffer::RingBuffer;
+use dologger_core::buffer::{RecordPool, RecordPtr, RingBuffer};
 use dologger_core::config::DologgerConfig;
 use dologger_core::record::LogLevel;
 use dologger_core::security::SignatureEngine;
@@ -17,7 +16,7 @@ use dologger_core::sys::TimeSource;
 fn bench_single_record_latency(c: &mut Criterion) {
     let config = DologgerConfig::dev_profile();
     let pool = Arc::new(RecordPool::new(config.ring_buffer_size));
-    let ring_buffer = Arc::new(RingBuffer::new(config.ring_buffer_size));
+    let ring_buffer = Arc::new(RingBuffer::<RecordPtr>::new(config.ring_buffer_size));
     let time_source = TimeSource::new();
     let tid = 1u64;
     let pid = std::process::id();
@@ -25,9 +24,9 @@ fn bench_single_record_latency(c: &mut Criterion) {
     c.bench_function("single_record_submit", |b| {
         b.iter_batched(
             || {
-                // Setup: ensure pool has free slots
-                ring_buffer.drain(usize::MAX, |ptr| {
-                    // SAFETY: ptr was allocated from this pool and not yet freed
+                ring_buffer.drain(usize::MAX, |token| {
+                    let ptr = token.into_raw();
+                    // SAFETY: the token came from this pool and is consumed once.
                     unsafe {
                         pool.free(ptr);
                     }
@@ -45,20 +44,26 @@ fn bench_single_record_latency(c: &mut Criterion) {
                     record.thread_id = tid as u32;
                     record.process_id = pid;
                 }
-                let _ = ring_buffer.try_push(record_ptr);
+                let token = unsafe { RecordPtr::from_raw(record_ptr) };
+                if let Err(token) = ring_buffer.try_push(token) {
+                    // SAFETY: a rejected token remains owned by this producer.
+                    unsafe {
+                        pool.free(token.into_raw());
+                    }
+                }
             },
             BatchSize::PerIteration,
         )
     });
 
-    // With Ed25519 signing (AUDIT path)
     let sig_engine = SignatureEngine::new();
 
     c.bench_function("single_record_submit_with_sign", |b| {
         b.iter_batched(
             || {
-                ring_buffer.drain(usize::MAX, |ptr| {
-                    // SAFETY: ptr was allocated from this pool and not yet freed
+                ring_buffer.drain(usize::MAX, |token| {
+                    let ptr = token.into_raw();
+                    // SAFETY: the token came from this pool and is consumed once.
                     unsafe {
                         pool.free(ptr);
                     }
@@ -77,15 +82,21 @@ fn bench_single_record_latency(c: &mut Criterion) {
                     record.process_id = pid;
                 }
                 let _sig = sig_engine.sign_record(unsafe { &mut *record_ptr }, &[0u8; 32]);
-                let _ = ring_buffer.try_push(record_ptr);
+                let token = unsafe { RecordPtr::from_raw(record_ptr) };
+                if let Err(token) = ring_buffer.try_push(token) {
+                    // SAFETY: a rejected token remains owned by this producer.
+                    unsafe {
+                        pool.free(token.into_raw());
+                    }
+                }
             },
             BatchSize::PerIteration,
         )
     });
 
-    // Final drain
-    ring_buffer.drain(usize::MAX, |ptr| {
-        // SAFETY: ptr was allocated from this pool and not yet freed
+    ring_buffer.drain(usize::MAX, |token| {
+        let ptr = token.into_raw();
+        // SAFETY: the token came from this pool and is consumed once.
         unsafe {
             pool.free(ptr);
         }

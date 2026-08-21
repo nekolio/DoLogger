@@ -167,7 +167,8 @@ fn create_default_config(path: &Path) -> Result<(), String> {
 [dologger]
 level = "INFO"
 performance_profile = "prod-performance"
-ring_buffer_size = 262144
+# ring_buffer_size = records_contain * byte_size = 64 * 2 << 10
+ring_buffer_size = 65536
 batch_size = 256
 enable_signature = false
 enable_audit = false
@@ -252,7 +253,7 @@ impl Default for DologgerConfig {
         Self {
             level: "INFO".into(),
             performance_profile: PerformanceProfile::ProdPerformance,
-            ring_buffer_size: 262144, // 256K records
+            ring_buffer_size: crate::buffer::DEFAULT_CAPACITY,
             batch_size: 256,
             enable_signature: false,
             enable_audit: false,
@@ -1073,7 +1074,7 @@ mod tests {
         DologgerConfig {
             level: "AUDIT".into(),
             performance_profile: PerformanceProfile::ProdAudit,
-            ring_buffer_size: 262144,
+            ring_buffer_size: crate::buffer::DEFAULT_CAPACITY,
             batch_size: 128,
             enable_signature: true,
             enable_audit: true,

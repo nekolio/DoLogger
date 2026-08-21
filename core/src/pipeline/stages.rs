@@ -17,8 +17,8 @@ use std::sync::Mutex;
 
 use sha2::{Digest, Sha256};
 
+use crate::pipeline::policy::{DropLevelPolicy, RateLimiter};
 use crate::plugin::vtable::PluginDispatch;
-use crate::policy::{DropLevelPolicy, RateLimiter};
 use crate::record::{LogLevel, Record};
 use crate::security::SecretDetector;
 use crate::security::SignatureEngine;

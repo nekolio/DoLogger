@@ -3,7 +3,7 @@
 > Next-gen secure logging — Ed25519 audit chains at lock-free speed.
 
 <p align="center">
-  <img src="./docs/assets/hero.svg" alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" width="880">
+  <img src="./docs/assets/svg/hero.svg" alt="DoLogger boot sequence — Hello DoLogger, 4 sandboxed plugins, Ed25519 chain armed, 7-stage pipeline online" width="880">
 </p>
 
 [English](README.md) | [中文](README.zh_CN.md)
@@ -145,7 +145,7 @@ dologctl completions powershell | Out-String | Invoke-Expression # PowerShell
 > [!IMPORTANT]
 > DoLogger is **pre-1.0**. MINOR releases may include breaking changes and the ABI may change — pin to an exact version in production. See the [Versioning & Deprecation Policy](docs/en_US/guides/VersioningAndDeprecation.md).
 
-![Architecture](./docs/assets/architecture.svg)
+![Architecture](./docs/assets/svg/architecture.svg)
 
 The application pushes records straight into a lock-free MPSC ring buffer — no
 locks on the hot path. A background pipeline runs seven stages
@@ -312,7 +312,7 @@ DoLogger/
 ├── config/                     # Example configuration (dologger.example.toml)
 ├── docker/                     # Container images (Dockerfile.dev; runtime in v1.0.0)
 ├── docs/                       # Technical documentation (EN + zh, auto-synced to the wiki)
-│   └── assets/                 # hero.svg, architecture.svg/-zh (mmd source + rendered SVG)
+│   └── assets/                 # mmd/ sources + svg/ generated assets
 ├── tests/                      # Test suites (common/, perf/, smoke/)
 ├── scripts/                    # Build and setup scripts (local + CI)
 ├── cmake/                      # CMake helper modules (cross-compile, Conan toolchain)
@@ -358,6 +358,7 @@ cargo check --target aarch64-apple-darwin
 | [Plugin Development QuickStart](docs/en_US/PluginDevelopmentQuickStart.md) | C/C++/Go plugin development |
 | [Plugin Development Guide](docs/en_US/guides/PluginDevelopmentGuide.md) | Rust plugin development |
 | [Security Whitepaper](docs/en_US/guides/SecurityWhitepaper.md) | Threat model & cryptographic design |
+| [Localization Architecture](docs/en_US/guides/LocalizationArchitecture.md) | Locale fallback, OS code-page detection, and log encoding boundaries |
 | [Repository Layout](docs/en_US/guides/RepositoryLayout.md) | Six-zone root map — product vs build-infra vs peripheral |
 | [Naming Convention](docs/en_US/guides/NamingConvention.md) | Path-as-namespace, role suffixes, abbreviation rules |
 | [Documentation Index](docs/README.md) | All guides, English + 中文 |

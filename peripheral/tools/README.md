@@ -25,7 +25,7 @@ that is exactly right.
 
 ## Tools
 
-### `hero-svg/` — regenerate `docs/assets/hero.svg`
+### `hero-svg/` — regenerate `docs/assets/svg/hero.svg`
 
 Regenerates the animated CRT-boot hero image used in the READMEs and the
 landing page. Pure decoration: the image has no effect on how DoLogger runs.
@@ -34,7 +34,7 @@ landing page. Pure decoration: the image has no effect on how DoLogger runs.
 python3 tools/hero-svg/hero_generator.py
 ```
 
-- Writes `docs/assets/hero.svg` only — the single source of truth. The site
+- Writes `docs/assets/svg/hero.svg` only — the single source of truth. The site
   references it at build time (via the Vite plugin in `vite.config.js`)
   instead of keeping its own copy.
 - Output is deterministic: with unchanged inputs, regeneration is a no-op.
@@ -46,31 +46,23 @@ Regenerate when the hero's text/visuals change (e.g. the typed lines in the
 `LINES` table at the top of `hero_generator.py`) or when the project version
 in `Cargo.toml` changes.
 
-### `arch-mermaid/` — `docs/assets/architecture.svg` / `-zh.svg` from `.mmd`
+### `mermaid-svg/` — render `docs/assets/mmd/*.mmd` into `docs/assets/svg/*.svg`
 
 The architecture diagrams are generated from Mermaid sources (the `.mmd`
 files are the source of truth, the `.svg` files are build output):
 
-- `docs/assets/architecture.mmd` — English diagram
-- `docs/assets/architecture-zh.mmd` — Chinese diagram
+- `docs/assets/mmd/architecture.mmd` — English diagram
+- `docs/assets/mmd/architecture-zh.mmd` — Chinese diagram
 
 Render them with the `pretty-mermaid` skill (installed via cc-switch):
 
 ```
-node ~/.agents/skills/pretty-mermaid/scripts/render.mjs \
-  --input docs/assets/architecture.mmd \
-  --output docs/assets/architecture.svg \
-  --format svg --theme github-light
-
-node ~/.agents/skills/pretty-mermaid/scripts/render.mjs \
-  --input docs/assets/architecture-zh.mmd \
-  --output docs/assets/architecture-zh.svg \
-  --format svg --theme github-light
+node peripheral/tools/mermaid-svg/render_architecture.mjs
 ```
 
 - Never hand-edit the SVG — edit the `.mmd` and re-render.
-- `architecture-zh.svg` is what `README.zh_CN.md` embeds; the English
-  README embeds `architecture.svg`.
+- `docs/assets/svg/architecture-zh.svg` is what `README.zh_CN.md` embeds; the
+  English README embeds `docs/assets/svg/architecture.svg`.
 - The `pretty-mermaid` skill's flowchart renderer is single-line label
   only (`<br/>` is not supported); keep each node label on one line.
 - The renderer needs a Windows fix to load `beautiful-mermaid` (dynamic

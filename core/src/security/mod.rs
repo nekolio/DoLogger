@@ -3,6 +3,7 @@
 //! Contains the signature engine, key management, key rotation,
 //! external anchoring, secret detection, and CRC32C checksum.
 
+pub mod audit;
 pub mod crc32c;
 pub mod external_anchor;
 pub mod key_provider;
@@ -12,6 +13,7 @@ pub mod secret_detector;
 pub mod signature;
 pub mod tpm;
 
+pub use audit::{AuditPipeline, DEFAULT_AUDIT_BUFFER_RATIO};
 pub use crc32c::{crc32c, crc32c_ring3, crc32c_update};
 pub use external_anchor::{AnchorRecord, ExternalAnchor};
 pub use key_provider::{DefaultKeyProvider, KeyError, KeyResult, SigningProvider};

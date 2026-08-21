@@ -10,12 +10,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use dologger_core::buffer::RecordPool;
-use dologger_core::buffer::RingBuffer;
+use dologger_core::buffer::{RecordPool, RecordPtr, RingBuffer};
 use dologger_core::config::DologgerConfig;
+use dologger_core::pipeline::policy::{DropLevelPolicy, RateLimiter};
 use dologger_core::pipeline::Pipeline;
 use dologger_core::plugin::vtable::PluginDispatch;
-use dologger_core::policy::{DropLevelPolicy, RateLimiter};
 use dologger_core::record::{thread_id_u64, LogLevel};
 use dologger_core::security::SignatureEngine;
 use dologger_core::sink::{DurabilityLevel, SinkRef};
@@ -98,7 +97,10 @@ fn main() {
             record.set_environment("dev");
         }
 
-        if ring_buffer.try_push(record_ptr).is_err() {
+        // SAFETY: record_ptr is a live allocation from this pool and ownership
+        // moves into the ring token exactly once.
+        let record_token = unsafe { RecordPtr::from_raw(record_ptr) };
+        if ring_buffer.try_push(record_token).is_err() {
             io::stderr_line(&format!("Ring buffer full at record {i}"));
             break;
         }

@@ -3,6 +3,7 @@
 
 use std::time::{Duration, Instant};
 
+use dologger_core::buffer::RecordPtr;
 use dologger_core::config::DologgerConfig;
 use dologger_core::record::{thread_id_u64, LogLevel};
 use dologger_core::sink::shm::read_status;
@@ -44,9 +45,11 @@ fn push_info_record(engine: &Engine, ts: &TimeSource, msg: &str) {
         record.set_host_name("localhost");
         record.set_environment("test");
     }
+    // SAFETY: record_ptr is a live engine pool allocation and ownership moves
+    // into the ring token exactly once.
     engine
         .ring_buffer
-        .try_push(record_ptr)
+        .try_push(unsafe { RecordPtr::from_raw(record_ptr) })
         .expect("ring buffer accepts record");
 }
 

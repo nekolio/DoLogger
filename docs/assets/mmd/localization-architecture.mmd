@@ -1,0 +1,58 @@
+%% DoLogger localization and log-encoding boundary
+flowchart LR
+    subgraph DETECT[Platform detection — startup only]
+        EXPLICIT[Manual locale / encoding]
+        CONFIG[Config locale / encoding]
+        ENV[OS locale environment]
+        WIN[Windows locale + console code page]
+        POSIX[POSIX / macOS locale + codeset]
+        DETECTED[Validated Locale + Encoding Policy]
+        EXPLICIT --> DETECTED
+        CONFIG --> DETECTED
+        ENV --> DETECTED
+        WIN --> DETECTED
+        POSIX --> DETECTED
+    end
+
+    subgraph ENCODING[Core encoding and decoding services]
+        CODEC[UTF-8 / code-page codecs]
+        DETECTCODE[OS codeset + console code-page detector]
+        LOGENC[Log output encoder / decoder]
+        CODEC --> LOGENC
+        DETECTCODE --> LOGENC
+    end
+
+    subgraph I18N[Localization service]
+        KEY[Stable error code + message key]
+        CATALOG[Immutable catalog snapshot]
+        FALLBACK[Fallback chain: exact → language → en-US → key]
+        PROVIDER[Plugin catalog provider]
+        KEY --> FALLBACK
+        CATALOG --> FALLBACK
+        PROVIDER --> CATALOG
+    end
+
+    subgraph LOG[Log and audit boundaries]
+        RECORD[Record / pipeline hot path]
+        UTF8[Canonical UTF-8 text and bytes]
+        BINARY[Canonical SIF / WORM / signature bytes]
+        DISPLAY[Human-facing console / CLI output]
+        RECORD --> UTF8
+        UTF8 --> BINARY
+        UTF8 --> DISPLAY
+        DISPLAY --> LOGENC
+    end
+
+    subgraph SAFETY[Non-negotiable safety rules]
+        NOAUDIT[Audit bytes never localized or transcoded]
+        VALIDATE[UTF-8, key, NUL, size and code-page validation]
+        SNAPSHOT[No mutable catalog on producer hot path]
+    end
+
+    DETECTED --> FALLBACK
+    FALLBACK --> DISPLAY
+    KEY --> RECORD
+    CATALOG -. catalog file decoding only .-> CODEC
+    VALIDATE --> CATALOG
+    SNAPSHOT --> CATALOG
+    NOAUDIT -.-> BINARY

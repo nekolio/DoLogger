@@ -348,6 +348,23 @@ DOLOGGER_API int32_t dologger_get_last_error(
     dologger_error_t        *err
 );
 
+/**
+ * @brief Copy the locale-independent lookup key for an error code.
+ *
+ * Applications can map this key through their own message catalog without
+ * parsing human-readable error text. The result excludes the null terminator.
+ *
+ * @param code      DoLogger error code.
+ * @param buffer    Destination buffer for the key.
+ * @param capacity  Destination capacity in bytes, including the terminator.
+ * @return Key length on success, or DO_LOG_ERR_BUFFER_TOO_SMALL.
+ */
+DOLOGGER_API int32_t dologger_error_key(
+    int32_t code,
+    char    *buffer,
+    size_t   capacity
+);
+
 /* =========================================================================
  * Field access API (record read/write by field name)
  * ======================================================================== */

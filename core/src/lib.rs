@@ -10,14 +10,14 @@
     clippy::undocumented_unsafe_blocks
 )]
 
-pub mod audit;
 pub mod buffer;
+pub mod codec;
 pub mod config;
 pub mod error;
 pub mod ffi;
+pub mod localization;
 pub mod pipeline;
 pub mod plugin;
-pub mod policy;
 pub mod record;
 pub mod security;
 pub mod sif;
@@ -29,14 +29,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::audit::AuditPipeline;
-use crate::buffer::RecordPool;
-use crate::buffer::RingBuffer;
+use crate::buffer::{RecordPool, RecordPtr, RingBuffer};
 use crate::config::{ConfigWatcher, DologgerConfig, HotReloadManager};
 use crate::ffi::DologgerHandle;
+use crate::pipeline::policy::{DropLevelPolicy, RateLimiter};
 use crate::pipeline::Pipeline;
 use crate::plugin::PluginManager;
-use crate::policy::{DropLevelPolicy, RateLimiter};
+use crate::security::audit::AuditPipeline;
 use crate::security::ExternalAnchor;
 use crate::security::{SignatureEngine, TpmKeyProvider};
 use crate::sink::ConsoleSink;
@@ -54,6 +53,12 @@ use crate::sys::TimeSource;
 // Re-exports
 pub use error::DologgerError;
 pub use record::{LogLevel, Record};
+
+// Compatibility aliases preserve the pre-boundary module paths.
+pub use codec as encoding;
+pub use localization as i18n;
+pub use pipeline::policy;
+pub use security::audit;
 
 // Backward-compatible re-exports — modules were restructured into
 // subdirectories but old paths are preserved for internal callers.
@@ -116,7 +121,7 @@ pub use util::hex;
 /// This prevents indefinite blocking of the calling application thread
 /// while maintaining low latency under backpressure.
 pub struct CooperativeHelping {
-    ring_buffer: Arc<RingBuffer<*mut Record>>,
+    ring_buffer: Arc<RingBuffer<RecordPtr>>,
     pool: Arc<RecordPool>,
     /// Dedicated sink for cooperative helping writes.
     /// Mutex-protected so it can be called from shared references.
@@ -128,7 +133,7 @@ pub struct CooperativeHelping {
 impl CooperativeHelping {
     /// Create a new cooperative helping context.
     fn new(
-        ring_buffer: Arc<RingBuffer<*mut Record>>,
+        ring_buffer: Arc<RingBuffer<RecordPtr>>,
         pool: Arc<RecordPool>,
         sink: SinkRef,
         enabled: bool,
@@ -174,7 +179,7 @@ impl CooperativeHelping {
         let drained = self.ring_buffer.drain_helping(HELPING_BATCH, |record_ptr| {
             // SAFETY: drain_helping CAS protocol guarantees exclusive ownership
             // of the record pointer for the duration of this callback.
-            let record = unsafe { &mut *record_ptr };
+            let record = unsafe { &mut *record_ptr.as_ptr() };
             let formatted = SinkRef::format_record(record);
             // ConsoleSink::write uses stdout.lock() internally, making
             // concurrent writes from the consumer and helper threads safe.
@@ -210,7 +215,7 @@ impl CooperativeHelping {
 /// The DoLogger engine — holds all runtime state.
 pub struct Engine {
     /// Ring buffer for lock-free log submission
-    pub ring_buffer: Arc<RingBuffer<*mut Record>>,
+    pub ring_buffer: Arc<RingBuffer<RecordPtr>>,
     /// Pre-allocated record pool
     pub pool: Arc<RecordPool>,
     /// Background pipeline (consumer thread + sink)
@@ -429,7 +434,7 @@ impl Engine {
             let anchor_for_pipeline = anchor.clone();
             let audit_pipeline = match AuditPipeline::new(
                 config.ring_buffer_size,
-                crate::audit::DEFAULT_AUDIT_BUFFER_RATIO,
+                crate::security::audit::DEFAULT_AUDIT_BUFFER_RATIO,
                 Arc::clone(&pool),
                 worm_sink,
                 security_sink,

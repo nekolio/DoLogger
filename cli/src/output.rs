@@ -107,6 +107,8 @@ pub struct OutputConfig {
     pub color: ColorMode,
     pub quiet: bool,
     pub encoding: OutputEncoding,
+    /// Optional manually selected Windows console code page.
+    pub code_page: Option<u32>,
 }
 
 impl Default for OutputConfig {
@@ -116,6 +118,7 @@ impl Default for OutputConfig {
             color: ColorMode::Auto,
             quiet: false,
             encoding: OutputEncoding::Auto,
+            code_page: None,
         }
     }
 }
@@ -146,6 +149,15 @@ pub fn init(config: &OutputConfig) {
     set_color_enabled(config.use_color());
     set_quiet(config.quiet);
     dologger_core::sys::io::set_output_encoding(config.encoding.into());
+    if let Some(code_page) = config.code_page {
+        if dologger_core::codec::validate_code_page(code_page).is_ok() {
+            dologger_core::sys::io::set_output_code_page(Some(code_page));
+        } else {
+            dologger_core::sys::io::set_output_code_page(None);
+        }
+    } else {
+        dologger_core::sys::io::set_output_code_page(None);
+    }
 }
 
 // ---------------------------------------------------------------------------

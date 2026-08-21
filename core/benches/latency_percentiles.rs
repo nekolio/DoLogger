@@ -12,10 +12,10 @@ use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
-use dologger_core::buffer::RecordPool;
 use dologger_core::buffer::RingBuffer;
+use dologger_core::buffer::{RecordPool, RecordPtr};
 use dologger_core::config::DologgerConfig;
-use dologger_core::record::{LogLevel, Record, RECORD_STRING_INLINE_MAX};
+use dologger_core::record::{LogLevel, RECORD_STRING_INLINE_MAX};
 use dologger_core::security::SignatureEngine;
 use dologger_core::sys::TimeSource;
 
@@ -83,9 +83,10 @@ fn report(label: &str, samples: Vec<f64>) {
 // ---------------------------------------------------------------------------
 
 /// Drain all records from the ring buffer back to the pool.
-fn drain_all(pool: &RecordPool, rb: &RingBuffer<*mut Record>) {
-    rb.drain(usize::MAX, |ptr| {
-        // SAFETY: ptr was allocated from this pool and not yet freed
+fn drain_all(pool: &RecordPool, rb: &RingBuffer<RecordPtr>) {
+    rb.drain(usize::MAX, |token| {
+        let ptr = token.into_raw();
+        // SAFETY: the token came from this pool and is consumed once.
         unsafe {
             pool.free(ptr);
         }
@@ -95,7 +96,7 @@ fn drain_all(pool: &RecordPool, rb: &RingBuffer<*mut Record>) {
 /// Push a single Info-level record and return elapsed nanoseconds.
 fn push_record(
     pool: &RecordPool,
-    rb: &RingBuffer<*mut Record>,
+    rb: &RingBuffer<RecordPtr>,
     ts: &TimeSource,
     msg: &str,
     tid: u64,
@@ -113,14 +114,20 @@ fn push_record(
         record.thread_id = tid as u32;
         record.process_id = pid;
     }
-    let _ = rb.try_push(ptr);
+    let token = unsafe { RecordPtr::from_raw(ptr) };
+    if let Err(token) = rb.try_push(token) {
+        // SAFETY: a rejected token remains owned by this producer.
+        unsafe {
+            pool.free(token.into_raw());
+        }
+    }
     start.elapsed().as_nanos() as f64
 }
 
 /// Push a single Audit-level record with Ed25519 signing, return elapsed nanoseconds.
 fn push_signed(
     pool: &RecordPool,
-    rb: &RingBuffer<*mut Record>,
+    rb: &RingBuffer<RecordPtr>,
     ts: &TimeSource,
     sig: &SignatureEngine,
     msg: &str,
@@ -140,7 +147,13 @@ fn push_signed(
         record.process_id = pid;
     }
     let _signature = sig.sign_record(unsafe { &mut *ptr }, &[0u8; 32]);
-    let _ = rb.try_push(ptr);
+    let token = unsafe { RecordPtr::from_raw(ptr) };
+    if let Err(token) = rb.try_push(token) {
+        // SAFETY: a rejected token remains owned by this producer.
+        unsafe {
+            pool.free(token.into_raw());
+        }
+    }
     start.elapsed().as_nanos() as f64
 }
 
@@ -148,7 +161,7 @@ fn push_signed(
 /// periodically to prevent pool exhaustion.
 fn collect_samples<F: FnMut() -> f64>(
     pool: &RecordPool,
-    rb: &RingBuffer<*mut Record>,
+    rb: &RingBuffer<RecordPtr>,
     count: usize,
     pool_size: usize,
     mut push_fn: F,
