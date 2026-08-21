@@ -12,7 +12,7 @@ pub enum RecordOffset {}
 ///   Ring 0 — Kernel-core    (ID, timestamp, signature, origin LSN)
 ///   Ring 1 — System trusted (level, message, host info, tracing, exception)
 ///   Ring 2 — Verified plugin fields (not yet represented in schema — future)
-///   Ring 3 — Untrusted extension fields (CRC32C-protected blob)
+///   Ring 3 — Legacy untrusted extension blob (migration compatibility only)
 ///
 /// All fields are optional (FlatBuffers `table` semantics) so the schema can
 /// evolve without breaking existing consumers.  Missing fields default to
@@ -433,9 +433,8 @@ impl<'a> Record<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(Record::VT_AUDIT_TAGS, None)}
   }
-  /// Extension data blob containing arbitrary Ring 3 fields.
-  /// Not covered by the Ed25519 signature; integrity is verified via ext_crc32c.
-  /// Use only for non-critical enrichment data from untrusted plugins.
+  /// Legacy extension blob retained for compatibility decoding only.
+  /// Current records store ext.* fields as KV entries covered by content_hash.
   #[inline]
   pub fn ext_data(&self) -> Option<&'a str> {
     // Safety:
@@ -443,8 +442,7 @@ impl<'a> Record<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(Record::VT_EXT_DATA, None)}
   }
-  /// CRC32C (Castagnoli) checksum of ext_data, computed by the core engine
-  /// whenever ext_data is written.  Sinks should verify this before use.
+  /// Legacy CRC32C checksum associated with ext_data compatibility frames.
   #[inline]
   pub fn ext_crc32c(&self) -> u32 {
     // Safety:

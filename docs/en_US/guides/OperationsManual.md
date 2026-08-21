@@ -139,7 +139,7 @@ brew install dologger/tap/dologger
 [dologger]
 level = "INFO"
 performance_profile = "prod-performance"
-ring_buffer_size = 262144       # MUST be a power of two
+ring_buffer_size = 65536        # Default; must be a power of two
 batch_size = 256
 enable_audit = false           # Set true for audit deployments
 enable_signature = false        # Add signatures when required
@@ -318,7 +318,7 @@ You can override individual profile values:
 ```toml
 [dologger]
 performance_profile = "prod-performance"
-ring_buffer_size = 524288       # Override the 262144 default
+ring_buffer_size = 524288       # Override the 65536 default
 ```
 
 Overrides are merged on top of the profile defaults. Non-downgradable items cannot be relaxed via overrides.
@@ -336,7 +336,7 @@ Overrides are merged on top of the profile defaults. Non-downgradable items cann
 
 ## Shared Memory Sink (sink_shm)
 
-`sink_shm` delivers SIF records to external consumer processes through a
+`sink_shm` delivers KVF1 records (and retains SIF compatibility reading) to external consumer processes through a
 zero-copy, cross-process shared-memory ring buffer. It is wired **separately**
 from `[sinks.*]` and is not a member of the sink registry. Enable it with the
 top-level `[shm]` table:

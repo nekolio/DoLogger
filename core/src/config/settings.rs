@@ -67,6 +67,8 @@ pub struct DologgerConfig {
     /// table. Off by default: reload is an opt-in feature so existing
     /// deployments are unaffected until a `[watcher]` section enables it.
     pub watcher: crate::config::WatcherConfig,
+    /// Input/output encoding policy. Encoding changes require restart.
+    pub encoding: crate::config::EncodingConfig,
 }
 
 impl DologgerConfig {
@@ -275,6 +277,7 @@ impl Default for DologgerConfig {
                 enabled: false,
                 ..Default::default()
             },
+            encoding: crate::config::EncodingConfig::default(),
         }
     }
 }
@@ -312,6 +315,7 @@ impl DologgerConfig {
                 enabled: false,
                 ..Default::default()
             },
+            encoding: crate::config::EncodingConfig::default(),
         }
     }
 
@@ -938,6 +942,55 @@ impl DologgerConfig {
             }
         }
 
+        // Parse the protected top-level `[encoding]` table. The default input
+        // policy is strict UTF-8; `auto` must be explicitly configured.
+        if let Some(encoding) = table.get("encoding").and_then(|v| v.as_table()) {
+            if let Some(input) = encoding.get("input").and_then(|v| v.as_str()) {
+                match crate::config::InputEncodingMode::parse(input) {
+                    Some(mode) => config.encoding.input = mode,
+                    None => warnings.push(format!(
+                        "encoding.input '{input}' must be 'utf8' or 'auto', using default '{}'",
+                        config.encoding.input
+                    )),
+                }
+            }
+            if let Some(output) = encoding.get("output").and_then(|v| v.as_str()) {
+                config.encoding.output = match output.trim().to_ascii_lowercase().as_str() {
+                    "utf8" | "utf-8" => crate::codec::policy::EncodingPreference::Utf8,
+                    "auto" => crate::codec::policy::EncodingPreference::Auto,
+                    "codepage" | "code-page" => {
+                        match encoding.get("code_page").and_then(|v| v.as_integer()) {
+                            Some(value) if (1..=65_535).contains(&value) => {
+                                crate::codec::policy::EncodingPreference::CodePage(value as u32)
+                            }
+                            _ => {
+                                warnings.push(
+                                    "encoding.code_page is required for output=codepage"
+                                        .to_string(),
+                                );
+                                crate::codec::policy::EncodingPreference::Utf8
+                            }
+                        }
+                    }
+                    _ => {
+                        warnings.push(format!(
+                            "encoding.output '{output}' must be 'utf8', 'auto', or 'codepage'"
+                        ));
+                        crate::codec::policy::EncodingPreference::Utf8
+                    }
+                };
+            }
+            if let Some(code_page) = encoding.get("code_page").and_then(|v| v.as_integer()) {
+                if (1..=65_535).contains(&code_page) {
+                    config.encoding.output_code_page = Some(code_page as u32);
+                } else {
+                    warnings.push(format!(
+                        "encoding.code_page {code_page} is outside the supported range"
+                    ));
+                }
+            }
+        }
+
         // Parse `[sinks.<name>]` sections. Declaring any sink replaces the
         // console default; a broken entry is reported as a warning and skipped
         // so one bad sink can never take the whole config down.
@@ -1096,6 +1149,7 @@ mod tests {
                 enabled: false,
                 ..Default::default()
             },
+            encoding: crate::config::EncodingConfig::default(),
         }
     }
 
@@ -1125,6 +1179,36 @@ mod tests {
         assert!(
             !config.watcher.enabled,
             "hot reload must be opt-in and disabled by default"
+        );
+    }
+
+    #[test]
+    fn encoding_section_requires_explicit_auto_and_parses_code_page() {
+        let (config, warnings) = DologgerConfig::parse(
+            "[encoding]\ninput = \"auto\"\noutput = \"codepage\"\ncode_page = 936\n",
+            None,
+        )
+        .unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(
+            config.encoding.input,
+            crate::config::InputEncodingMode::Auto
+        );
+        assert_eq!(
+            config.encoding.output,
+            crate::codec::policy::EncodingPreference::CodePage(936)
+        );
+        assert_eq!(config.encoding.output_code_page, Some(936));
+    }
+
+    #[test]
+    fn encoding_defaults_to_strict_utf8_without_section() {
+        let (config, warnings) =
+            DologgerConfig::parse("[dologger]\nlevel = \"INFO\"\n", None).unwrap();
+        assert!(warnings.is_empty());
+        assert_eq!(
+            config.encoding.input,
+            crate::config::InputEncodingMode::Utf8
         );
     }
 

@@ -22,7 +22,7 @@
 8. [Emergency Buffer and Recovery](#emergency-buffer-and-recovery)
 9. [Thread Pool Architecture](#thread-pool-architecture)
 10. [Plugin VTable Specification](#plugin-vtable-specification)
-11. [SIF Binary Format Overview](#sif-binary-format-overview)
+11. [Record Wire Formats](#record-wire-formats)
 12. [Performance Benchmarks and Tuning](#performance-benchmarks-and-tuning)
 
 ---
@@ -74,16 +74,16 @@ flowchart TD
         direction TB
         C0["Stage 0: PreFilter<br/>PolicyProvider plugins<br/>(rate_limiter, level)"] --> C1["Stage 1: Filter<br/>Filter plugins"]
         C1 --> C2["Stage 2: FieldProvider<br/>HostInfo + Field"]
-        C2 --> C3["Stage 3: Assembly<br/>Core: LSN assign<br/>+ Ed25519 sign<br/>+ CRC32C Ring 3 check<br/>+ Secret detection"]
+        C2 --> C3["Stage 3: Assembly<br/>Core: LSN assign<br/>+ content_hash<br/>+ Ed25519 audit sign<br/>+ Secret detection"]
         C3 --> C4["Stage 4: Processing<br/>Processor plugins<br/>(transform, redact)"]
-        C4 --> C5["Stage 5: Formatting<br/>Formatter plugins<br/>(JSON, text, SIF)"]
+        C4 --> C5["Stage 5: Formatting<br/>Formatter plugins<br/>(JSON, text, KV display)"]
         C5 --> C6["Stage 6: Sink<br/>Core built-in sinks<br/>(parallel writes)"]
         C6 --> C7["11 sink types available"]
     end
 
     subgraph AP["AUDIT PIPELINE (independent consumer)"]
         direction TB
-        D1["Ring Buffer → Direct Processing<br/>(no plugin stages -- bypasses all)"] --> D2["Ed25519 Sign (mandatory)"]
+        D1["Ring Buffer → Direct Processing<br/>(no plugin stages -- bypasses all)"] --> D2["Optional audit sign<br/>(only when audit is enabled)"]
         D2 --> D3["Dual-Write Sinks:<br/>→ WORM Sink (LSN chain, prev_hash)<br/>→ Security Sink (0600, plugin bypass)"]
     end
 ```
@@ -95,9 +95,9 @@ flowchart TD
 | PreFilter | 0 | PolicyProvider | Yes | No | Rate limiting, level gating |
 | Filter | 1 | Filter | Yes | No | Content-based filtering |
 | FieldProvider | 2 | FieldProvider, HostInfoProvider | No | Ring 1 write | Host/container/cloud metadata injection |
-| Assembly | 3 | Core only | No | Ring 0+1 write | LSN assign, Ed25519 sign, CRC32C verify, secret detection |
+| Assembly | 3 | Core only | No | Ring 0+1 write | LSN assign, content_hash, optional Ed25519 audit sign, secret detection |
 | Processing | 4 | Processor | Yes | Ring 2+3 write | Transform, redact, enrich |
-| Formatting | 5 | Formatter | No | Read-only | Serialize to JSON/text/SIF |
+| Formatting | 5 | Formatter | No | Read-only | Serialize to JSON/text or KV display |
 | Sink | 6 | Core built-in | No | Read-only | Write to external destinations |
 
 ### Record Lifecycle
@@ -291,7 +291,7 @@ verify_chain(records, sidecar):
 |:-:|:-:|:-:|
 | Fixed hot fields (timestamp, level, message, pid, tid, LSN) | Ed25519 | Always signed |
 | KV fields | Ed25519 | Always signed (canonical KV order) |
-| Overflow spill state | CRC32C only | Hardware-accelerated, not cryptographic |
+| Overflow spill state | Included in content_hash | Canonical serialization covers the payload, not the heap pointer |
 
 ### Cryptographic Performance
 
@@ -334,7 +334,7 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ```mermaid
 flowchart TD
-    subgraph R3["RING 3 — Untrusted Extensions (ext.* namespace)<br/>Write: Any plugin (including Red) | Read: Any plugin<br/>Integrity: CRC32C hardware checksum (~0.5 cycles/byte)<br/>NOT covered by Ed25519 signature"]
+    subgraph R3["RING 3 — Untrusted Extensions (ext.* namespace)<br/>Write: Any plugin (including Red) | Read: Any plugin<br/>Integrity: content_hash<br/>Not covered by optional Ed25519 audit signature"]
         subgraph R2["RING 2 — Verified Extensions (verified.* namespace)<br/>Write: Blue + Yellow plugins only | Read: Any plugin<br/>Integrity: Ed25519 (when sign_ring2=true)<br/>Audit: Each write appends audit_tags entry"]
             subgraph R1["RING 1 — System Trusted Fields<br/>Write: Core engine + HostInfoProvider | Read: All plugins (read-only)<br/>Integrity: Ed25519 (always)<br/>Fields: level, message, host, process, thread_id, environment"]
                 R0["RING 0 — Engine Core — Immutable<br/>Write: Core engine ONLY | Read: Formatter + Sink (read-only)<br/>Integrity: Ed25519 (always)<br/>Fields: id, timestamp, signature, origin_lsn"]
@@ -693,49 +693,50 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 
 ---
 
-## SIF Binary Format Overview
+## Record Wire Formats
 
-### Format
+DoLogger separates the current runtime frame from the retained compatibility
+format. The current Record architecture is fixed hot fields plus dynamic KV
+slots. New runtime and shared-memory producers use the versioned `KVF1` frame;
+JSON and text are display outputs; SIF remains an explicit compatibility reader.
 
-SIF (**Standard Intermediate Format**) is the binary log-record wire format
-used for WORM storage, shared-memory handoff, and the CLI's `record` /
-`verify` commands. It is a FlatBuffer-encoded `Record` table framed by a
-small header, giving schema evolution and zero-copy field access.
+### KVF1 current runtime frame
 
-Every SIF message is framed as:
+The `core::record::wire` module exposes the canonical binary boundary:
 
-| Offset | Size | Field | Description |
-|:-:|:-:|:-:|:-:|
-| 0 | 4 | magic | `b"SIF1"` |
-| 4 | 12 | SifHeader | version, total_length, record_count |
-| 16 | var | FlatBuffer | `Record` table (root offset + vtable + data) |
+- `encode_record(&Record)` writes a bounded `KVF1` frame.
+- `decode_record_with(&[u8], DecodeOptions)` validates and decodes one frame.
+- `decode_any(&[u8], DecodeOptions)` accepts KV first and then the legacy SIF path,
+  returning the detected frame kind.
+- `FrameScanner` handles length-prefixed fragmented input without trusting
+  forged lengths or allocating an unbounded buffer.
 
-### Header (`SifHeader`)
+The frame validates magic, version, declared lengths, UTF-8, field names,
+closed value types, duplicate tags, field/message budgets, and optional content
+hashes before constructing a `Record`. Persisted KV and audit bytes are not
+converted through the display code-page policy.
 
-| Field | Size | Description |
-|:-:|:-:|:-:|
-| version | 4 | Packed schema version (`MAJOR << 24 \| MINOR << 16 \| PATCH`); 1.0.0 = `0x0100_0000` |
-| total_length | 4 | Total frame length including magic + header |
-| record_count | 4 | Number of `Record` tables (1 for single-record frames) |
+### SIF compatibility frame
 
-### Encoding / Decoding
+SIF (**Standard Intermediate Format**) is the retained FlatBuffers format. It is
+kept for older files, integrations, WORM archives, replay, verification, and
+migration tooling. It is not the authority for new runtime SHM writers.
 
-The `core::sif` module exposes the stable frame API:
+The compatibility schema remains at `core/sif/dologger_sif.fbs`; generated
+bindings are committed as a fallback. SIF removal requires a separate
+consumer inventory and deprecation decision. This stage does not claim that
+SIF has been deleted or that every producer has migrated.
 
-- `encode_record(&Record) -> Vec<u8>` — serialise a record into a framed SIF buffer.
-- `decode_record(&[u8]) -> Record` — parse a framed SIF buffer back into a record.
-- `validate_frame(&[u8]) -> SifError` — check magic + header consistency.
+### Audit and display boundaries
 
-The FlatBuffer schema lives at `core/sif/dologger_sif.fbs`; bindings are
-generated by `core/build.rs` (`flatc --rust`) and committed as a fallback.
-The schema supports evolution, so older consumers ignore unknown fields.
+Audit is an explicit, default-off scenario. When enabled, the audit envelope,
+hash chain, WORM persistence, and optional signature sidecar follow their own
+security contract; the existence of a KV frame does not enable audit. Display
+formatters may render the same `Record` as JSON or text, using the independent
+codec policy for UTF-8, explicit code pages, or observable fallback.
 
-### Status — v0.0.1
-
-The wire format and the `encode_record` / `decode_record` / `validate_frame`
-API are delivered and already used by the shared-memory sink and the CLI. The
-engine's Formatting→Sink SIF handoff is planned (the Formatting stage still
-emits plain text internally).
+See [KV Wire and SIF Compatibility Migration](guides/KvWireAndSifMigration.md)
+for the migration rules and current open acceptance items.
 
 ---
 
@@ -768,7 +769,7 @@ emits plain text internally).
 
 | Parameter | Default | Tuning Guidance |
 |:-:|:-:|:-:|
-| `ring_buffer_size` | 262144 | Increase for bursty workloads. Must be power of two. |
+| `ring_buffer_size` | 65536 | Increase for bursty workloads. Must be power of two. |
 | `batch_size` | 256 | 128-512. Larger = higher throughput, higher latency. |
 | `enable_audit` | false | Opt-in isolated AUDIT/WORM pipeline. |
 | `audit_worm_path` | `dologger_audit.worm` | WORM file used only by the isolated AUDIT pipeline. |

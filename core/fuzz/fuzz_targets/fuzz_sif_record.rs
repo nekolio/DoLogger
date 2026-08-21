@@ -164,11 +164,11 @@ fuzz_target!(|data: &[u8]| {
     let mut rs = RecordString::empty();
     assert!(rs.is_empty());
     assert_eq!(rs.len(), 0);
-    assert_eq!(rs.as_str(), "");
+    assert_eq!(rs.as_utf8().unwrap(), "");
 
     rs.set(&value);
-    let roundtripped = rs.as_str().to_string();
-    // Full-length round-trip: inline for ≤ 254 bytes, heap (Arc<str>) beyond —
+    let roundtripped = rs.as_utf8().unwrap().to_string();
+    // Full-length round-trip: inline for ≤ 94 bytes, heap (Arc<[u8]>) beyond —
     // content must never be truncated.
     assert_eq!(
         rs.len(),
@@ -183,14 +183,14 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(
         rs.len(),
         roundtripped.len(),
-        "RecordString len() and as_str().len() must agree"
+        "RecordString len() and as_utf8().len() must agree"
     );
 
     // Empty after reset
     let mut rs2 = RecordString::empty();
     rs2.set("");
     assert!(rs2.is_empty());
-    assert_eq!(rs2.as_str(), "");
+    assert_eq!(rs2.as_utf8().unwrap(), "");
 
     // --- 4. CRC32C computation ---
     let crc_val = crc32c::crc32c(data);
@@ -307,7 +307,7 @@ mod edge_case_tests {
         assert_eq!(record.id_hi(), 0);
         assert_eq!(record.id_lo(), 0);
         assert_eq!(record.level, LogLevel::Info);
-        assert_eq!(record.message.as_str(), "");
+        assert_eq!(record.message.as_utf8().unwrap(), "");
         assert_eq!(record.content_hash, [0u8; 32]);
     }
 

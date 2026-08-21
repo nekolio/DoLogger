@@ -111,6 +111,7 @@ typedef enum {
     DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED = -0x0206, /**< Hot reload failed; old config kept */
     DO_LOG_ERR_CONFIG_HASH_MISMATCH  = -0x0207,  /**< Hot reload config hash mismatch */
     DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID = -0x0208, /**< New reload config failed validation */
+    DO_LOG_ERR_CONFIG_RESTART_REQUIRED = -0x0209, /**< Protected config changes require restart */
 
     /* --- Plugin (0x03xx): registry and runtime --- */
     DO_LOG_ERR_PLUGIN_NOT_FOUND      = -0x0301,  /**< Plugin not found */
@@ -135,6 +136,7 @@ typedef enum {
     DO_LOG_ERR_FIELD_PERMISSION_DENIED = -0x0403, /**< Field access denied (Ring permission) */
     DO_LOG_ERR_FIELD_TYPE_MISMATCH   = -0x0404,  /**< Field type mismatch */
     DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET = -0x0405, /**< Required field not provided earlier */
+    DO_LOG_ERR_RECORD_INVALID_ENCODING = -0x0406, /**< Legacy text input is not valid UTF-8 */
 
     /* --- Buffer / Pipeline (0x05xx): ingest, backpressure --- */
     DO_LOG_ERR_BUFFER_FULL           = -0x0501,  /**< Ring buffer full, drop/block forbidden */
@@ -190,7 +192,11 @@ typedef enum {
 
     /* --- SIF / Serialization (0x0Dxx) --- */
     DO_LOG_ERR_SIF_INVALID           = -0x0D01,  /**< SIF frame malformed / failed verification */
-    DO_LOG_ERR_SIF_VERSION_UNSUPPORTED = -0x0D02 /**< SIF schema version not supported */
+    DO_LOG_ERR_SIF_VERSION_UNSUPPORTED = -0x0D02, /**< SIF schema version not supported */
+    DO_LOG_ERR_KV_INVALID             = -0x0D03, /**< KV frame malformed or over limit */
+    DO_LOG_ERR_KV_VERSION_UNSUPPORTED = -0x0D04, /**< KV frame version not supported */
+    DO_LOG_ERR_KV_HASH_MISMATCH       = -0x0D05, /**< KV content hash mismatch */
+    DO_LOG_ERR_FATAL                 = -0x0E01  /**< Fatal engine condition */,
 
     /* --- Internal / Fatal (0x0Exx): engine-fatal conditions.
      *     Plugin-defined codes use the high-bit range 0x80000000-0xFFFFFFFF

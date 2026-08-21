@@ -16,8 +16,9 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use dologger_core::record::wire::{decode_any, DecodeOptions};
 use dologger_core::record::{LogLevel, Record};
-use dologger_core::sif::{decode_record, encode_record};
+use dologger_core::sif::encode_record;
 
 use crate::output::{self, color, OutputFormat};
 use crate::{stderr, stdout, EXIT_ERR};
@@ -345,8 +346,8 @@ pub fn cmd_replay(input: &str, speed: &str, format: OutputFormat) {
         let payload = &data[payload_start..payload_end];
 
         // Decode the canonical SIF frame for display.
-        let rec = match decode_record(payload) {
-            Ok(r) => r,
+        let rec = match decode_any(payload, DecodeOptions::default()) {
+            Ok((record, _kind)) => record,
             Err(_) => {
                 offset = payload_end;
                 continue;
@@ -358,7 +359,7 @@ pub fn cmd_replay(input: &str, speed: &str, format: OutputFormat) {
         let level = rec.level as usize;
         let tid = rec.thread_id;
         let pid = rec.process_id;
-        let message = rec.message.as_str().to_string();
+        let message = rec.message.display_lossy().into_owned();
         let source_file = rec.source_file();
         let host_name = rec.host_name();
 

@@ -143,7 +143,7 @@ impl ConsoleSink {
 
         let level_str = record.level.to_str();
         let thread_id = record.thread_id;
-        let message = record.message.as_str();
+        let message = record.message.display_lossy();
 
         format!("[{secs}.{millis:03}] [{level_str}] [{thread_id}] {message}")
     }

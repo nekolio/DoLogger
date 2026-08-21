@@ -424,6 +424,21 @@ fn control_loop(
     }
 }
 
+#[derive(Debug)]
+struct ParsedRequest {
+    method: String,
+    path: String,
+    body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RequestError {
+    BadRequest,
+    PayloadTooLarge,
+    HeaderTooLarge,
+    UnsupportedMethod,
+}
+
 fn handle_request(
     mut stream: TcpStream,
     engine_level: SharedLevel,
@@ -432,58 +447,50 @@ fn handle_request(
 ) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-    let mut reader = BufReader::new(&mut stream);
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() || request_line.len() > MAX_REQUEST_LINE {
-        send_response(&mut stream, 400, "{\"error\":\"invalid request line\"}");
-        stats.record_error();
-        return;
-    }
-
-    let parts: Vec<&str> = request_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        send_response(&mut stream, 400, "{\"error\":\"malformed request\"}");
-        stats.record_error();
-        return;
-    }
-    let method = parts[0];
-    let path = parts[1];
-
-    let mut content_length = 0usize;
-    loop {
-        let mut header = String::new();
-        if reader.read_line(&mut header).is_err() {
+    let parsed = {
+        let mut reader = BufReader::new(&mut stream);
+        read_request(&mut reader)
+    };
+    let request = match parsed {
+        Ok(request) => request,
+        Err(RequestError::PayloadTooLarge) => {
+            send_error(
+                &mut stream,
+                413,
+                crate::error::DO_LOG_ERR_BUFFER_TOO_SMALL,
+                None,
+            );
             stats.record_error();
             return;
         }
-        if header.trim().is_empty() {
-            break;
+        Err(RequestError::HeaderTooLarge) => {
+            send_error(
+                &mut stream,
+                431,
+                crate::error::DO_LOG_ERR_BUFFER_TOO_SMALL,
+                None,
+            );
+            stats.record_error();
+            return;
         }
-        if header.to_ascii_lowercase().starts_with("content-length:") {
-            content_length = header
-                .split(':')
-                .nth(1)
-                .unwrap_or("0")
-                .trim()
-                .parse()
-                .unwrap_or(0);
+        Err(RequestError::UnsupportedMethod) => {
+            send_error(
+                &mut stream,
+                405,
+                crate::error::DO_LOG_ERR_NOT_SUPPORTED,
+                None,
+            );
+            stats.record_error();
+            return;
         }
-    }
+        Err(RequestError::BadRequest) => {
+            send_error(&mut stream, 400, crate::error::DO_LOG_ERR_INVALID_ARG, None);
+            stats.record_error();
+            return;
+        }
+    };
 
-    if content_length > MAX_CONTENT_LENGTH {
-        send_response(&mut stream, 413, "{\"error\":\"payload too large\"}");
-        stats.record_error();
-        return;
-    }
-
-    let mut body = vec![0u8; content_length];
-    if content_length > 0 && reader.read_exact(&mut body).is_err() {
-        send_response(&mut stream, 400, "{\"error\":\"incomplete body\"}");
-        stats.record_error();
-        return;
-    }
-
-    match (method, path) {
+    match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/status") => {
             let level = engine_level
                 .lock()
@@ -493,10 +500,19 @@ fn handle_request(
             send_response(&mut stream, 200, &snapshot.to_json());
         }
         ("POST", "/level") => {
-            let body_str = String::from_utf8_lossy(&body);
-            let requested_level = extract_json_string(&body_str, "level").unwrap_or("INFO");
+            let body = std::str::from_utf8(&request.body).unwrap_or_default();
+            let Some(requested_level) = extract_json_string(body, "level") else {
+                send_error(&mut stream, 400, crate::error::DO_LOG_ERR_INVALID_ARG, None);
+                stats.record_error();
+                return;
+            };
             if !is_valid_level(requested_level) {
-                send_response(&mut stream, 400, "{\"error\":\"invalid level\"}");
+                send_error(
+                    &mut stream,
+                    400,
+                    crate::error::DO_LOG_ERR_INVALID_ARG,
+                    Some("level"),
+                );
                 stats.record_error();
                 return;
             }
@@ -529,15 +545,21 @@ fn handle_request(
                 ),
                 Some(Err(error)) => {
                     stats.record_error();
-                    let response = format!(
-                        "{{\"status\":\"error\",\"message\":\"{}\"}}",
-                        escape_json(&error)
+                    send_error(
+                        &mut stream,
+                        500,
+                        crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED,
+                        Some(&error),
                     );
-                    send_response(&mut stream, 500, &response);
                 }
             }
         }
         ("POST", "/metrics/reset") => {
+            if !request.body.is_empty() {
+                send_error(&mut stream, 400, crate::error::DO_LOG_ERR_INVALID_ARG, None);
+                stats.record_error();
+                return;
+            }
             stats.reset_counters();
             send_response(
                 &mut stream,
@@ -545,10 +567,112 @@ fn handle_request(
                 "{\"status\":\"ok\",\"message\":\"metrics reset\"}",
             );
         }
-        _ => send_response(&mut stream, 404, "{\"error\":\"not found\"}"),
+        ("GET", _) | ("POST", _) => {
+            send_error(
+                &mut stream,
+                404,
+                crate::error::DO_LOG_ERR_NOT_SUPPORTED,
+                None,
+            );
+        }
+        _ => {
+            send_error(
+                &mut stream,
+                405,
+                crate::error::DO_LOG_ERR_NOT_SUPPORTED,
+                None,
+            );
+        }
     }
 }
 
+fn read_request(reader: &mut BufReader<&mut TcpStream>) -> Result<ParsedRequest, RequestError> {
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() || request_line.len() > MAX_REQUEST_LINE {
+        return Err(RequestError::BadRequest);
+    }
+    let parts: Vec<&str> = request_line.split_whitespace().collect();
+    if parts.len() != 3 || !matches!(parts[2], "HTTP/1.0" | "HTTP/1.1") {
+        return Err(RequestError::BadRequest);
+    }
+    if !matches!(parts[0], "GET" | "POST") {
+        return Err(RequestError::UnsupportedMethod);
+    }
+    if parts[1].len() > 256
+        || !parts[1].starts_with('/')
+        || parts[1].contains("..")
+        || parts[1].contains('\0')
+    {
+        return Err(RequestError::BadRequest);
+    }
+
+    let mut content_length = None;
+    let mut header_count = 0usize;
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).is_err() {
+            return Err(RequestError::BadRequest);
+        }
+        if header.len() > MAX_REQUEST_LINE {
+            return Err(RequestError::HeaderTooLarge);
+        }
+        if header.trim().is_empty() {
+            break;
+        }
+        header_count += 1;
+        if header_count > 64 {
+            return Err(RequestError::HeaderTooLarge);
+        }
+        let Some((name, value)) = header.split_once(':') else {
+            return Err(RequestError::BadRequest);
+        };
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        if name == "transfer-encoding" {
+            return Err(RequestError::BadRequest);
+        }
+        if name == "content-length" {
+            if content_length.is_some() || value.is_empty() {
+                return Err(RequestError::BadRequest);
+            }
+            let length = value
+                .parse::<usize>()
+                .map_err(|_| RequestError::BadRequest)?;
+            if length > MAX_CONTENT_LENGTH {
+                return Err(RequestError::PayloadTooLarge);
+            }
+            content_length = Some(length);
+        }
+    }
+
+    let length = content_length.unwrap_or(0);
+    let mut body = vec![0u8; length];
+    if length > 0 && reader.read_exact(&mut body).is_err() {
+        return Err(RequestError::BadRequest);
+    }
+    Ok(ParsedRequest {
+        method: parts[0].to_string(),
+        path: parts[1].to_string(),
+        body,
+    })
+}
+
+fn send_error(stream: &mut TcpStream, status: u16, code: i32, detail: Option<&str>) {
+    let descriptor = crate::error::error_descriptor(code);
+    let detail = detail.map(escape_json).unwrap_or_default();
+    let body = format!(
+        "{{\"error_code\":{},\"error_key\":\"{}\",\"message\":\"{}\"{} }}",
+        code,
+        escape_json(descriptor.key),
+        escape_json(descriptor.default_message),
+        if detail.is_empty() {
+            String::new()
+        } else {
+            format!(",\"detail\":\"{}\"", detail)
+        }
+    );
+    send_response(stream, status, &body);
+}
 impl StatusSnapshot {
     /// Return accepted plus processed records for coarse throughput reporting.
     pub fn total_records(&self) -> u64 {

@@ -135,7 +135,7 @@ brew install dologger/tap/dologger
 [dologger]
 level = "INFO"
 performance_profile = "prod-performance"
-ring_buffer_size = 262144       # 必须是 2 的幂
+ring_buffer_size = 65536        # 默认值；必须是 2 的幂
 batch_size = 256
 enable_audit = false           # 审计部署时设为 true
 enable_signature = false        # 需要逐条签名时设为 true
@@ -302,7 +302,7 @@ export DO_LOG_PERF_PROFILE=prod-audit
 ```toml
 [dologger]
 performance_profile = "prod-performance"
-ring_buffer_size = 524288       # 覆盖 262144 默认值
+ring_buffer_size = 524288       # 覆盖 65536 默认值
 ```
 
 覆盖值在 Profile 默认值之上合并。不可降级项不能通过覆盖放宽。
@@ -320,7 +320,7 @@ ring_buffer_size = 524288       # 覆盖 262144 默认值
 
 ## 共享内存 Sink（sink_shm）
 
-`sink_shm` 通过跨进程的共享内存环形缓冲区，将 SIF 记录以零拷贝方式投递给外部消费进程。它与 `[sinks.*]` **分开接线**，不属于 sink 注册表。通过顶层 `[shm]` 表启用：
+`sink_shm` 通过跨进程的共享内存环形缓冲区，将 KVF1 记录以零拷贝方式投递给外部消费进程，同时保留旧 SIF 的兼容读取。它与 `[sinks.*]` **分开接线**，不属于 sink 注册表。通过顶层 `[shm]` 表启用：
 
 ```toml
 [shm]

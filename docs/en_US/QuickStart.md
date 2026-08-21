@@ -165,7 +165,7 @@ performance_profile = "prod-performance"
 
 ```toml
 [dologger]
-ring_buffer_size = 262144   # MUST be a power of two (65536, 131072, 262144, 524288)
+ring_buffer_size = 65536    # Default; must be a power of two (131072, 262144, 524288 for larger bursts)
 ```
 
 Larger buffers handle bursty workloads better at the cost of memory. Each slot is a record pointer (8 bytes on 64-bit), so 262144 slots use approximately 2 MB.

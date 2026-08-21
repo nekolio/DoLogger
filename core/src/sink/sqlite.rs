@@ -236,7 +236,10 @@ impl SqliteSink {
             let record_id = format!("{:016x}{:016x}", record.id_hi(), record.id_lo());
             let timestamp_ns = record.timestamp as i64;
             let level = record.level.to_str();
-            let message = record.message.as_str();
+            let message = match record.message.as_utf8() {
+                Ok(text) => rusqlite::types::Value::Text(text.to_owned()),
+                Err(_) => rusqlite::types::Value::Blob(record.message.as_bytes().to_vec()),
+            };
             let source_file = record.source_file();
             let source_func = record.source_function();
             let thread_name = record.thread_name();

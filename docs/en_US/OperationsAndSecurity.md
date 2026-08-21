@@ -781,7 +781,7 @@ shutdown_timeout_ms = 10000
 
 | GDPR Article | DoLogger Feature |
 |:-:|:-:|
-| Art. 5(1)(f) | Ed25519 signatures + CRC32C integrity check |
+| Art. 5(1)(f) | Optional audit Ed25519 signatures + record `content_hash` |
 | Art. 15 | Ring 2 field signing (user.id, session.id) for data subject access records |
 | Art. 30 | WORM audit log as records of processing activities |
 | Art. 32 | Encryption in transit (TLS), integrity protection (signatures), resilience (ring buffer + emergency spill) |

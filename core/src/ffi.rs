@@ -241,14 +241,26 @@ pub extern "C" fn dologger_log(
         // Ring 1: Level + message
         record.level = LogLevel::from_u8(p.level).unwrap_or(LogLevel::Info);
         if !p.message.is_null() {
-            if let Ok(msg) = CStr::from_ptr(p.message).to_str() {
-                record.message.set(msg);
-            }
+            let msg = match CStr::from_ptr(p.message).to_str() {
+                Ok(msg) => msg,
+                Err(_) => {
+                    engine.pool.free(record);
+                    set_last_error_code(crate::error::DO_LOG_ERR_RECORD_INVALID_ENCODING);
+                    return crate::error::DO_LOG_ERR_RECORD_INVALID_ENCODING;
+                }
+            };
+            record.message.set(msg);
         }
         if !p.source_file.is_null() {
-            if let Ok(s) = CStr::from_ptr(p.source_file).to_str() {
-                record.set_source_file(s);
-            }
+            let source_file = match CStr::from_ptr(p.source_file).to_str() {
+                Ok(source_file) => source_file,
+                Err(_) => {
+                    engine.pool.free(record);
+                    set_last_error_code(crate::error::DO_LOG_ERR_RECORD_INVALID_ENCODING);
+                    return crate::error::DO_LOG_ERR_RECORD_INVALID_ENCODING;
+                }
+            };
+            record.set_source_file(source_file);
         }
         record.set_source_line(p.source_line);
 

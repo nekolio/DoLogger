@@ -295,11 +295,11 @@ The ring buffer size **MUST** be a power of two. The engine uses bitmask modulo 
 
 **Table 3: Common Power-of-Two Ring Buffer Sizes**
 
-| Slots | Approx. Memory (128 B/record) | Suitable For |
+| Slots | Approx. Memory (256 B/record) | Suitable For |
 |:-:|:-:|:-:|
-| 65536 (64K) | ~8 MB | Development, audit-only (5K rec/s) |
+| 65536 (64K) | ~16 MB | Development, audit-only (5K rec/s) -- **default** |
 | 131072 (128K) | ~17 MB | Light production (50K rec/s) |
-| 262144 (256K) | ~34 MB | Moderate production (100K-250K rec/s) -- **default** |
+| 262144 (256K) | ~64 MB | Moderate production (100K-250K rec/s) |
 | 524288 (512K) | ~67 MB | Heavy production (250K-500K rec/s) |
 | 1048576 (1M) | ~134 MB | High-throughput (500K-1M rec/s) |
 | 4194304 (4M) | ~537 MB | Burst-heavy batch jobs (1M-2M rec/s bursts) |
@@ -324,7 +324,7 @@ Typical values:
 
 ```toml
 [dologger]
-ring_buffer_size = 262144       # 256K slots
+ring_buffer_size = 65536        # 64K default slots
 ```
 
 ```bash
@@ -448,12 +448,12 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 
 | Component | Formula | Example (262K buffer, avg record) |
 |:-:|:-:|:-:|
-| Ring buffer slots | `ring_buffer_size * sizeof(record)` | 262144 x 128 B = **34 MB** |
-| Object pool | `ring_buffer_size * sizeof(record)` | 262144 x 128 B = **34 MB** |
+| Ring buffer slots | `ring_buffer_size * sizeof(record)` | 262144 x 256 B = **64 MB** |
+| Object pool | `ring_buffer_size * sizeof(record)` | 262144 x 256 B = **64 MB** |
 | Plugin state | `SUM(plugin_state_size)` per loaded plugin | 10 plugins x 1 MB = **10 MB** |
 | Pipeline format buffers | `thread_pool_size * max_output_size` | 4 x 1 MB = **4 MB** |
 | Engine overhead | Fixed: structs, config, metadata | **~10 MB** |
-| **Total** | | **~92 MB** |
+| **Total** | | **~152 MB** |
 
 ### Memory Budget for Throughput Targets
 
@@ -463,7 +463,7 @@ Total RAM = Ring Buffer + Object Pool + Plugin State + Pipeline Buffers + Engine
 |:-:|:-:|:-:|:-:|:-:|
 | 50K rec/s (light) | 65536 | 65536 | ~25 MB | 512 MB |
 | 100K rec/s (moderate) | 131072 | 131072 | ~48 MB | 1 GB |
-| 250K rec/s (production) | 262144 | 262144 | ~92 MB | 2 GB |
+| 250K rec/s (production) | 262144 | 262144 | ~152 MB | 2 GB |
 | 500K rec/s (high) | 524288 | 524288 | ~184 MB | 4 GB |
 | 1M rec/s (intensive) | 1048576 | 1048576 | ~360 MB | 8 GB |
 | 2M+ rec/s (extreme) | 4194304 | 4194304 | ~1.4 GB | 16 GB |

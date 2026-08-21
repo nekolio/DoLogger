@@ -227,7 +227,7 @@ struct ConsumerCtx<'a> {
     /// I/O thread pool; stored for ordered drop (must outlive channel sender)
     #[allow(dead_code)]
     io_pool: Option<Arc<ThreadPool>>,
-    /// Optional shared-memory sink. Written per accepted record (SIF) on the
+    /// Optional shared-memory sink. Written per accepted record (KV frame) on the
     /// consumer thread, parallel to the configured sink.
     shm_sink: Option<&'a Arc<ShmSink>>,
     /// Monotonically increasing LSN counter for the audit chain. Borrowed from the
@@ -288,6 +288,21 @@ impl ConsumerCtx<'_> {
 /// [`OutputBuffer`]; on `DO_LOG_ERR_BUFFER_TOO_SMALL` the buffer is grown and
 /// retried. A plugin error or an unreasonable size requirement falls back to
 /// the built-in format so a misbehaving formatter can never lose a record.
+fn mirror_record_to_shm(record: &Record, shm: &ShmSink) {
+    match crate::record::wire::encode_record(record) {
+        Ok(frame) => {
+            if !shm.write(&frame) {
+                crate::sys::diagnostics::warn("pipeline", "KV shared-memory write dropped");
+            }
+        }
+        Err(error) => {
+            crate::sys::diagnostics::error(
+                "pipeline",
+                &format!("KV frame encoding failed; record not mirrored: {error}"),
+            );
+        }
+    }
+}
 fn format_record(record: &Record, dispatch: &PluginDispatch) -> String {
     let Some(fmt) = dispatch.formatters.first() else {
         return SinkRef::format_record(record);
@@ -412,8 +427,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
             // while it is still owned by the consumer. SIF serialisation is
             // cheap and the shm write is non-blocking / lossy by design.
             if let Some(shm) = c.shm_sink {
-                let sif = crate::sif::encode_record(record);
-                shm.write(&sif);
+                mirror_record_to_shm(record, shm);
             }
 
             // SAFETY: record_ptr was obtained from this pool via alloc() and
@@ -479,8 +493,7 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
 
         // Mirror the accepted record into the shared-memory sink (if any).
         if let Some(shm) = c.shm_sink {
-            let sif = crate::sif::encode_record(record);
-            shm.write(&sif);
+            mirror_record_to_shm(record, shm);
         }
 
         // SAFETY: record_ptr was obtained from this pool via alloc() and

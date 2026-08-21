@@ -7,11 +7,18 @@
 
 use std::fmt;
 
+pub mod log_output;
+pub mod policy;
+
 /// Supported text encoding selectors for core encode/decode operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextEncoding {
     /// Canonical UTF-8 used by persisted text and all non-Windows pipes/files.
     Utf8,
+    /// Little-endian UTF-16 input or output.
+    Utf16Le,
+    /// Big-endian UTF-16 input or output.
+    Utf16Be,
     /// A Windows code page used only when a caller explicitly requests it.
     CodePage(u32),
 }
@@ -48,6 +55,8 @@ impl std::error::Error for EncodingError {}
 pub fn encode(text: &str, encoding: TextEncoding) -> Result<Vec<u8>, EncodingError> {
     match encoding {
         TextEncoding::Utf8 => Ok(text.as_bytes().to_vec()),
+        TextEncoding::Utf16Le => Ok(text.encode_utf16().flat_map(u16::to_le_bytes).collect()),
+        TextEncoding::Utf16Be => Ok(text.encode_utf16().flat_map(u16::to_be_bytes).collect()),
         TextEncoding::CodePage(code_page) => encode_code_page(text, code_page),
     }
 }
@@ -58,8 +67,145 @@ pub fn decode(bytes: &[u8], encoding: TextEncoding) -> Result<String, EncodingEr
         TextEncoding::Utf8 => {
             String::from_utf8(bytes.to_vec()).map_err(|_| EncodingError::InvalidBytes)
         }
+        TextEncoding::Utf16Le => decode_utf16(bytes, true),
+        TextEncoding::Utf16Be => decode_utf16(bytes, false),
         TextEncoding::CodePage(code_page) => decode_code_page(bytes, code_page),
     }
+}
+
+/// Result of an explicitly requested, deterministic input detection pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetectedInputEncoding {
+    /// Strictly valid UTF-8 bytes.
+    Utf8,
+    /// UTF-16 little-endian bytes, with or without a BOM.
+    Utf16Le,
+    /// UTF-16 big-endian bytes, with or without a BOM.
+    Utf16Be,
+    /// A code page that was the only candidate to decode successfully.
+    CodePage(u32),
+}
+
+impl DetectedInputEncoding {
+    /// Convert the detection result to the core codec selector.
+    pub const fn as_text_encoding(self) -> TextEncoding {
+        match self {
+            Self::Utf8 => TextEncoding::Utf8,
+            Self::Utf16Le => TextEncoding::Utf16Le,
+            Self::Utf16Be => TextEncoding::Utf16Be,
+            Self::CodePage(code_page) => TextEncoding::CodePage(code_page),
+        }
+    }
+}
+
+/// Fail-closed outcomes from an explicit input `AUTO` request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AutoDetectionError {
+    /// No deterministic text interpretation was found.
+    Unknown,
+    /// More than one explicitly supplied code page decoded the bytes.
+    Ambiguous(Vec<u32>),
+    /// A BOM was present but the payload failed strict validation.
+    InvalidBom,
+}
+
+impl fmt::Display for AutoDetectionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unknown => formatter.write_str("input encoding is not uniquely detectable"),
+            Self::Ambiguous(code_pages) => {
+                write!(formatter, "input encoding is ambiguous: {code_pages:?}")
+            }
+            Self::InvalidBom => formatter.write_str("input encoding BOM is invalid"),
+        }
+    }
+}
+
+impl std::error::Error for AutoDetectionError {}
+
+/// Detect an input encoding only when the caller explicitly requests `AUTO`.
+///
+/// The function is intentionally fail-closed. It never chooses a statistical
+/// best match and never mutates the supplied bytes. Code-page candidates are
+/// caller-provided so the core does not silently invent a platform policy.
+pub fn detect_input(
+    bytes: &[u8],
+    code_page_candidates: &[u32],
+) -> Result<DetectedInputEncoding, AutoDetectionError> {
+    if bytes.starts_with(&[0xff, 0xfe]) {
+        decode_utf16(&bytes[2..], true).map_err(|_| AutoDetectionError::InvalidBom)?;
+        return Ok(DetectedInputEncoding::Utf16Le);
+    }
+    if bytes.starts_with(&[0xfe, 0xff]) {
+        decode_utf16(&bytes[2..], false).map_err(|_| AutoDetectionError::InvalidBom)?;
+        return Ok(DetectedInputEncoding::Utf16Be);
+    }
+    if std::str::from_utf8(bytes).is_ok() {
+        return Ok(DetectedInputEncoding::Utf8);
+    }
+
+    let mut utf16_candidates = Vec::with_capacity(2);
+    if has_utf16_shape(bytes, true) && decode_utf16(bytes, true).is_ok() {
+        utf16_candidates.push(DetectedInputEncoding::Utf16Le);
+    }
+    if has_utf16_shape(bytes, false) && decode_utf16(bytes, false).is_ok() {
+        utf16_candidates.push(DetectedInputEncoding::Utf16Be);
+    }
+    if utf16_candidates.len() == 1 {
+        return Ok(utf16_candidates[0]);
+    }
+    if utf16_candidates.len() > 1 {
+        return Err(AutoDetectionError::Unknown);
+    }
+
+    let mut decoded_code_pages = Vec::new();
+    for &code_page in code_page_candidates {
+        if validate_code_page(code_page).is_err() {
+            continue;
+        }
+        if decode_code_page(bytes, code_page).is_ok() {
+            decoded_code_pages.push(code_page);
+        }
+    }
+    match decoded_code_pages.as_slice() {
+        [code_page] => Ok(DetectedInputEncoding::CodePage(*code_page)),
+        [] => Err(AutoDetectionError::Unknown),
+        candidates => Err(AutoDetectionError::Ambiguous(candidates.to_vec())),
+    }
+}
+
+fn has_utf16_shape(bytes: &[u8], little_endian: bool) -> bool {
+    if bytes.len() < 4 || !bytes.len().is_multiple_of(2) {
+        return false;
+    }
+    let zero_count = bytes
+        .chunks_exact(2)
+        .filter(|pair| {
+            if little_endian {
+                pair[1] == 0 && pair[0] != 0
+            } else {
+                pair[0] == 0 && pair[1] != 0
+            }
+        })
+        .count();
+    zero_count * 2 >= bytes.len() / 2
+}
+
+fn decode_utf16(bytes: &[u8], little_endian: bool) -> Result<String, EncodingError> {
+    if !bytes.len().is_multiple_of(2) {
+        return Err(EncodingError::InvalidBytes);
+    }
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|pair| {
+            if little_endian {
+                u16::from_le_bytes([pair[0], pair[1]])
+            } else {
+                u16::from_be_bytes([pair[0], pair[1]])
+            }
+        })
+        .collect();
+    String::from_utf16(&units).map_err(|_| EncodingError::InvalidBytes)
 }
 
 /// A detected locale and display encoding snapshot.
@@ -289,5 +435,36 @@ mod tests {
     fn utf8_codec_round_trips_without_locale_state() {
         let bytes = encode("日志", TextEncoding::Utf8).unwrap();
         assert_eq!(decode(&bytes, TextEncoding::Utf8).unwrap(), "日志");
+    }
+
+    #[test]
+    fn utf16_codecs_round_trip_strictly() {
+        let text = "日志";
+        let little_endian = encode(text, TextEncoding::Utf16Le).unwrap();
+        let big_endian = encode(text, TextEncoding::Utf16Be).unwrap();
+        assert_eq!(decode(&little_endian, TextEncoding::Utf16Le).unwrap(), text);
+        assert_eq!(decode(&big_endian, TextEncoding::Utf16Be).unwrap(), text);
+    }
+
+    #[test]
+    fn explicit_auto_accepts_bom_and_rejects_ambiguous_unknown_bytes() {
+        let mut utf16 = vec![0xff, 0xfe];
+        utf16.extend_from_slice(&encode("hello", TextEncoding::Utf16Le).unwrap());
+        assert_eq!(
+            detect_input(&utf16, &[]).unwrap(),
+            DetectedInputEncoding::Utf16Le
+        );
+        assert_eq!(
+            detect_input(&[0xff, 0x80, 0x00], &[]),
+            Err(AutoDetectionError::Unknown)
+        );
+    }
+
+    #[test]
+    fn auto_prefers_strict_utf8_without_guessing_code_pages() {
+        assert_eq!(
+            detect_input("plain UTF-8".as_bytes(), &[936, 1252]).unwrap(),
+            DetectedInputEncoding::Utf8
+        );
     }
 }

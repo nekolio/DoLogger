@@ -192,7 +192,7 @@ fn my_filter(record: &Record, result: &mut FilterResult) -> DoLogError {
 
 - 您**不能**访问文件系统、网络或创建进程。
 - 您**可以**分配内存、使用线程和查询时间。这对无状态或纯计算插件（例如检查记录字段的 Filter、编辑文本的 Processor）足够。
-- 所有输出进入 `ext.*` 字段命名空间（Ring 3，仅 CRC32C 完整性）。您不能写入 `verified.*` 命名空间。
+- 所有输出进入 `ext.*` 字段命名空间（Ring 3，纳入记录 `content_hash`）。您不能写入 `verified.*` 命名空间。
 - Red 插件**默认禁用**。宿主运维人员必须显式设置 `allow_red_plugins = true`。
 
 ### 在沙箱约束下开发
@@ -320,7 +320,7 @@ if (scan_result.secret_detected) {
 1. **不要**：实现自己的加密算法。使用引擎的 API 或经过良好审计的库（`ring`、`ed25519-dalek`、`rustls`）。
 2. **不要**：使用可预测或低熵种子的随机数。始终从 `/dev/urandom` 或 `getrandom()` 获取种子。
 3. **不要**：对签名和加密重复使用相同的密钥。不同用途使用不同密钥。
-4. **不要**：将已废弃的哈希函数（MD5、SHA-1）用于任何安全目的。CRC32C 仅可用于 Ring 3 数据的非安全完整性检查。
+4. **不要**：将已废弃的哈希函数（MD5、SHA-1）用于任何安全目的。CRC32C 仅是独立兼容校验，不得替代记录 `content_hash` 或审计签名。
 5. **不要**：硬编码加密密钥、IV 或 nonce。每个密钥必须来自 `KeyProvider`。每个 nonce 必须新鲜生成。
 
 ### 处理 Ed25519 签名

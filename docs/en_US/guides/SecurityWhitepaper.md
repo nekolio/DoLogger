@@ -67,7 +67,7 @@ flowchart TB
 | Decision | Rationale |
 |:-:|:-:|
 | Ed25519 over ECDSA | Faster signing (~17 us), smaller signatures (64 bytes), no RNG dependence, and well-reviewed constant-time implementation. |
-| CRC32C for Ring 3 | Hardware-accelerated (SSE 4.2: ~0.5 cycles/byte). Adequate for integrity detection of untrusted extension data where cryptographic strength is not required. |
+| Ring 3 field integrity | Covered by the record `content_hash`; CRC32C remains an independent compatibility checksum. |
 | seccomp-bpf over ptrace | Lower overhead, per-thread filtering, no TOCTOU races. `SECCOMP_RET_KILL_PROCESS` provides immediate termination on violation. |
 | Lock-free ring buffer | Eliminates mutex contention on the hot path. CAS-based single-producer optimization for each calling thread. |
 | SHA-256 for LSN chain | Well-understood preimage resistance. Second-preimage resistance binds each record to its predecessor. |
@@ -127,7 +127,7 @@ DoLogger enforces a mandatory access control model on log record fields through 
 | Ring 0 | Engine Core        | Core engine only                  | Formatter and Sink (read-only) | Ed25519 signature    |
 | Ring 1 | System Trusted     | Core engine + `HostInfoProvider`  | All plugins (read-only)     | Ed25519 signature    |
 | Ring 2 | Verified Plugins   | Blue and Yellow plugins           | All plugins                 | Ed25519 (configurable via `sign_ring2`) |
-| Ring 3 | Untrusted Extensions| Any plugin (Red included)        | All plugins                 | CRC32C only          |
+| Ring 3 | Untrusted Extensions| Any plugin (Red included)        | All plugins                 | `content_hash`       |
 
 ### Ring 0 — Immutable Engine Fields
 
@@ -180,12 +180,12 @@ The `audit_tags` array provides a tamper-evident record of which plugin modified
 
 Red plugins write to the `ext.*` namespace. These fields:
 
-- Are protected by CRC32C only (hardware-accelerated integrity check, not cryptographic).
+- Are covered by the record `content_hash`; CRC32C is not the security boundary.
 - Are **excluded** from the Ed25519 signature coverage.
 - May be silently dropped by a Filter plugin configured to distrust `ext.*` fields.
 - Carry no `audit_tags` entries.
 
-**Rationale**: Red plugins are zero-trust. Their output is integrity-checked (CRC32C detects accidental corruption) but not cryptographically verified. Systems that require strong guarantees should not rely on Ring 3 fields.
+**Rationale**: Red plugins are zero-trust. Their output participates in the record content hash, but it is not included in the optional audit signature. Systems that require non-repudiation must enable the audit path and signature policy.
 
 ---
 
@@ -198,7 +198,7 @@ Ed25519 signatures cover:
 1. **Always**: All fixed hot fields (timestamp, level, message, pid, tid, LSN)
 2. **Always**: All KV fields (deterministic serialization — same canonical
    order as the KV encoding spec, shared with the record encoding path)
-3. **Never**: Overflow spill state (protected by CRC32C)
+3. **Never**: Heap addresses or other storage-layout details; only the overflow payload is canonicalized
 
 The signing process (pseudocode — illustrative algorithm description):
 
@@ -495,7 +495,7 @@ dologctl config validate \
 
 | Layer             | Mechanism                                  | Performance Overhead | Protection Scope |
 |:-:|:-:|:-:|:-:|
-| KV overflow fields| CRC32C (SSE 4.2 hardware: ~0.5 cycles/B)   | Negligible           | Accidental corruption detection |
+| KV overflow fields| `content_hash` canonical payload coverage           | Negligible           | Runtime tamper detection; CRC32C remains compatibility-only |
 | Fixed + KV fields | content_hash chain (SHA-256, ~120 ns–1 us) | Low                 | Memory/runtime tamper detection |
 | Non-repudiation   | Ed25519 signature (sidecar `audit.log.sig`; TPM-backed key) | Per-record: TPM ops/s bound; block mode: amortized | Forgery prevention |
 | Audit chain       | SHA-256 prev_hash (~120 ns)                | Low (~120 ns)        | Chain-of-custody proof |

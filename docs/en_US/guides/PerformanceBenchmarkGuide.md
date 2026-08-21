@@ -127,7 +127,7 @@ A per-pipeline-stage breakdown is planned but not implemented in v0.0.1 (the shi
 | PreFilter | PolicyProvider evaluation |
 | Filter | Filter plugin decision |
 | FieldProvider | Field injection |
-| Assembly | LSN assignment + Ed25519 sign + CRC32C |
+| Assembly | LSN assignment + `content_hash` + optional Ed25519 audit sign |
 | Processing | Processor plugin transformation |
 | Formatting | Formatter serialization |
 | Sink | Core built-in sink write call |

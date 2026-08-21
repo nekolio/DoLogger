@@ -160,7 +160,7 @@ level = "INFO"                          # 最低日志级别
 performance_profile = "prod-performance" # 性能预设
 
 # -- 性能 --
-ring_buffer_size = 262144               # 必须是 2 的幂
+ring_buffer_size = 65536                # 默认值；必须是 2 的幂
 batch_size = 256                        # 每管道批次的记录数
 enable_audit = false                   # 显式启用隔离 AUDIT 管线
 enable_signature = false                # 可选 Ed25519 签名
@@ -243,7 +243,7 @@ flowchart TD
 [dologger]
 level = "INFO"
 performance_profile = "prod-performance"
-ring_buffer_size = 262144
+ring_buffer_size = 65536
 
 [domains]
 
@@ -336,7 +336,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    subgraph R3["Ring 3（外层，ext.*）<br/>仅 CRC32C<br/>Red 插件可用"]
+    subgraph R3["Ring 3（外层，ext.*）<br/>纳入 content_hash<br/>Red 插件可用"]
         subgraph R2["Ring 2（verified.*）<br/>Ed25519（可选）<br/>Blue/Yellow 插件"]
             subgraph R1["Ring 1 系统字段 + HostInfo<br/>Ed25519（始终）<br/>核心引擎 + HostInfoProvider"]
                 R0["Ring 0（核心）引擎核心字段<br/>Ed25519（始终）<br/>仅核心引擎（不可变）"]
@@ -393,7 +393,7 @@ Blue 和 Yellow 插件写入 `verified.*` 命名空间。每次写入追加一�
 
 ### Ring 3 -- 不可信扩展
 
-Red 插件写入 `ext.*`。这些字段仅具有 CRC32C（硬件加速完整性检查，非加密）。它们不受 Ed25519 签名覆盖。
+Red 插件写入 `ext.*`。这些字段纳入记录 `content_hash`，但不纳入可选的 Ed25519 审计签名。CRC32C 仅作为独立兼容校验，不是 Ring 3 的安全边界。
 
 ### 从您的应用程序使用字段
 

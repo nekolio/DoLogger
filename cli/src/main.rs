@@ -308,6 +308,12 @@ performance_profile = "dev"
 ring_buffer_size = 65536    # 64K records
 batch_size = 32
 enable_signature = false
+
+# Input AUTO is intentionally disabled by default; enable it only for a
+# length-delimited source after reviewing the fail-closed detection policy.
+[encoding]
+input = "utf8"
+output = "utf8"
 "#;
 
 const PROD_TEMPLATE: &str = r#"# DoLogger Production Configuration
@@ -319,6 +325,10 @@ performance_profile = "prod-performance"
 ring_buffer_size = 262144   # 256K records
 batch_size = 256
 enable_signature = false    # Enable for audit domains
+
+[encoding]
+input = "utf8"
+output = "utf8"
 
 # Domain-specific configuration
 # [dologger.domain.app]
@@ -340,6 +350,11 @@ performance_profile = "prod-audit"
 ring_buffer_size = 262144   # 256K records
 batch_size = 128
 enable_signature = true
+
+# Encoding changes require restart and are not hot-reloaded.
+[encoding]
+input = "utf8"
+output = "utf8"
 
 # [dologger.compliance]
 # template = "hipaa"

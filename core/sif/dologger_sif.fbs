@@ -36,7 +36,7 @@ attribute "length";
 ///   Ring 0 — Kernel-core    (ID, timestamp, signature, origin LSN)
 ///   Ring 1 — System trusted (level, message, host info, tracing, exception)
 ///   Ring 2 — Verified plugin fields (not yet represented in schema — future)
-///   Ring 3 — Untrusted extension fields (CRC32C-protected blob)
+///   Ring 3 — Legacy untrusted extension blob (migration compatibility only)
 ///
 /// All fields are optional (FlatBuffers `table` semantics) so the schema can
 /// evolve without breaking existing consumers.  Missing fields default to
@@ -199,16 +199,14 @@ table Record {
   audit_tags:string;
 
   // =========================================================================
-  // Ring 3 — Untrusted Extension Fields (CRC32C-protected)
+  // Ring 3 — Legacy Untrusted Extension Fields (migration compatibility)
   // =========================================================================
 
-  /// Extension data blob containing arbitrary Ring 3 fields.
-  /// Not covered by the Ed25519 signature; integrity is verified via ext_crc32c.
-  /// Use only for non-critical enrichment data from untrusted plugins.
+  /// Legacy extension blob retained for compatibility decoding only.
+  /// Current records store ext.* fields as KV entries covered by content_hash.
   ext_data:string;
 
-  /// CRC32C (Castagnoli) checksum of ext_data, computed by the core engine
-  /// whenever ext_data is written.  Sinks should verify this before use.
+  /// Legacy CRC32C checksum associated with ext_data compatibility frames.
   ext_crc32c:uint32 = 0;
 
   // =========================================================================

@@ -199,8 +199,34 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
     ctx.record(StageIndex::PreFilter, StageAction::Continue);
 
     // ── Stage 1: Filter ─────────────────────────────────────────────
-    // Plugin-based filter dispatch will go here.
-    // For now, built-in AUDIT-level filter: always pass AUDIT records.
+    // A filter has a deliberately small contract: 0 continues, a positive
+    // value drops, and a negative error aborts. No filter may mutate the
+    // record or perform I/O; the ABI exposes only a const record pointer.
+    for filter in &ctx.dispatch.filters {
+        // SAFETY: the record is exclusively owned by this consumer iteration;
+        // the plugin receives a read-only opaque pointer and its own config.
+        let result = unsafe {
+            (filter.filter)(
+                record as *const Record as *const std::ffi::c_void,
+                filter.config,
+            )
+        };
+        if result < 0 {
+            diagnostics::error(
+                "pipeline",
+                &format!(
+                    "filter plugin aborted record LSN={} with code {result}",
+                    record.lsn
+                ),
+            );
+            ctx.record(StageIndex::Filter, StageAction::Abort);
+            return false;
+        }
+        if result > 0 {
+            ctx.record(StageIndex::Filter, StageAction::Drop);
+            return false;
+        }
+    }
     ctx.record(StageIndex::Filter, StageAction::Continue);
 
     // ── Stage 2: FieldProvider ──────────────────────────────────────
@@ -255,28 +281,54 @@ pub fn run_pipeline(record: &mut Record, ctx: &mut PipelineContext<'_>) -> bool 
     // created once per pipeline instance (lightweight, no heap allocation in
     // the hot path after construction).
     {
-        let mut detector = SecretDetector::default();
-        let result = detector.scan(record.message.as_str());
-        if result.should_block {
-            record.message.set("[SECRET-BLOCKED]");
-            diagnostics::warn(
-                "security",
+        if let Ok(message) = record.message.as_utf8() {
+            let mut detector = SecretDetector::default();
+            let result = detector.scan(message);
+            if result.should_block {
+                record.message.set("[SECRET-BLOCKED]");
+                diagnostics::warn(
+                    "security",
+                    &format!(
+                        "Secret leak BLOCKED in record LSN={}: {:?}",
+                        record.lsn,
+                        result
+                            .findings
+                            .iter()
+                            .map(|f| f.rule.as_str())
+                            .collect::<Vec<_>>()
+                    ),
+                );
+            } else if result.detected {
+                record.message.set(&result.message);
+                diagnostics::info(
+                    "security",
+                    &format!("Secret leak MASKED in record LSN={}", record.lsn),
+                );
+            }
+        }
+    }
+
+    // Plugin processors run after the built-in secret detector and before
+    // content hashing/signing, so audit integrity covers their final output.
+    for processor in &ctx.dispatch.processors {
+        // SAFETY: the record remains exclusively owned by this pipeline pass;
+        // the processor mutates only through the sanctioned host contract.
+        let result = unsafe {
+            (processor.process)(
+                record as *mut Record as *mut std::ffi::c_void,
+                processor.config,
+            )
+        };
+        if result < 0 {
+            diagnostics::error(
+                "pipeline",
                 &format!(
-                    "Secret leak BLOCKED in record LSN={}: {:?}",
-                    record.lsn,
-                    result
-                        .findings
-                        .iter()
-                        .map(|f| f.rule.as_str())
-                        .collect::<Vec<_>>()
+                    "processor plugin aborted record LSN={} with code {result}",
+                    record.lsn
                 ),
             );
-        } else if result.detected {
-            record.message.set(&result.message);
-            diagnostics::info(
-                "security",
-                &format!("Secret leak MASKED in record LSN={}", record.lsn),
-            );
+            ctx.record(StageIndex::Processing, StageAction::Abort);
+            return false;
         }
     }
 

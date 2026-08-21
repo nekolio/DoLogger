@@ -247,7 +247,7 @@ level = "INFO"
 performance_profile = "prod-performance"
 
 # Ring buffer capacity. MUST be a power of two.
-ring_buffer_size = 262144
+ring_buffer_size = 65536
 
 # Number of records processed per pipeline batch.
 batch_size = 256
@@ -319,7 +319,7 @@ DoLogger enforces a four-ring access control model on log record fields. See als
 | Ring 0 | Engine Core         | Core engine only           | Formatter / Sink (read-only) | Ed25519   |
 | Ring 1 | System Trusted      | Core + `HostInfoProvider`  | All plugins (read-only)    | Ed25519   |
 | Ring 2 | Verified Plugins    | Blue / Yellow plugins      | All plugins                | Ed25519 (configurable) |
-| Ring 3 | Untrusted Extensions| Any plugin                 | Any plugin                 | CRC32C    |
+| Ring 3 | Untrusted Extensions| Any plugin                 | Any plugin                 | `content_hash` |
 
 ### Ring 0 — Immutable Fields
 
@@ -344,7 +344,7 @@ Blue and Yellow plugins may write fields with the `verified.*` namespace prefix.
 
 ### Ring 3 — Untrusted
 
-Red plugins write to the `ext.*` namespace. These fields are protected by CRC32C only and are **excluded** from the Ed25519 signature coverage.
+Red plugins write to the `ext.*` namespace. These fields are covered by the record `content_hash` and are **excluded** from the optional Ed25519 audit signature coverage. CRC32C is an independent compatibility checksum only.
 
 ---
 
@@ -560,7 +560,7 @@ The Go adapter uses cgo to link against `libdologger_core`.
 
 | Parameter            | Default  | Recommendation                      | Impact |
 |:-:|:-:|:-:|:-:|
-| `ring_buffer_size`   | 262144   | Increase for bursty workloads       | Larger buffer = higher peak throughput. Must be a power of two. |
+| `ring_buffer_size`   | 65536    | Increase for bursty workloads       | Larger buffer = higher peak throughput. Must be a power of two. |
 | `batch_size`         | 256      | 128–512 depending on record size    | Larger batches = higher throughput, higher latency. |
 | `enable_audit`       | false    | `false` by default; `true` for audit deployments | Enables isolated WORM/Security persistence. |
 | `enable_signature`   | false    | Optional in audit mode; required for signed compliance output | Signing adds ~17 us per record. |

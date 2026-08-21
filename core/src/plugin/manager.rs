@@ -859,11 +859,36 @@ impl PluginManager {
     /// the corresponding vtable type; a malicious or ABI-mismatched plugin is
     /// out of scope for the v0.0.1 trust model (Ed25519 gating is the boundary).
     pub fn resolve_dispatch(&self) -> crate::plugin::vtable::PluginDispatch {
-        use crate::plugin::phase::{PHASE_FIELD_PROVIDER, PHASE_FORMATTING, PHASE_HOSTINFO};
-        use crate::plugin::vtable::{FieldProviderVTable, FormatterVTable, PluginDispatch};
+        use crate::plugin::phase::{
+            PHASE_FIELD_PROVIDER, PHASE_FILTER, PHASE_FORMATTING, PHASE_HOSTINFO, PHASE_PROCESSING,
+        };
+        use crate::plugin::vtable::{
+            FieldProviderVTable, FilterVTable, FormatterVTable, PluginDispatch, ProcessorVTable,
+        };
 
         let mut dispatch = PluginDispatch::default();
         for plugin in self.plugins.values() {
+            if plugin.vtable.is_null() {
+                continue;
+            }
+            if plugin.info.phase & PHASE_FILTER != 0 {
+                // SAFETY: the declared FILTER phase selects FilterVTable.
+                let vtable = unsafe { &*(plugin.vtable as *const FilterVTable) };
+                dispatch.filters.push(crate::plugin::vtable::FilterEntry {
+                    filter: vtable.filter,
+                    config: std::ptr::null_mut(),
+                });
+            }
+            if plugin.info.phase & PHASE_PROCESSING != 0 {
+                // SAFETY: the declared PROCESSING phase selects ProcessorVTable.
+                let vtable = unsafe { &*(plugin.vtable as *const ProcessorVTable) };
+                dispatch
+                    .processors
+                    .push(crate::plugin::vtable::ProcessorEntry {
+                        process: vtable.process,
+                        config: std::ptr::null_mut(),
+                    });
+            }
             if plugin.vtable.is_null() {
                 continue;
             }

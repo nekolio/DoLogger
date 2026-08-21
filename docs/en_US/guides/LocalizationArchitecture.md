@@ -4,11 +4,11 @@
 > adapters, and full plugin catalog ABI remain staged work.
 
 DoLogger separates **core encoding/decoding** from **localization**. Encoding is
-a first-class core service used by records, sinks, catalog files, and display
-adapters. Localization only owns locale detection, catalog lookup, and
+a first-class core service used by byte ingestion, sinks, catalog files, and
+display adapters. Localization only owns locale detection, catalog lookup, and
 fallback. Error codes and message keys are the machine contract. A translated
 message is a presentation-layer result and must never be used for branching,
-signature input, WORM content, SIF canonical bytes, or audit verification.
+signature input, WORM content, KVF1 canonical bytes, or audit verification.
 
 ## Design Source
 
@@ -25,8 +25,10 @@ flowchart LR
     B --> C[Exact locale fallback]
     C --> D[Human-facing output only]
     E[Stable error code + key] --> C
-    F[Record and audit hot path] --> G[Canonical UTF-8 / binary bytes]
-    G -. never localized or transcoded .-> H[WORM / SIF / signatures]
+    F[Record and audit hot path] --> G[Immutable raw message bytes]
+    G --> H[KVF1 / hashes / signatures]
+    G -. derived copy only .-> I[codec / formatter / plugin view]
+    I -. never authoritative .-> J[console / external sink]
 ```
 
 ## Contracts
@@ -48,12 +50,14 @@ human-facing text. It does not own or redefine encoding policy.
 
 ### 2. Canonical internal representation
 
-- Rust text is UTF-8; C ABI text is documented as UTF-8 unless an API says it
-  accepts raw bytes.
-- Persisted log files, WORM envelopes, signatures, SIF frames, and content
-  hashes use canonical bytes. Locale and console code page never change them.
-- Display-only conversion is allowed after the record leaves the persistence
-  and signing path.
+- `Record.message` is immutable-source raw bytes. Its payload kind is explicit:
+  validated UTF-8, binary/unknown, or explicitly decoded text.
+- KVF1, WORM envelopes, signatures, and content hashes use the raw bytes and
+  payload kind. They never perform display transcoding.
+- Codec, formatter, and plugin work creates bounded immutable derived views;
+  it never mutates the authoritative Record in place.
+- The legacy C string API remains strict UTF-8. Length-delimited byte APIs may
+  use raw bytes without requiring a text encoding.
 
 ### 3. Locale detection precedence
 
@@ -70,6 +74,12 @@ or malformed tags are rejected rather than guessed.
 
 ### 4. Encoding detection and manual override
 
+Input `AUTO` is opt-in, not an implicit fallback. Without an explicit caller
+choice or `[encoding] input = "auto"`, byte ingestion must not guess. The
+detector accepts only a uniquely validated result: BOM, strict UTF-8/UTF-16,
+or exactly one caller-provided code-page candidate. Statistical “highest
+confidence” guesses fail closed and preserve the raw bytes.
+
 The encoding policy is independent from the language locale:
 
 | Policy | Console | Pipe/file | Persisted log/audit |
@@ -84,6 +94,10 @@ page without changing global console state. POSIX/macOS detection reads the
 locale/codeset environment first and may add platform-native adapters later.
 Unknown code pages fail closed to UTF-8 display with a diagnostic; they never
 silently reinterpret persisted bytes.
+
+Encoding settings are restart-required configuration. Hot reload applies other
+fields, retains the active encoding snapshot, and returns
+`DO_LOG_ERR_CONFIG_RESTART_REQUIRED` so operators can see the partial result.
 
 ### 5. Fallback and catalogs
 
@@ -139,13 +153,13 @@ catalog.
 | Stage | Scope | Status |
 |---|---|---|
 | E0 | Core UTF-8 codec, validation, and display code-page hook | scaffold landed |
-| E1 | Canonical log/sink encoder and decoder integration | TODO(author) |
+| E1 | Canonical log/sink encoder and decoder integration | KVF1 raw-message path landed; new byte ABI TODO(author) |
 | E2 | Windows/POSIX/macOS native codec adapters | Windows hook landed; full adapters TODO(author) |
 | L0 | Error key catalog, locale chain, validated in-memory registry | scaffold landed |
-| L1 | Wire locale policy and catalog selection into config/CLI | TODO(author) |
+| L1 | Wire locale policy and catalog selection into config/CLI | Encoding config landed; locale catalog selection TODO(author) |
 | L2 | Compiled Fluent-compatible catalogs and reload-safe snapshots | TODO(author) |
 | L3 | Versioned plugin catalog provider ABI | TODO(author) |
-| L4 | Encoding/localization conversion benchmarks and fuzz suite | TODO(author) |
+| L4 | Encoding/localization conversion benchmarks and fuzz suite | Raw KV and AUTO regression tests landed; broader suite TODO(author) |
 
 ## References
 

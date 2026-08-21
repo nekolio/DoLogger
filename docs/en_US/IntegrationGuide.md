@@ -169,7 +169,7 @@ level = "INFO"                          # Minimum log level
 performance_profile = "prod-performance" # Performance preset
 
 # ── Performance ─────────────────────────────────────────────
-ring_buffer_size = 262144               # Power of two required
+ring_buffer_size = 65536                # Default; power of two required
 batch_size = 256                        # Records per pipeline batch
 enable_audit = false                   # Opt-in isolated AUDIT pipeline
 enable_signature = false                # Optional Ed25519 signing
@@ -256,7 +256,7 @@ flowchart TD
 [dologger]
 level = "INFO"
 performance_profile = "prod-performance"
-ring_buffer_size = 262144
+ring_buffer_size = 65536
 
 [domains]
 
@@ -351,7 +351,7 @@ Every log record contains fields organized into four permission rings, modeled a
 
 ```mermaid
 flowchart TD
-    subgraph R3["Ring 3 (ext.* fields)<br/>CRC32C only<br/>Red plugins OK"]
+    subgraph R3["Ring 3 (ext.* fields)<br/>content_hash covered<br/>Red plugins OK"]
         subgraph R2["Ring 2 (verified.*)<br/>Blue/Yellow<br/>Ed25519 (opt)"]
             subgraph R1["Ring 1 System Fields<br/>+ HostInfo<br/>Ed25519"]
                 R0["Ring 0 Core<br/>Immutable"]
@@ -408,7 +408,7 @@ Blue and Yellow plugins write to the `verified.*` namespace. Every write appends
 
 ### Ring 3 -- Untrusted Extensions
 
-Red plugins write to `ext.*`. These fields have CRC32C only (hardware-accelerated integrity check, not cryptographic). They are not covered by the Ed25519 signature.
+Red plugins write to `ext.*`. These fields are covered by the record `content_hash` and are not covered by the optional Ed25519 audit signature. CRC32C remains an independent compatibility checksum, not the Ring 3 security boundary.
 
 ### Using Fields from Your Application
 

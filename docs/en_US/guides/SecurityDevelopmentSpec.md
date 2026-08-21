@@ -193,7 +193,7 @@ The sandbox restricts which operating system operations a plugin can perform. It
 
 - You **cannot** access the filesystem, network, or create processes.
 - You **can** allocate memory, use threads, and query time. This is sufficient for stateless or purely computational plugins (e.g., a Filter that checks record fields, a Processor that redacts text).
-- All output goes to the `ext.*` field namespace (Ring 3, CRC32C integrity only). You cannot write to the `verified.*` namespace.
+- All output goes to the `ext.*` field namespace (Ring 3, covered by the record `content_hash`). You cannot write to the `verified.*` namespace.
 - Red plugins are **disabled by default**. The host operator must explicitly set `allow_red_plugins = true`.
 
 ### Developing Within Sandbox Constraints
@@ -323,7 +323,7 @@ Custom patterns can be added via the `SecretDetector` Processor plugin configura
 1. **DON'T** implement your own cryptography. Use the engine's API or well-audited libraries (`ring`, `ed25519-dalek`, `rustls`).
 2. **DON'T** use predictable or low-entropy seeds. Always seed from `/dev/urandom` or `getrandom()`.
 3. **DON'T** reuse the same key for signing and encryption. Separate keys for separate purposes.
-4. **DON'T** use deprecated hash functions (MD5, SHA-1) for any security purpose. CRC32C is acceptable only for non-security integrity checks on Ring 3 data.
+4. **DON'T** use deprecated hash functions (MD5, SHA-1) for any security purpose. CRC32C is an independent compatibility checksum and must not replace the record `content_hash` or audit signature.
 5. **DON'T** hardcode cryptographic keys, IVs, or nonces. Every key must come from a `KeyProvider`. Every nonce must be generated fresh.
 
 ### Handling Ed25519 Signatures

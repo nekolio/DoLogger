@@ -753,7 +753,7 @@ shutdown_timeout_ms = 10000
 
 | GDPR 条款 | DoLogger 功能 |
 |:-:|:-:|
-| Art. 5(1)(f) | Ed25519 签名 + CRC32C 完整性检查 |
+| Art. 5(1)(f) | 可选审计 Ed25519 签名 + 记录 `content_hash` |
 | Art. 15 | Ring 2 字段签名（user.id、session.id）用于数据主体访问记录 |
 | Art. 30 | WORM 审计日志作为处理活动记录 |
 | Art. 32 | 传输加密（TLS）、完整性保护（签名）、弹性（环形缓冲区 + 紧急溢出） |

@@ -802,12 +802,12 @@ impl ShmSink {
         Ok(())
     }
 
-    /// Write a serialized SIF record to the ring buffer.
+    /// Write a serialized canonical KV record to the ring buffer.
     ///
     /// Non-blocking: applies `full_policy` if buffer is full.
     /// Returns `true` if written, `false` if dropped.
     #[allow(clippy::undocumented_unsafe_blocks)]
-    pub fn write(&self, sif_data: &[u8]) -> bool {
+    pub fn write(&self, frame_data: &[u8]) -> bool {
         if !self.open.load(Ordering::Acquire) {
             return false;
         }
@@ -825,12 +825,12 @@ impl ShmSink {
         let slot_size = header.slot_size_bytes;
 
         // Check data fits in a slot (with 4B length prefix)
-        if sif_data.len() + 4 > slot_size as usize {
+        if frame_data.len() + 4 > slot_size as usize {
             diagnostics::warn(
                 "shm_sink",
                 &format!(
                     "SIF record {}B > slot {}B — dropped",
-                    sif_data.len(),
+                    frame_data.len(),
                     slot_size
                 ),
             );
@@ -854,7 +854,7 @@ impl ShmSink {
                         let overwrite_seq = consumer;
                         let idx = (overwrite_seq % slot_count) as usize;
                         unsafe {
-                            write_slot(ptr, slot_size, idx, sif_data);
+                            write_slot(ptr, slot_size, idx, frame_data);
                         }
                         header.producer_seq.fetch_add(1, Ordering::Release);
                         let _ = header.consumer_seq.compare_exchange(
@@ -870,7 +870,7 @@ impl ShmSink {
                             .fetch_or(FLAG_BUFFER_OVERFLOW, Ordering::Relaxed);
                         self.total_written.fetch_add(1, Ordering::Relaxed);
                         self.total_bytes
-                            .fetch_add(sif_data.len() as u64, Ordering::Relaxed);
+                            .fetch_add(frame_data.len() as u64, Ordering::Relaxed);
                         true
                     }
                 };
@@ -886,11 +886,11 @@ impl ShmSink {
             ) {
                 Ok(_) => {
                     unsafe {
-                        write_slot(ptr, slot_size, idx, sif_data);
+                        write_slot(ptr, slot_size, idx, frame_data);
                     }
                     self.total_written.fetch_add(1, Ordering::Relaxed);
                     self.total_bytes
-                        .fetch_add(sif_data.len() as u64, Ordering::Relaxed);
+                        .fetch_add(frame_data.len() as u64, Ordering::Relaxed);
                     return true;
                 }
                 Err(_) => continue, // Another writer claimed it — retry
@@ -898,13 +898,10 @@ impl ShmSink {
         }
     }
 
-    /// Write a Record as SIF to the shared memory buffer.
-    ///
-    /// Uses the canonical [`crate::sif`] FlatBuffer encoding — the same wire
-    /// format produced by the SIF pipeline stage and consumed by `dologctl`.
+    /// Write a Record as a canonical KV frame to shared memory.
     pub fn write_record(&self, record: &Record) -> bool {
-        let sif = crate::sif::encode_record(record);
-        self.write(&sif)
+        let frame = crate::record::wire::encode_record(record).unwrap_or_default();
+        self.write(&frame)
     }
 
     /// Flush (no-op: shared memory writes are immediately visible).
@@ -1003,11 +1000,11 @@ impl Drop for ShmSink {
 }
 
 // ---------------------------------------------------------------------------
-// Record → SIF
+// Record → KV
 // ---------------------------------------------------------------------------
 
-// Records are serialised with the canonical [`crate::sif::encode_record`]
-// FlatBuffer encoding (see `write_record`). The one-time hand-rolled "SIF1"
+// Current SHM producers emit the versioned KV frame; SIF remains a compatibility input.
+// The one-time hand-rolled "SIF1"
 // compact blob was removed when the shm sink unified on `core::sif`.
 
 // ---------------------------------------------------------------------------
@@ -1055,16 +1052,26 @@ mod tests {
     }
 
     #[test]
-    fn test_record_to_sif() {
+    fn test_record_to_kv() {
         let rec = make_test_record();
-        let sif = crate::sif::encode_record(&rec);
-        assert!(sif.len() >= 32);
-        assert_eq!(&sif[..4], b"SIF1");
-        // Canonical SIF frame — magic/header validate and decode round-trips.
-        assert!(crate::sif::validate_frame(&sif).is_ok());
-        let decoded = crate::sif::decode_record(&sif).expect("valid frame decodes");
+        let frame = crate::record::wire::encode_record(&rec).expect("KV encoding");
+        assert!(frame.len() >= crate::record::wire::KV_HEADER_LEN);
+        assert_eq!(&frame[..4], b"KVF1");
+        assert!(crate::record::wire::validate_frame(&frame).is_ok());
+        let decoded = crate::record::wire::decode_record(&frame).expect("valid KV frame");
         assert_eq!(decoded.lsn, rec.lsn);
-        assert_eq!(decoded.message.as_str(), "test message");
+        assert_eq!(decoded.message.as_utf8().unwrap(), "test message");
+    }
+
+    #[test]
+    fn test_sif_compatibility_remains_readable() {
+        let rec = make_test_record();
+        let frame = crate::sif::encode_record(&rec);
+        let (decoded, kind) =
+            crate::record::wire::decode_any(&frame, crate::record::wire::DecodeOptions::default())
+                .expect("legacy SIF remains readable");
+        assert_eq!(kind, crate::record::wire::FrameKind::Sif);
+        assert_eq!(decoded.message.as_utf8().unwrap(), "test message");
     }
 
     #[test]

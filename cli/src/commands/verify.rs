@@ -17,12 +17,11 @@ use std::fs;
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 
-use dologger_core::record::Record;
-use dologger_core::sif::decode_record;
-
 use crate::output::{self, color, OutputFormat};
 use crate::EXIT_VERIFY_FAILED;
 use crate::{stderr, stdout};
+use dologger_core::record::wire::{decode_any, DecodeOptions};
+use dologger_core::record::Record;
 
 // ---------------------------------------------------------------------------
 // Colour helpers
@@ -104,7 +103,7 @@ struct SifRecord {
 ///
 /// Returns `None` if the frame is not a valid canonical SIF record.
 fn parse_sif(data: &[u8]) -> Option<SifRecord> {
-    let rec = decode_record(data).ok()?;
+    let rec = decode_any(data, DecodeOptions::untrusted()).ok()?.0;
 
     let stored_hash = rec.content_hash;
     let in_chain = stored_hash != [0u8; 32];
@@ -119,7 +118,7 @@ fn parse_sif(data: &[u8]) -> Option<SifRecord> {
         level: rec.level as u8,
         thread_id: rec.thread_id as u64,
         process_id: rec.process_id,
-        message: rec.message.as_str().to_string(),
+        message: rec.message.display_lossy().into_owned(),
         source_file: rec.source_file(),
         host_name: rec.host_name(),
         source_line: rec.source_line(),

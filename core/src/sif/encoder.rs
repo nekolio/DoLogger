@@ -57,7 +57,11 @@ pub fn encode_record(record: &Record) -> Vec<u8> {
     let labels_str = record.labels();
     let audit_tags_str = record.audit_tags();
 
-    let message = opt_string(&mut fbb, record.message.as_str());
+    let message_text = match record.message.as_utf8() {
+        Ok(text) => text.to_string(),
+        Err(_) => format!("bin:v1:base64:{}", encode_base64(record.message.as_bytes())),
+    };
+    let message = opt_string(&mut fbb, &message_text);
     let source_file = opt_string(&mut fbb, &source_file_str);
     let source_function = opt_string(&mut fbb, &source_function_str);
     let thread_name = opt_string(&mut fbb, &thread_name_str);
@@ -137,6 +141,32 @@ pub fn encode_record(record: &Record) -> Vec<u8> {
     out.extend_from_slice(payload);
     debug_assert_eq!(out.len(), total_length);
     out
+}
+
+fn encode_base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut output = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let first = chunk[0] as usize;
+        output.push(ALPHABET[first >> 2] as char);
+        let second = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        output.push(ALPHABET[((first & 0x03) << 4) | (second >> 4)] as char);
+        if chunk.len() > 1 {
+            output.push(ALPHABET[((second & 0x0f) << 2) | (chunk[2] as usize >> 6)] as char);
+        } else {
+            output.push('=');
+        }
+        if chunk.len() > 2 {
+            output.push(ALPHABET[chunk[2] as usize & 0x3f] as char);
+        } else {
+            output.push('=');
+        }
+    }
+    output
 }
 
 /// Create a FlatBuffer string offset, or `None` for empty strings so omitted

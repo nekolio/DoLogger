@@ -503,8 +503,8 @@ fn record_to_bytes(record: &Record) -> Vec<u8> {
     buf.push(record.level as u8); // level
     buf.extend_from_slice(&record.flags.to_le_bytes()); // flags (u16)
 
-    // Message: 2B length LE + UTF-8 data
-    let msg_bytes = record.message.as_str().as_bytes();
+    // Message: 2B length LE + raw payload data
+    let msg_bytes = record.message.as_bytes();
     let msg_len = msg_bytes.len().min(u16::MAX as usize) as u16;
     buf.extend_from_slice(&msg_len.to_le_bytes());
     buf.extend_from_slice(msg_bytes);

@@ -63,6 +63,15 @@ pub struct DologgerError {
 }
 
 impl DologgerError {
+    /// Populate this ABI error from a structured report.
+    pub fn set_report(&mut self, report: &ErrorReport) {
+        self.code = report.code;
+        let message = report.diagnostic_message();
+        self.message.fill(0);
+        let bytes = message.as_bytes();
+        let len = bytes.len().min(self.message.len().saturating_sub(1));
+        self.message[..len].copy_from_slice(&bytes[..len]);
+    }
     /// Create a new empty error (code = 0 indicates success/no-error).
     pub const fn new() -> Self {
         Self {
@@ -126,6 +135,8 @@ pub const DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED: i32 = -0x0206;
 pub const DO_LOG_ERR_CONFIG_HASH_MISMATCH: i32 = -0x0207;
 /// New configuration submitted for hot reload failed validation.
 pub const DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID: i32 = -0x0208;
+/// Reload applied non-encoding changes; protected encoding changes require restart.
+pub const DO_LOG_ERR_CONFIG_RESTART_REQUIRED: i32 = -0x0209;
 
 // ---------------------------------------------------------------------------
 // 0x03xx Plugin — registry and runtime
@@ -176,6 +187,8 @@ pub const DO_LOG_ERR_FIELD_PERMISSION_DENIED: i32 = -0x0403;
 pub const DO_LOG_ERR_FIELD_TYPE_MISMATCH: i32 = -0x0404;
 /// Plugin-required field not provided by an earlier pipeline stage.
 pub const DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET: i32 = -0x0405;
+/// A legacy text ABI input was not valid UTF-8.
+pub const DO_LOG_ERR_RECORD_INVALID_ENCODING: i32 = -0x0406;
 
 // ---------------------------------------------------------------------------
 // 0x05xx Buffer / Pipeline — ingest, backpressure, pipeline stage
@@ -299,8 +312,123 @@ pub const DO_LOG_ERR_TIME_BACKWARD: i32 = -0x0C01;
 pub const DO_LOG_ERR_SIF_INVALID: i32 = -0x0D01;
 /// SIF schema version declared by a plugin is not supported by the core.
 pub const DO_LOG_ERR_SIF_VERSION_UNSUPPORTED: i32 = -0x0D02;
+/// KV frame is malformed or violates resource limits.
+pub const DO_LOG_ERR_KV_INVALID: i32 = -0x0D03;
+/// KV frame version is not supported by this core.
+pub const DO_LOG_ERR_KV_VERSION_UNSUPPORTED: i32 = -0x0D04;
+/// KV frame content hash does not match canonical record bytes.
+pub const DO_LOG_ERR_KV_HASH_MISMATCH: i32 = -0x0D05;
 
 // ---------------------------------------------------------------------------
+/// The stage or boundary that produced an error report.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorOrigin {
+    /// Public API or FFI argument boundary.
+    Api,
+    /// Configuration load or hot reload.
+    Config,
+    /// Plugin registry or plugin callback.
+    Plugin,
+    /// Record and field API.
+    Record,
+    /// Pipeline execution.
+    Pipeline,
+    /// Security and audit path.
+    Security,
+    /// Serialization and wire validation.
+    Serialization,
+    /// Sink and operating-system I/O.
+    Sink,
+    /// Internal engine invariant.
+    Internal,
+}
+
+/// Structured context attached to one error exit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorContext {
+    /// Error subsystem.
+    pub origin: ErrorOrigin,
+    /// Stable operation identifier, never a localized sentence.
+    pub operation: &'static str,
+    /// Optional bounded diagnostic detail for logs, not for control flow.
+    pub detail: Option<String>,
+}
+
+impl ErrorContext {
+    /// Create context without allocating diagnostic detail.
+    pub const fn new(origin: ErrorOrigin, operation: &'static str) -> Self {
+        Self {
+            origin,
+            operation,
+            detail: None,
+        }
+    }
+
+    /// Attach bounded detail for diagnostics.
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        let mut detail = detail.into();
+        detail.truncate(512);
+        self.detail = Some(detail);
+        self
+    }
+}
+
+/// Structured error exit used between core subsystems.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorReport {
+    /// Stable numeric error code.
+    pub code: i32,
+    /// Stable descriptor used by localization and automation.
+    pub descriptor: ErrorDescriptor,
+    /// Origin and operation context.
+    pub context: ErrorContext,
+}
+
+impl ErrorReport {
+    /// Build an error report from a stable code and operation key.
+    pub fn new(code: i32, context: ErrorContext) -> Self {
+        Self {
+            code,
+            descriptor: error_descriptor(code),
+            context,
+        }
+    }
+
+    /// Return the locale-independent message key.
+    pub const fn key(&self) -> &'static str {
+        self.descriptor.key
+    }
+
+    /// Return the English fallback without exposing dynamic detail as text.
+    pub const fn fallback_message(&self) -> &'static str {
+        self.descriptor.default_message
+    }
+
+    /// Render a bounded diagnostic string for internal logs only.
+    pub fn diagnostic_message(&self) -> String {
+        match &self.context.detail {
+            Some(detail) if !detail.is_empty() => {
+                format!("{}: {detail}", self.descriptor.default_message)
+            }
+            _ => self.descriptor.default_message.to_string(),
+        }
+    }
+}
+
+/// A result extension that gives every subsystem a stable error exit.
+pub trait ErrorExit<T> {
+    /// Convert an error code and operation into an [`ErrorReport`].
+    fn report(self, code: i32, context: ErrorContext) -> Result<T, ErrorReport>;
+}
+
+impl<T, E> ErrorExit<T> for Result<T, E>
+where
+    E: std::fmt::Display,
+{
+    fn report(self, code: i32, context: ErrorContext) -> Result<T, ErrorReport> {
+        self.map_err(|error| ErrorReport::new(code, context.with_detail(error.to_string())))
+    }
+}
 // 0x0Exx Internal / Fatal
 // ---------------------------------------------------------------------------
 
@@ -351,6 +479,10 @@ pub const fn error_descriptor(code: i32) -> ErrorDescriptor {
             "config.hot_reload_invalid",
             "hot reload configuration is invalid",
         ),
+        DO_LOG_ERR_CONFIG_RESTART_REQUIRED => (
+            "config.restart_required",
+            "configuration restart required for protected changes",
+        ),
         DO_LOG_ERR_PLUGIN_NOT_FOUND => ("plugin.not_found", "plugin not found"),
         DO_LOG_ERR_PLUGIN_LOAD_FAILED => ("plugin.load_failed", "plugin load failed"),
         DO_LOG_ERR_PLUGIN_MANIFEST_INVALID => {
@@ -391,6 +523,9 @@ pub const fn error_descriptor(code: i32) -> ErrorDescriptor {
         DO_LOG_ERR_FIELD_TYPE_MISMATCH => ("field.type_mismatch", "field type mismatch"),
         DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET => {
             ("field.dependency_not_met", "field dependency not met")
+        }
+        DO_LOG_ERR_RECORD_INVALID_ENCODING => {
+            ("record.invalid_encoding", "record input is not valid UTF-8")
         }
         DO_LOG_ERR_BUFFER_FULL => ("buffer.full", "buffer is full"),
         DO_LOG_ERR_PIPELINE_STAGE => ("pipeline.stage", "pipeline stage failed"),
@@ -452,6 +587,9 @@ pub const fn error_descriptor(code: i32) -> ErrorDescriptor {
         DO_LOG_ERR_SIF_VERSION_UNSUPPORTED => {
             ("sif.version_unsupported", "SIF version unsupported")
         }
+        DO_LOG_ERR_KV_INVALID => ("kv.invalid", "KV frame invalid"),
+        DO_LOG_ERR_KV_VERSION_UNSUPPORTED => ("kv.version_unsupported", "KV version unsupported"),
+        DO_LOG_ERR_KV_HASH_MISMATCH => ("kv.hash_mismatch", "KV content hash mismatch"),
         DO_LOG_ERR_FATAL => ("fatal", "fatal engine error"),
         _ if code <= -0x8000_0000 => ("plugin.custom", "plugin-defined error"),
         _ => ("error.unknown", "unknown error"),
@@ -557,6 +695,7 @@ mod tests {
             DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED,
             DO_LOG_ERR_CONFIG_HASH_MISMATCH,
             DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID,
+            DO_LOG_ERR_CONFIG_RESTART_REQUIRED,
             DO_LOG_ERR_PLUGIN_NOT_FOUND,
             DO_LOG_ERR_PLUGIN_LOAD_FAILED,
             DO_LOG_ERR_PLUGIN_MANIFEST_INVALID,
@@ -577,6 +716,7 @@ mod tests {
             DO_LOG_ERR_FIELD_PERMISSION_DENIED,
             DO_LOG_ERR_FIELD_TYPE_MISMATCH,
             DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET,
+            DO_LOG_ERR_RECORD_INVALID_ENCODING,
             DO_LOG_ERR_BUFFER_FULL,
             DO_LOG_ERR_PIPELINE_STAGE,
             DO_LOG_ERR_AUDIT_QUEUE_FULL,
@@ -615,6 +755,9 @@ mod tests {
             DO_LOG_ERR_TIME_BACKWARD,
             DO_LOG_ERR_SIF_INVALID,
             DO_LOG_ERR_SIF_VERSION_UNSUPPORTED,
+            DO_LOG_ERR_KV_INVALID,
+            DO_LOG_ERR_KV_VERSION_UNSUPPORTED,
+            DO_LOG_ERR_KV_HASH_MISMATCH,
             DO_LOG_ERR_FATAL,
         ];
         assert!(codes.iter().all(|c| *c < 0), "all error codes are negative");
@@ -647,6 +790,10 @@ mod tests {
             (
                 DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID,
                 "CONFIG_HOT_RELOAD_INVALID",
+            ),
+            (
+                DO_LOG_ERR_CONFIG_RESTART_REQUIRED,
+                "CONFIG_RESTART_REQUIRED",
             ),
             (DO_LOG_ERR_PLUGIN_NOT_FOUND, "PLUGIN_NOT_FOUND"),
             (DO_LOG_ERR_PLUGIN_LOAD_FAILED, "PLUGIN_LOAD_FAILED"),
@@ -691,6 +838,10 @@ mod tests {
             (
                 DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET,
                 "FIELD_DEPENDENCY_NOT_MET",
+            ),
+            (
+                DO_LOG_ERR_RECORD_INVALID_ENCODING,
+                "RECORD_INVALID_ENCODING",
             ),
             (DO_LOG_ERR_BUFFER_FULL, "BUFFER_FULL"),
             (DO_LOG_ERR_PIPELINE_STAGE, "PIPELINE_STAGE"),
@@ -742,6 +893,9 @@ mod tests {
                 DO_LOG_ERR_SIF_VERSION_UNSUPPORTED,
                 "SIF_VERSION_UNSUPPORTED",
             ),
+            (DO_LOG_ERR_KV_INVALID, "KV_INVALID"),
+            (DO_LOG_ERR_KV_VERSION_UNSUPPORTED, "KV_VERSION_UNSUPPORTED"),
+            (DO_LOG_ERR_KV_HASH_MISMATCH, "KV_HASH_MISMATCH"),
             (DO_LOG_ERR_FATAL, "FATAL"),
         ];
         for (code, name) in pairs {

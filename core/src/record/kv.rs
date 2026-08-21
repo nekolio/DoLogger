@@ -19,6 +19,8 @@
 
 use std::ptr;
 
+use sha2::Digest;
+
 /// Total slot size in bytes — budget-critical constant (256B Record math).
 pub const KV_SLOT_SIZE: usize = 32;
 
@@ -182,6 +184,17 @@ impl KvSlot {
         Some((self.tag, self.ty, self.value_slice()))
     }
 
+    /// Return the payload through the wire-safe view.
+    pub(crate) fn wire_value(&self) -> Option<(u8, u8, &[u8])> {
+        self.get()
+    }
+
+    /// Restore a slot from a validated wire value.
+    pub(crate) fn wire_put(&mut self, tag: u8, ty: u8, data: &[u8]) -> Result<(), KvPutError> {
+        let value_type = KvType::from_u8(ty).ok_or(KvPutError::TagReserved)?;
+        self.put(tag, value_type, data)
+    }
+
     /// Reset the slot to EMPTY, freeing any overflow allocation.
     pub fn clear(&mut self) {
         self.drop_overflow();
@@ -300,6 +313,20 @@ impl KvSlot {
         let data = self.value_slice();
         buf.extend_from_slice(&(data.len() as u64).to_le_bytes());
         buf.extend_from_slice(data);
+    }
+
+    /// Feed the canonical slot bytes directly into a digest.
+    ///
+    /// This is equivalent to [`Self::hash_slot`] but avoids the temporary
+    /// allocation required to assemble all slot bytes before hashing a record.
+    pub fn update_hash<D: Digest>(&self, digest: &mut D) {
+        if self.is_empty() {
+            return;
+        }
+        let data = self.value_slice();
+        digest.update([self.tag, self.ty]);
+        digest.update((data.len() as u64).to_le_bytes());
+        digest.update(data);
     }
 }
 

@@ -30,6 +30,7 @@
 //! 240     16    _padding   (align(64) → 256 total)
 //! ```
 
+use std::borrow::Cow;
 use std::mem::ManuallyDrop;
 use std::ptr;
 use std::sync::Arc;
@@ -39,8 +40,11 @@ use crate::error::{
 };
 
 pub mod kv;
+pub mod view;
+pub mod wire;
 
 pub use kv::{KvSlot, KvType};
+pub use view::{DerivedMessageView, ViewError, ViewTransform};
 
 // ---------------------------------------------------------------------------
 // Log levels
@@ -105,11 +109,31 @@ pub const RECORD_STRING_INLINE_CAPACITY: usize = 96;
 /// Maximum inline string length (capacity minus 2 bytes for length sentinel).
 pub const RECORD_STRING_INLINE_MAX: usize = RECORD_STRING_INLINE_CAPACITY - 2;
 
-/// A small-string-optimized byte string with 96-byte inline buffer.
+/// The semantic kind of a record message payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessagePayloadKind {
+    /// Bytes validated as canonical UTF-8 at ingestion time.
+    Utf8,
+    /// Bytes whose text encoding is unknown or intentionally not interpreted.
+    Binary,
+    /// Text produced by an explicit, lossless decode operation.
+    ExplicitDecodedText,
+}
+
+const INLINE_UTF8_SENTINEL: u8 = 0x00;
+const HEAP_UTF8_SENTINEL: u8 = 0xff;
+const INLINE_BINARY_SENTINEL: u8 = 0xfe;
+const HEAP_BINARY_SENTINEL: u8 = 0xfd;
+const INLINE_DECODED_SENTINEL: u8 = 0xfc;
+const HEAP_DECODED_SENTINEL: u8 = 0xfb;
+
+/// A small-string-optimized byte payload with a 96-byte inline buffer.
 ///
-/// Strings shorter than 95 bytes are stored inline on the stack (zero
-/// allocation).  Longer strings fall back to an atomically reference-counted
-/// heap string (`Arc<str>`).
+/// Text and binary data share the same storage. Inline binary data uses byte
+/// 94 as its length byte and byte 95 as its kind sentinel; heap data stores an
+/// `Arc<[u8]>` in the union and uses the sentinel to retain its kind. The
+/// payload is mutable only while its owning Record is being assembled; derived
+/// formatter/codec views are allocated outside the Record.
 ///
 /// # Memory layout (96 bytes, `repr(C, align(8))`)
 ///
@@ -125,8 +149,8 @@ pub const RECORD_STRING_INLINE_MAX: usize = RECORD_STRING_INLINE_CAPACITY - 2;
 pub union RecordString {
     /// Inline byte buffer (NUL-terminated when in use)
     inline: ManuallyDrop<[u8; RECORD_STRING_INLINE_CAPACITY]>,
-    /// Heap fallback: pointer to `Arc<str>` (only when sentinel == 0xFF)
-    heap: ManuallyDrop<Arc<str>>,
+    /// Heap fallback: pointer to `Arc<[u8]>` (only for heap sentinels)
+    heap: ManuallyDrop<Arc<[u8]>>,
 }
 
 // SAFETY: RecordString is only accessed by one thread at a time (the owning
@@ -138,34 +162,57 @@ unsafe impl Send for RecordString {}
 unsafe impl Sync for RecordString {}
 
 impl RecordString {
-    /// Create an empty inline string.
+    /// Create an empty UTF-8 payload.
     pub const fn empty() -> Self {
         Self {
             inline: ManuallyDrop::new([0u8; RECORD_STRING_INLINE_CAPACITY]),
         }
     }
 
-    /// Returns true if the string is stored inline (not on the heap).
+    /// Returns true if the payload is stored inline (not on the heap).
     #[inline]
     fn is_inline(&self) -> bool {
         // SAFETY: we only access `inline` when `is_inline()` is true,
         // which is determined by the sentinel byte at offset 95.
-        unsafe { self.inline[RECORD_STRING_INLINE_CAPACITY - 1] == 0 }
+        unsafe {
+            matches!(
+                self.inline[RECORD_STRING_INLINE_CAPACITY - 1],
+                INLINE_UTF8_SENTINEL | INLINE_BINARY_SENTINEL | INLINE_DECODED_SENTINEL
+            )
+        }
     }
 
-    /// Get the length of the string (without NUL terminator).
+    /// Return the payload kind.
+    pub fn kind(&self) -> MessagePayloadKind {
+        // SAFETY: the sentinel byte is initialized by every constructor and
+        // mutation path before the payload is exposed to shared readers.
+        let sentinel = unsafe { self.inline[RECORD_STRING_INLINE_CAPACITY - 1] };
+        match sentinel {
+            INLINE_BINARY_SENTINEL | HEAP_BINARY_SENTINEL => MessagePayloadKind::Binary,
+            INLINE_DECODED_SENTINEL | HEAP_DECODED_SENTINEL => {
+                MessagePayloadKind::ExplicitDecodedText
+            }
+            _ => MessagePayloadKind::Utf8,
+        }
+    }
+
+    /// Get the payload length in bytes.
     #[inline]
     pub fn len(&self) -> usize {
         if self.is_inline() {
             // SAFETY: inline path — the length is the position of the first NUL byte.
             unsafe {
-                self.inline
-                    .iter()
-                    .position(|&b| b == 0)
-                    .unwrap_or(RECORD_STRING_INLINE_CAPACITY)
+                if self.kind() == MessagePayloadKind::Binary {
+                    self.inline[RECORD_STRING_INLINE_CAPACITY - 2] as usize
+                } else {
+                    self.inline[..RECORD_STRING_INLINE_CAPACITY - 2]
+                        .iter()
+                        .position(|&b| b == 0)
+                        .unwrap_or(RECORD_STRING_INLINE_CAPACITY - 2)
+                }
             }
         } else {
-            // SAFETY: heap path — the Arc<str> knows its length.
+            // SAFETY: heap path — the Arc<[u8]> knows its length.
             unsafe { self.heap.len() }
         }
     }
@@ -176,47 +223,86 @@ impl RecordString {
         self.len() == 0
     }
 
-    /// Get the string as a `&str`.
+    /// Return raw payload bytes without decoding or allocation.
     #[inline]
-    pub fn as_str(&self) -> &str {
+    pub fn as_bytes(&self) -> &[u8] {
         if self.is_inline() {
-            // SAFETY: inline path — bytes up to the first NUL are valid UTF-8
-            // (enforced by `set()`). The slice is within the inline buffer.
-            unsafe {
-                let len = self.len();
-                let ptr = self.inline.as_ptr();
-                let slice = std::slice::from_raw_parts(ptr, len);
-                std::str::from_utf8_unchecked(slice)
-            }
+            let len = self.len();
+            // SAFETY: inline bytes are initialized by `set_with_kind`, and
+            // `len` is bounded by the inline storage contract.
+            unsafe { &self.inline[..len] }
         } else {
-            // SAFETY: heap path — the Arc<str> is always valid UTF-8.
-            // Union field access is inherently unsafe.
+            // SAFETY: heap sentinels are written only after storing a valid
+            // Arc<[u8]> in the union.
             unsafe { &self.heap }
         }
     }
 
-    /// Set the string value. Long strings fall back to heap allocation.
+    /// Borrow the payload as UTF-8 without guessing or replacement.
+    #[inline]
+    pub fn as_utf8(&self) -> Result<&str, std::str::Utf8Error> {
+        std::str::from_utf8(self.as_bytes())
+    }
+
+    /// Render the payload for a human-facing sink without changing its bytes.
+    pub fn display_lossy(&self) -> Cow<'_, str> {
+        String::from_utf8_lossy(self.as_bytes())
+    }
+
+    /// Set a validated UTF-8 message.
     pub fn set(&mut self, value: &str) {
+        self.set_with_kind(value.as_bytes(), MessagePayloadKind::Utf8);
+    }
+
+    /// Set raw bytes without attempting to decode them.
+    pub fn set_bytes(&mut self, value: &[u8]) {
+        self.set_with_kind(value, MessagePayloadKind::Binary);
+    }
+
+    /// Set bytes that were explicitly decoded and validated as UTF-8.
+    pub fn set_explicit_decoded_text(&mut self, value: &str) {
+        self.set_with_kind(value.as_bytes(), MessagePayloadKind::ExplicitDecodedText);
+    }
+
+    /// Set bytes as UTF-8 only after strict validation.
+    pub fn set_utf8_bytes(&mut self, value: &[u8]) -> Result<(), std::str::Utf8Error> {
+        std::str::from_utf8(value)?;
+        self.set_with_kind(value, MessagePayloadKind::Utf8);
+        Ok(())
+    }
+
+    fn set_with_kind(&mut self, value: &[u8], kind: MessagePayloadKind) {
         self.clear();
         if value.len() <= RECORD_STRING_INLINE_MAX {
-            // Inline path
-            let bytes = value.as_bytes();
+            let sentinel = match kind {
+                MessagePayloadKind::Utf8 => INLINE_UTF8_SENTINEL,
+                MessagePayloadKind::Binary => INLINE_BINARY_SENTINEL,
+                MessagePayloadKind::ExplicitDecodedText => INLINE_DECODED_SENTINEL,
+            };
             // SAFETY: we are writing into the inline buffer; the sentinel byte
-            // at offset 95 stays 0 to indicate "inline".
+            // at offset 95 identifies the initialized representation.
             unsafe {
                 let buf = &mut self.inline;
-                buf[..bytes.len()].copy_from_slice(bytes);
-                buf[bytes.len()] = 0; // NUL terminator
-                                      // Sentinel stays 0 (inline)
+                buf[..value.len()].copy_from_slice(value);
+                if kind == MessagePayloadKind::Binary {
+                    buf[RECORD_STRING_INLINE_CAPACITY - 2] = value.len() as u8;
+                } else {
+                    buf[value.len()] = 0;
+                }
+                buf[RECORD_STRING_INLINE_CAPACITY - 1] = sentinel;
             }
         } else {
-            // Heap path — allocate Arc<str>
-            let arc: Arc<str> = Arc::from(value);
+            let sentinel = match kind {
+                MessagePayloadKind::Utf8 => HEAP_UTF8_SENTINEL,
+                MessagePayloadKind::Binary => HEAP_BINARY_SENTINEL,
+                MessagePayloadKind::ExplicitDecodedText => HEAP_DECODED_SENTINEL,
+            };
+            let arc: Arc<[u8]> = Arc::from(value);
             // SAFETY: we store the Arc pointer in the first 8 bytes of the
-            // inline buffer and set the sentinel to 0xFF (heap).
+            // inline buffer and set the sentinel to a heap kind marker.
             unsafe {
                 self.heap = ManuallyDrop::new(arc);
-                self.inline[RECORD_STRING_INLINE_CAPACITY - 1] = 0xFF;
+                self.inline[RECORD_STRING_INLINE_CAPACITY - 1] = sentinel;
             }
         }
     }
@@ -246,7 +332,7 @@ impl Drop for RecordString {
 impl Clone for RecordString {
     fn clone(&self) -> Self {
         let mut new = Self::empty();
-        new.set(self.as_str());
+        new.set_with_kind(self.as_bytes(), self.kind());
         new
     }
 }
@@ -256,6 +342,9 @@ impl Default for RecordString {
         Self::empty()
     }
 }
+
+/// Canonical name for the raw message storage type.
+pub type MessagePayload = RecordString;
 
 // ---------------------------------------------------------------------------
 // KV tag constants (ADR-002 Appendix A.4)
@@ -331,26 +420,37 @@ static VENDOR_TAGS: OnceLock<Mutex<HashMap<String, u8>>> = OnceLock::new();
 /// Next vendor tag to allocate (starts at 64).
 static VENDOR_NEXT: OnceLock<Mutex<u8>> = OnceLock::new();
 
-/// Look up or allocate a vendor tag for `name`.
+/// Look up or optionally allocate a vendor tag for `name`.
 ///
 /// Returns `None` if the tag space is exhausted (>192 tags total).
-fn vendor_tag_for(name: &str) -> Option<u8> {
+fn vendor_tag_for(name: &str, allocate: bool) -> Option<u8> {
     let map = VENDOR_TAGS.get_or_init(|| Mutex::new(HashMap::new()));
     let next = VENDOR_NEXT.get_or_init(|| Mutex::new(64));
 
-    // Fast path: already registered
-    if let Some(&tag) = map.lock().unwrap().get(name) {
+    // Keep a stable lock order (map, then next) for all registration paths.
+    // Recovering a poisoned lock is safe because the map and counter remain
+    // internally consistent after a panic while holding either mutex.
+    let mut tags = match map.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if let Some(&tag) = tags.get(name) {
         return Some(tag);
     }
+    if !allocate {
+        return None;
+    }
 
-    // Slow path: allocate a new tag
-    let mut n = next.lock().unwrap();
+    let mut n = match next.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
     if *n > 192 {
         return None; // tag space exhausted
     }
     let tag = *n;
     *n += 1;
-    map.lock().unwrap().insert(name.to_string(), tag);
+    tags.insert(name.to_string(), tag);
     Some(tag)
 }
 
@@ -358,7 +458,7 @@ fn vendor_tag_for(name: &str) -> Option<u8> {
 ///
 /// Returns `None` for fixed fields (timestamp, level, pid, tid, lsn, flags,
 /// pool_index, msg) which are not stored in KV slots.
-fn resolve_tag(name: &str) -> Option<u8> {
+fn resolve_tag(name: &str, allocate_vendor: bool) -> Option<u8> {
     match name {
         // Core tags (A.4 table)
         "id" | "record.id" => Some(1), // tag 1 = id (binary 16B)
@@ -413,7 +513,7 @@ fn resolve_tag(name: &str) -> Option<u8> {
         "coroutine_id" => Some(KV_TAG_COROUTINE_ID),
         // Vendor prefix — lazy allocate
         other if other.starts_with("ext.") || other.starts_with("verified.") => {
-            vendor_tag_for(other)
+            vendor_tag_for(other, allocate_vendor)
         }
         _ => None,
     }
@@ -460,7 +560,7 @@ pub struct Record {
     /// Pool slot index (set by the object pool on alloc).
     pub(crate) pool_index: u32,
     /// Log message body (inline up to 94 bytes, then heap).
-    pub message: RecordString,
+    pub message: MessagePayload,
     /// SHA-256 hash of the canonical serialization (A.3); zero when unsigned.
     pub content_hash: [u8; 32],
     /// Inline KV slot 0.
@@ -472,6 +572,12 @@ pub struct Record {
     /// Padding to reach exactly 256 bytes with `align(64)`.
     _padding: [u8; 16],
 }
+
+const _: () = {
+    assert!(std::mem::size_of::<Record>() == 256);
+    assert!(std::mem::align_of::<Record>() == 64);
+    assert!(std::mem::size_of::<RecordString>() == RECORD_STRING_INLINE_CAPACITY);
+};
 
 // SAFETY: Record is designed for single-owner access via the pool's
 // free-list protocol. The pool grants exclusive mutable access to each
@@ -582,10 +688,14 @@ impl Record {
         if self.kv1.tag() == tag {
             return Some(&mut self.kv1 as *mut KvSlot);
         }
-        let ext = self.kv_ext_mut();
-        for (i, slot) in ext.iter().enumerate() {
-            if slot.tag() == tag {
-                return Some(&mut ext[i] as *mut KvSlot);
+        if !self.kv_ext.is_null() {
+            // SAFETY: `kv_ext` is only created from `Box::into_raw` in this
+            // Record and remains exclusively borrowed through `&mut self`.
+            let ext = unsafe { &mut *self.kv_ext };
+            for slot in ext.iter_mut() {
+                if slot.tag() == tag {
+                    return Some(slot as *mut KvSlot);
+                }
             }
         }
         None
@@ -1136,23 +1246,29 @@ impl Record {
         hasher.update(record.flags.to_le_bytes());
         hasher.update(record.pool_index.to_le_bytes());
 
-        // msg: length-prefixed
-        let msg_bytes = record.message.as_str().as_bytes();
+        // message: kind- and length-prefixed raw bytes. The kind is part of
+        // the signed canonical input so text/binary reinterpretation cannot
+        // produce the same audit hash.
+        let msg_bytes = record.message.as_bytes();
+        hasher.update([match record.message.kind() {
+            MessagePayloadKind::Utf8 => 0,
+            MessagePayloadKind::Binary => 1,
+            MessagePayloadKind::ExplicitDecodedText => 2,
+        }]);
         hasher.update((msg_bytes.len() as u64).to_le_bytes());
         hasher.update(msg_bytes);
 
         // content_hash field is EXCLUDED (we're computing it)
 
-        // KV slots in order — hash_slot appends canonical bytes to buffer
-        let mut kv_buf = Vec::new();
-        record.kv0.hash_slot(&mut kv_buf);
-        record.kv1.hash_slot(&mut kv_buf);
+        // KV slots in order — stream canonical bytes directly into SHA-256 so
+        // hashing does not allocate a temporary buffer per record.
+        record.kv0.update_hash(&mut hasher);
+        record.kv1.update_hash(&mut hasher);
         if let Some(ext) = record.kv_ext() {
             for slot in ext.iter() {
-                slot.hash_slot(&mut kv_buf);
+                slot.update_hash(&mut hasher);
             }
         }
-        hasher.update(&kv_buf);
 
         hasher.finalize().into()
     }
@@ -1271,7 +1387,7 @@ impl Record {
             }
             // ── KV fields (ring-gated by the guard above) ──
             other => {
-                let tag = resolve_tag(other).ok_or(FieldError::NotFound)?;
+                let tag = resolve_tag(other, true).ok_or(FieldError::NotFound)?;
                 self.kv_put_string(tag, value);
                 Ok(())
             }
@@ -1294,14 +1410,14 @@ impl Record {
             }
             "timestamp" | "record.timestamp" => Ok(self.timestamp.to_string()),
             "level" => Ok(self.level.to_str().to_string()),
-            "message" => Ok(self.message.as_str().to_string()),
+            "message" => Ok(self.message.display_lossy().into_owned()),
             "process.id" | "record.process_id" | "process_id" => Ok(self.process_id.to_string()),
             "thread.id" | "record.thread_id" | "thread_id" => Ok(self.thread_id.to_string()),
             "security.lsn" => Ok(self.lsn.to_string()),
             "security.gap" => Ok(if self.security_gap() { "1" } else { "0" }.to_string()),
             // ── KV fields ──
             other => {
-                let tag = resolve_tag(other).ok_or(FieldError::NotFound)?;
+                let tag = resolve_tag(other, false).ok_or(FieldError::NotFound)?;
                 self.kv_get_display_string(tag).ok_or(FieldError::NotFound)
             }
         }
@@ -1505,7 +1621,7 @@ mod tests {
 
         s.set("hello world");
         assert_eq!(s.len(), 11);
-        assert_eq!(s.as_str(), "hello world");
+        assert_eq!(s.as_utf8().unwrap(), "hello world");
         assert!(s.is_inline());
 
         s.clear();
@@ -1519,7 +1635,7 @@ mod tests {
         s.set(&long);
         assert!(!s.is_inline());
         assert_eq!(s.len(), RECORD_STRING_INLINE_MAX + 1);
-        assert_eq!(s.as_str(), long.as_str());
+        assert_eq!(s.as_utf8().unwrap(), long.as_str());
 
         s.clear();
         assert!(s.is_empty());
@@ -1529,10 +1645,19 @@ mod tests {
     fn test_record_string_zero_copy() {
         let mut s = RecordString::empty();
         s.set("test");
-        let ptr1 = s.as_str().as_ptr();
+        let ptr1 = s.as_utf8().unwrap().as_ptr();
         // Reading again should return the same pointer (no re-allocation)
-        let ptr2 = s.as_str().as_ptr();
+        let ptr2 = s.as_utf8().unwrap().as_ptr();
         assert_eq!(ptr1, ptr2);
+    }
+
+    #[test]
+    fn test_record_string_binary_payload_preserves_nuls() {
+        let mut payload = RecordString::empty();
+        payload.set_bytes(&[0, 1, 0xff, 0]);
+        assert_eq!(payload.kind(), MessagePayloadKind::Binary);
+        assert_eq!(payload.as_bytes(), &[0, 1, 0xff, 0]);
+        assert!(payload.as_utf8().is_err());
     }
 
     // ── Record size tests ──
@@ -1604,12 +1729,27 @@ mod tests {
         let mut r = Record::new(0);
         r.set_source_file("src/main.rs");
         assert_eq!(r.source_file(), "src/main.rs");
+        assert!(r.kv_ext.is_null(), "inline KV writes must not allocate ext");
 
         r.set_host_name("prod-server-1");
         assert_eq!(r.host_name(), "prod-server-1");
 
         r.set_trace_id("abc123");
         assert_eq!(r.trace_id(), "abc123");
+    }
+
+    #[test]
+    fn vendor_read_does_not_reserve_tag() {
+        let mut record = Record::new(0);
+        let field = "ext.dacs.lookup_only";
+        assert_eq!(
+            record.field_get(field, FieldRing::Ring3),
+            Err(FieldError::NotFound)
+        );
+        record
+            .field_set(field, "value", FieldRing::Ring3)
+            .expect("first write allocates the vendor tag");
+        assert_eq!(record.field_get(field, FieldRing::Ring3).unwrap(), "value");
     }
 
     #[test]
@@ -1779,6 +1919,6 @@ mod tests {
         let mut s = RecordString::empty();
         s.set("hello");
         let s2 = s.clone();
-        assert_eq!(s2.as_str(), "hello");
+        assert_eq!(s2.as_utf8().unwrap(), "hello");
     }
 }

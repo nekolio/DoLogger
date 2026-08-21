@@ -127,7 +127,7 @@ DoLogger 提供三个基准测试目标，每个测量性能的不同维度。
 | PreFilter | PolicyProvider 评估 |
 | Filter | Filter 插件决策 |
 | FieldProvider | 字段注入 |
-| Assembly | LSN 分配 + Ed25519 签名 + CRC32C |
+| Assembly | LSN 分配 + `content_hash` + 可选 Ed25519 审计签名 |
 | Processing | Processor 插件转换 |
 | Formatting | Formatter 序列化 |
 | Sink | 核心内置接收器写入调用 |

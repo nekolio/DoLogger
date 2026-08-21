@@ -98,6 +98,26 @@ pub struct FieldProviderVTable {
     pub provide: unsafe extern "C" fn(record: *mut c_void, config: *mut c_void) -> i32,
 }
 
+/// Filter vtable for the Filter pipeline stage.
+///
+/// Return `0` to continue, a positive value to drop, or a negative
+/// `DO_LOG_ERR_*` value to abort the current pipeline invocation. The callback
+/// must be deterministic and must not perform I/O.
+#[repr(C)]
+pub struct FilterVTable {
+    /// Evaluate an immutable record.
+    pub filter: unsafe extern "C" fn(*const c_void, *mut c_void) -> i32,
+}
+
+/// Processor vtable for the Processing pipeline stage.
+///
+/// Return `0` or a positive count to continue; a negative error aborts the
+/// record. The host accessor bridge remains the only sanctioned mutation path.
+#[repr(C)]
+pub struct ProcessorVTable {
+    /// Transform or enrich a mutable record.
+    pub process: unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32,
+}
 // ===========================================================================
 // Host-accessor bridge
 // ===========================================================================
@@ -191,6 +211,23 @@ pub struct FormatterEntry {
     pub config: *mut c_void,
 }
 
+/// One resolved filter entry.
+#[derive(Clone, Copy)]
+pub struct FilterEntry {
+    /// Filter callback.
+    pub filter: unsafe extern "C" fn(*const c_void, *mut c_void) -> i32,
+    /// Plugin-owned configuration pointer.
+    pub config: *mut c_void,
+}
+
+/// One resolved processor entry.
+#[derive(Clone, Copy)]
+pub struct ProcessorEntry {
+    /// Processor callback.
+    pub process: unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32,
+    /// Plugin-owned configuration pointer.
+    pub config: *mut c_void,
+}
 /// One resolved field-provider entry (see [`FormatterEntry`]).
 #[derive(Clone, Copy)]
 pub struct FieldProviderEntry {
@@ -208,6 +245,10 @@ pub struct FieldProviderEntry {
 /// formatting — so behaviour is unchanged when the engine loads no plugins.
 #[derive(Default)]
 pub struct PluginDispatch {
+    /// Filter plugins (PHASE_FILTER), in load order.
+    pub filters: Vec<FilterEntry>,
+    /// Processor plugins (PHASE_PROCESSING), in load order.
+    pub processors: Vec<ProcessorEntry>,
     /// Formatter plugins (PHASE_FORMATTING), in load order.
     pub formatters: Vec<FormatterEntry>,
     /// Field-provider plugins (PHASE_FIELD_PROVIDER | PHASE_HOSTINFO).
@@ -218,6 +259,14 @@ pub struct PluginDispatch {
 // `extern "C"` fns and a `u32`; they contain no interior data and can be shared
 // and moved across threads. This lets plugin crates store a `static` instance
 // without their own unsafe impls.
+unsafe impl Sync for FilterVTable {}
+// SAFETY: see above.
+unsafe impl Send for FilterVTable {}
+// SAFETY: see above.
+unsafe impl Sync for ProcessorVTable {}
+// SAFETY: see above.
+unsafe impl Send for ProcessorVTable {}
+// SAFETY: see above.
 unsafe impl Sync for FormatterVTable {}
 // SAFETY: see above.
 unsafe impl Send for FormatterVTable {}
@@ -232,6 +281,14 @@ unsafe impl Send for HostAccessors {}
 // SAFETY: the dispatch entries below hold raw pointers (`config`) and function
 // pointers that the pipeline only forwards to the plugin; they are never
 // dereferenced on the consumer thread, so moving them across threads is sound.
+unsafe impl Sync for FilterEntry {}
+// SAFETY: see above.
+unsafe impl Send for FilterEntry {}
+// SAFETY: see above.
+unsafe impl Sync for ProcessorEntry {}
+// SAFETY: see above.
+unsafe impl Send for ProcessorEntry {}
+// SAFETY: see above.
 unsafe impl Sync for FormatterEntry {}
 // SAFETY: see above.
 unsafe impl Send for FormatterEntry {}

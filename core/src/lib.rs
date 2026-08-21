@@ -51,6 +51,8 @@ use crate::sys::Sysmon;
 use crate::sys::TimeSource;
 
 // Re-exports
+pub use codec::log_output::{LineEnding, TextOutputEncoder, TextOutputPolicy};
+pub use codec::policy::{EncodingPolicy, EncodingPreference, EncodingSnapshot};
 pub use error::DologgerError;
 pub use record::{LogLevel, Record};
 
@@ -510,18 +512,22 @@ impl Engine {
         })
     }
 
-    /// Atomically reload the engine's output configuration.
+    /// Atomically reload the engine's hot-reloadable output configuration.
     ///
     /// Builds a new fan-out sink from `new_config` and opens it; only on
     /// success does it swap the active sink (under `SinkRef`'s write lock) and
-    /// replace the stored config. On any error the previous configuration and
-    /// sink stay in effect and no records are lost. The returned error is one
-    /// of the config reload codes:
+    /// replace the stored config. Encoding settings are protected: when they
+    /// change, all other fields are applied, the previous encoding snapshot is
+    /// retained, and `DO_LOG_ERR_CONFIG_RESTART_REQUIRED` is returned to make
+    /// the partial application explicit. On sink errors the previous
+    /// configuration and sink stay in effect and no records are lost. The
+    /// returned error is one of the config reload codes:
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID`] (new config rejected) or
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`] (sink build/open failed).
     ///
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED
+    /// [`DO_LOG_ERR_CONFIG_RESTART_REQUIRED`]: crate::error::DO_LOG_ERR_CONFIG_RESTART_REQUIRED
     pub fn reload_config(&mut self, new_config: DologgerConfig) -> Result<(), i32> {
         let reload_ticket = self.hot_reload_manager.begin_config_reload();
         let reload_epoch = reload_ticket.epoch;
@@ -530,12 +536,19 @@ impl Engine {
 
         use crate::error::{
             DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED, DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID,
+            DO_LOG_ERR_CONFIG_RESTART_REQUIRED,
         };
+
+        let protected_encoding_change = new_config.encoding != self.config.encoding;
+        let mut effective_config = new_config;
+        if protected_encoding_change {
+            effective_config.encoding = self.config.encoding.clone();
+        }
 
         // Build a new fan-out from the incoming config. Validation happens
         // here via the registry's sink construction; a rejected config is
         // reported and the previous one is left untouched.
-        let new_sink = match crate::sink::registry::build_fanout(&new_config.sinks) {
+        let new_sink = match crate::sink::registry::build_fanout(&effective_config.sinks) {
             Ok(s) => s,
             Err(e) => {
                 self.sysmon.error(
@@ -576,7 +589,19 @@ impl Engine {
             );
         }
 
-        self.config = new_config;
+        self.config = effective_config;
+        if protected_encoding_change {
+            self.hot_reload_manager.complete_config_reload(
+                reload_ticket,
+                false,
+                Some("encoding configuration retained; restart required".to_string()),
+            );
+            self.sysmon.warn(
+                "engine",
+                "Configuration hot-reloaded partially; encoding changes require restart",
+            );
+            return Err(DO_LOG_ERR_CONFIG_RESTART_REQUIRED);
+        }
         self.hot_reload_manager
             .complete_config_reload(reload_ticket, true, None);
         self.sysmon.info("engine", "Configuration hot-reloaded");

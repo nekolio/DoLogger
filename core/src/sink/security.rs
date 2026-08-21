@@ -166,7 +166,7 @@ fn format_security_record(record: &Record) -> String {
         record.thread_id,
         record.process_id,
         record.host_name(),
-        record.message.as_str().replace('|', "\\x7c"),
+        record.message.display_lossy().replace('|', "\\x7c"),
         hash_hex,
     )
 }

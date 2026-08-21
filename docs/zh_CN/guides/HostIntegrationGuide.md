@@ -243,7 +243,7 @@ level = "INFO"
 performance_profile = "prod-performance"
 
 # 环形缓冲区容量。必须是 2 的幂。
-ring_buffer_size = 262144
+ring_buffer_size = 65536
 
 # 每个 Pipeline 批次处理的记录数。
 batch_size = 256
@@ -314,7 +314,7 @@ DoLogger 对日志记录字段实施四级环状访问控制模型。安全设�
 | Ring 0 | 引擎核心 | 仅核心引擎 | 格式化器 / Sink（只读） | Ed25519 |
 | Ring 1 | 系统受信 | 核心 + `HostInfoProvider` | 所有插件（只读） | Ed25519 |
 | Ring 2 | 已验证插件 | Blue / Yellow 插件 | 所有插件 | Ed25519（可配置） |
-| Ring 3 | 不可信扩展 | 任何插件 | 任何插件 | CRC32C |
+| Ring 3 | 不可信扩展 | 任何插件 | 任何插件 | `content_hash` |
 
 ### Ring 0 — 不可变字段
 
@@ -339,7 +339,7 @@ Blue 和 Yellow 插件可以写入带 `verified.*` 命名空间前缀的字段�
 
 ### Ring 3 — 不可信
 
-Red 插件写入 `ext.*` 命名空间。这些字段仅受 CRC32C 保护，且**不包含**在 Ed25519 签名覆盖范围内。
+Red 插件写入 `ext.*` 命名空间。这些字段纳入记录 `content_hash`，且**不包含**在可选的 Ed25519 审计签名覆盖范围内。CRC32C 仅是独立兼容校验。
 
 ---
 
@@ -553,7 +553,7 @@ Go 适配器使用 cgo 链接 `libdologger_core`。
 
 | 参数 | 默认值 | 建议 | 影响 |
 |:-:|:-:|:-:|:-:|
-| `ring_buffer_size` | 262144 | 突发型工作负载可调大 | 更大的缓冲 = 更高的峰值吞吐。必须是 2 的幂。 |
+| `ring_buffer_size` | 65536 | 突发型工作负载可调大 | 更大的缓冲 = 更高的峰值吞吐。必须是 2 的幂。 |
 | `batch_size` | 256 | 视记录大小在 128–512 之间 | 更大的批次 = 更高吞吐、更高延迟。 |
 | `enable_audit` | false | 默认 `false`；审计部署设为 `true` | 启用隔离 WORM/Security 持久化。 |
 | `enable_signature` | false | 审计签名的可选项；合规签名输出必须为 `true` | 每条签名记录增加约 17 us。 |

@@ -22,7 +22,7 @@
 8. [紧急缓冲区与恢复](#紧急缓冲区与恢复)
 9. [线程池架构](#线程池架构)
 10. [插件 VTable 规范](#插件-vtable-规范)
-11. [SIF 二进制格式概述](#sif-二进制格式概述)
+11. [Record 线格式](#record-线格式)
 12. [性能基准与调优](#性能基准与调优)
 
 ---
@@ -72,9 +72,9 @@ flowchart TD
         direction TB
         C0["阶段 0：PreFilter<br/>PolicyProvider 插件<br/>（rate_limiter、level）"] --> C1["阶段 1：Filter<br/>Filter 插件"]
         C1 --> C2["阶段 2：FieldProvider<br/>HostInfo + Field"]
-        C2 --> C3["阶段 3：Assembly<br/>核心：LSN 分配 + Ed25519 签名<br/>+ CRC32C Ring 3 校验 + 密钥检测"]
+        C2 --> C3["阶段 3：Assembly<br/>核心：LSN 分配 + content_hash<br/>+ Ed25519 审计签名（可选）+ 密钥检测"]
         C3 --> C4["阶段 4：Processing<br/>Processor 插件<br/>（transform、redact）"]
-        C4 --> C5["阶段 5：Formatting<br/>Formatter 插件<br/>（JSON、text、SIF）"]
+        C4 --> C5["阶段 5：Formatting<br/>Formatter 插件<br/>（JSON、文本、KV 展示）"]
         C5 --> C6["阶段 6：Sink<br/>核心内置接收器<br/>（并行写入）"]
         C6 --> C7["11 种接收器可用"]
     end
@@ -93,9 +93,9 @@ flowchart TD
 | PreFilter | 0 | PolicyProvider | 是 | 否 | 限流、级别门控 |
 | Filter | 1 | Filter | 是 | 否 | 基于内容的过滤 |
 | FieldProvider | 2 | FieldProvider, HostInfoProvider | 否 | Ring 1 写入 | 主机/容器/云元数据注入 |
-| Assembly | 3 | 仅核心 | 否 | Ring 0+1 写入 | LSN 分配、Ed25519 签名、CRC32C 校验、密钥检测 |
+| Assembly | 3 | 仅核心 | 否 | Ring 0+1 写入 | LSN 分配、content_hash、可选 Ed25519 审计签名、密钥检测 |
 | Processing | 4 | Processor | 是 | Ring 2+3 写入 | 转换、脱敏、增强 |
-| Formatting | 5 | Formatter | 否 | 只读 | 序列化为 JSON/文本/SIF |
+| Formatting | 5 | Formatter | 否 | 只读 | 序列化为 JSON/文本或 KV 展示 |
 | Sink | 6 | 核心内置 | 否 | 只读 | 写入外部目标 |
 
 ### Record 生命周期
@@ -282,7 +282,7 @@ verify_chain(records, sidecar)：
 |:-:|:-:|:-:|
 | 固定热字段（timestamp、level、message、pid、tid、LSN） | Ed25519 | 始终签名 |
 | KV 字段 | Ed25519 | 始终签名（规范 KV 顺序） |
-| 溢出落堆状态 | 仅 CRC32C | 硬件加速，非加密级别 |
+| 溢出落堆状态 | 纳入 content_hash | 规范序列化覆盖实际 payload，不覆盖堆指针 |
 
 ### 加密性能
 
@@ -320,7 +320,7 @@ send_to_external_anchor(merkle_root, lsn_range = [l, r]);
 
 ```mermaid
 flowchart TD
-    subgraph R3["RING 3 — 不受信任扩展（ext.* 命名空间）<br/>写入：任意插件（含 Red）| 读取：任意插件<br/>完整性：CRC32C 硬件校验（~0.5 周期/字节）<br/>不受 Ed25519 签名保护"]
+    subgraph R3["RING 3 — 不受信任扩展（ext.* 命名空间）<br/>写入：任意插件（含 Red）| 读取：任意插件<br/>完整性：content_hash<br/>不受可选 Ed25519 审计签名保护"]
         subgraph R2["RING 2 — 已验证扩展（verified.* 命名空间）<br/>写入：仅 Blue + Yellow 插件 | 读取：任意插件<br/>完整性：Ed25519（sign_ring2=true 时）<br/>审计：每次写入追加 audit_tags 条目"]
             subgraph R1["RING 1 — 系统信任字段<br/>写入：核心引擎 + HostInfoProvider | 读取：所有插件（只读）<br/>完整性：Ed25519（始终）<br/>字段：level、message、host、process、thread_id、environment"]
                 R0["RING 0 — 引擎核心 — 不可变<br/>写入：仅核心引擎 | 读取：Formatter + Sink（只读）<br/>完整性：Ed25519（始终）<br/>字段：id、timestamp、signature、origin_lsn"]
@@ -656,46 +656,44 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 
 ---
 
-## SIF 二进制格式概述
+## Record 线格式
 
-### 格式
+DoLogger 将当前运行时帧与保留的兼容格式分开。当前 Record 是固定热字段
+加动态 KV 槽；新的运行时和共享内存生产者使用版本化 `KVF1` 帧，JSON/文本
+是展示输出，SIF 只作为显式兼容读取路径。
 
-SIF（**Standard Intermediate Format**，标准中间格式）是二进制日志记录线格式，
-用于 WORM 存储、共享内存交接，以及 CLI 的 `record` / `verify` 命令。它是由
-FlatBuffer 编码的 `Record` 表，外加一个小的帧头，支持模式演化与零拷贝字段访问。
+### KVF1 当前运行时帧
 
-每个 SIF 消息按如下方式分帧：
+`core::record::wire` 提供规范二进制边界：
 
-| 偏移 | 大小 | 字段 | 描述 |
-|:-:|:-:|:-:|:-:|
-| 0 | 4 | magic | `b"SIF1"` |
-| 4 | 12 | SifHeader | version、total_length、record_count |
-| 16 | 可变 | FlatBuffer | `Record` 表（根偏移 + vtable + 数据） |
+- `encode_record(&Record)` 写出有边界的 `KVF1` 帧；
+- `decode_record_with(&[u8], DecodeOptions)` 校验并解码单帧；
+- `decode_any(&[u8], DecodeOptions)` 先识别 KV，再走旧 SIF 路径，并返回帧类型；
+- `FrameScanner` 处理长度前缀分片输入，不信任伪造长度，也不进行无界分配。
 
-### 帧头（`SifHeader`）
+帧在构造 `Record` 之前校验 magic、版本、声明长度、UTF-8、字段名、封闭类型
+集合、重复标签、字段/消息预算以及可选内容哈希。持久化 KV 和审计字节不会
+经过展示代码页策略转换。
 
-| 字段 | 大小 | 描述 |
-|:-:|:-:|:-:|
-| version | 4 | 打包的模式版本（`MAJOR << 24 \| MINOR << 16 \| PATCH`）；1.0.0 = `0x0100_0000` |
-| total_length | 4 | 帧总长度（含 magic + 帧头） |
-| record_count | 4 | `Record` 表数量（单记录帧为 1） |
+### SIF 兼容帧
 
-### 编码 / 解码
+SIF（**Standard Intermediate Format**）是保留的 FlatBuffers 格式，用于旧文件、
+旧集成、WORM 归档、回放、验证和迁移工具。它不再是新的运行时 SHM 写入者
+的规范格式。
 
-`core::sif` 模块提供稳定的帧 API：
+兼容 schema 仍位于 `core/sif/dologger_sif.fbs`，生成绑定也作为 fallback 提交。
+删除 SIF 必须先完成消费者清单和独立的废弃决策；本阶段不声称 SIF 已删除，
+也不声称所有生产者都已完成迁移。
 
-- `encode_record(&Record) -> Vec<u8>` — 将记录序列化为分帧的 SIF 缓冲区。
-- `decode_record(&[u8]) -> Record` — 将分帧的 SIF 缓冲区解析回记录。
-- `validate_frame(&[u8]) -> SifError` — 校验 magic + 帧头一致性。
+### 审计与展示边界
 
-FlatBuffer 模式位于 `core/sif/dologger_sif.fbs`；绑定由 `core/build.rs`
-（`flatc --rust`）生成并提交作为回退。模式支持演化，旧消费者会忽略未知字段。
+审计是显式开启、默认关闭的使用场景。开启后，审计封装、哈希链、WORM 持久化
+和可选签名 sidecar 遵循独立安全契约；存在 KV 帧不会自动开启审计。展示
+Formatter 可以把同一个 `Record` 渲染为 JSON 或文本，并使用独立的 UTF-8、
+显式代码页和可观察 fallback 编解码策略。
 
-### 状态 — v0.0.1
-
-线格式与 `encode_record` / `decode_record` / `validate_frame` API 已交付，
-并被共享内存 sink 与 CLI 使用。引擎的 Formatting→Sink SIF 交接处于规划中
-（Formatting 阶段目前仍内部输出纯文本）。
+参见 [KV 线格式与 SIF 兼容迁移](guides/KvWireAndSifMigration.md)，其中记录了
+迁移规则和当前仍开放的验收项目。
 
 ---
 
@@ -728,7 +726,7 @@ FlatBuffer 模式位于 `core/sif/dologger_sif.fbs`；绑定由 `core/build.rs`
 
 | 参数 | 默认值 | 调优指导 |
 |:-:|:-:|:-:|
-| `ring_buffer_size` | 262144 | 突发性工作负载时可增大。必须是 2 的幂。 |
+| `ring_buffer_size` | 65536 | 突发性工作负载时可增大。必须是 2 的幂。 |
 | `batch_size` | 256 | 128-512。越大吞吐量越高，延迟也越高。 |
 | `enable_audit` | false | 显式启用隔离 AUDIT/WORM 管线。 |
 | `audit_worm_path` | `dologger_audit.worm` | 仅由隔离 AUDIT 管线使用的 WORM 文件。 |

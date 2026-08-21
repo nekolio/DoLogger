@@ -4,11 +4,13 @@
 //! watcher, and hot-reload infrastructure.
 
 pub mod domain;
+pub mod encoding;
 pub mod hot_reload;
 pub mod settings;
 pub mod watcher;
 
 pub use domain::{ArrayMergePolicy, Domain, DomainManager, NonDowngradableCheck};
+pub use encoding::{EncodingConfig, InputEncodingMode};
 pub use hot_reload::{HotReloadManager, PluginState, ReloadResult};
 pub use settings::{
     resolve_config_path, ApiOverrides, ComplianceProfile, DologgerConfig, PerformanceProfile,

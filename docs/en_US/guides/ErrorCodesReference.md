@@ -65,6 +65,7 @@ Config file load, parse, validate, merge (domain inheritance), and hot reload.
 | `-0x0206` | `DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED` | Hot reload failed; previous config stays in effect |
 | `-0x0207` | `DO_LOG_ERR_CONFIG_HASH_MISMATCH` | Hot reload config hash mismatch (file changed mid-check) |
 | `-0x0208` | `DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID` | New config submitted for hot reload failed validation |
+| `-0x0209` | `DO_LOG_ERR_CONFIG_RESTART_REQUIRED` | Reload applied other fields but protected encoding changes require restart |
 
 ## 0x03xx — Plugin
 
@@ -100,6 +101,7 @@ Record invariants and field access.
 | `-0x0403` | `DO_LOG_ERR_FIELD_PERMISSION_DENIED` | Field access denied (Ring permission violation) |
 | `-0x0404` | `DO_LOG_ERR_FIELD_TYPE_MISMATCH` | Field type mismatch |
 | `-0x0405` | `DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET` | Plugin-required field not provided by an earlier pipeline stage |
+| `-0x0406` | `DO_LOG_ERR_RECORD_INVALID_ENCODING` | Legacy text ABI input is not valid UTF-8 |
 
 ## 0x05xx — Buffer / Pipeline
 

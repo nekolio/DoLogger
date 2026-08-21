@@ -50,6 +50,7 @@
 | `-0x0206` | `DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED` | 热重载失败；沿用旧配置 |
 | `-0x0207` | `DO_LOG_ERR_CONFIG_HASH_MISMATCH` | 热重载配置哈希不匹配（校验途中文件被改） |
 | `-0x0208` | `DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID` | 提交热重载的新配置校验失败 |
+| `-0x0209` | `DO_LOG_ERR_CONFIG_RESTART_REQUIRED` | 其他字段已热加载，但受保护的编码变更需要重启 |
 
 ## 0x03xx — 插件
 
@@ -84,6 +85,7 @@
 | `-0x0403` | `DO_LOG_ERR_FIELD_PERMISSION_DENIED` | 字段访问被拒（权限环违规） |
 | `-0x0404` | `DO_LOG_ERR_FIELD_TYPE_MISMATCH` | 字段类型不匹配 |
 | `-0x0405` | `DO_LOG_ERR_FIELD_DEPENDENCY_NOT_MET` | 插件要求的字段未由前序管线阶段提供 |
+| `-0x0406` | `DO_LOG_ERR_RECORD_INVALID_ENCODING` | 旧文本 ABI 输入不是有效 UTF-8 |
 
 ## 0x05xx — 缓冲 / 管线
 

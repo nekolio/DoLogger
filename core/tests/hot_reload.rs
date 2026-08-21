@@ -9,8 +9,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use dologger_core::config::DologgerConfig;
+use dologger_core::config::InputEncodingMode;
 use dologger_core::config::{ConfigWatcher, WatcherBackend, WatcherConfig};
-use dologger_core::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED;
+use dologger_core::error::{
+    DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED, DO_LOG_ERR_CONFIG_RESTART_REQUIRED,
+};
 use dologger_core::sink::{DurabilityLevel, FileSinkConfig, SinkKindConfig};
 use dologger_core::Engine;
 
@@ -63,6 +66,22 @@ fn reload_config_failure_keeps_previous_config() {
 
     // The previous config must be preserved on failure.
     assert_eq!(engine.config.level, "INFO");
+}
+
+#[test]
+fn reload_config_applies_hot_fields_but_protects_encoding() {
+    let engine = Engine::init(config_with_level("INFO")).expect("engine init");
+    let mut engine = engine;
+    let mut new_config = config_with_level("DEBUG");
+    new_config.encoding.input = InputEncodingMode::Auto;
+
+    let err = engine
+        .reload_config(new_config)
+        .expect_err("protected encoding change must require restart");
+
+    assert_eq!(err, DO_LOG_ERR_CONFIG_RESTART_REQUIRED);
+    assert_eq!(engine.config.level, "DEBUG");
+    assert_eq!(engine.config.encoding.input, InputEncodingMode::Utf8);
 }
 
 /// End-to-end wiring check: a `ConfigWatcher` that re-parses a config file and

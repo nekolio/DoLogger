@@ -186,7 +186,16 @@ fn sif_to_record(sif: &SifRecord<'_>) -> Record {
     r.timestamp = sif.timestamp_hi() * 1_000_000_000 + sif.timestamp_lo();
     r.level = LogLevel::from_u8(sif.level()).unwrap_or(LogLevel::Info);
 
-    r.message.set(sif.message().unwrap_or(""));
+    let message = sif.message().unwrap_or("");
+    if let Some(encoded) = message.strip_prefix("bin:v1:base64:") {
+        if let Some(bytes) = decode_base64(encoded) {
+            r.message.set_bytes(&bytes);
+        } else {
+            r.message.set(message);
+        }
+    } else {
+        r.message.set(message);
+    }
     r.set_source_file(sif.source_file().unwrap_or(""));
     r.set_source_function(sif.source_function().unwrap_or(""));
     r.set_source_line(sif.source_line());
@@ -227,6 +236,37 @@ fn sif_to_record(sif: &SifRecord<'_>) -> Record {
         .unwrap_or([0u8; 32]);
 
     r
+}
+
+fn decode_base64(value: &str) -> Option<Vec<u8>> {
+    if !value.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut output = Vec::with_capacity(value.len() / 4 * 3);
+    for chunk in value.as_bytes().chunks_exact(4) {
+        let values = [decode_base64_byte(chunk[0])?, decode_base64_byte(chunk[1])?];
+        output.push((values[0] << 2) | (values[1] >> 4));
+        if chunk[2] != b'=' {
+            let third = decode_base64_byte(chunk[2])?;
+            output.push((values[1] << 4) | (third >> 2));
+            if chunk[3] != b'=' {
+                let fourth = decode_base64_byte(chunk[3])?;
+                output.push((third << 6) | fourth);
+            }
+        }
+    }
+    Some(output)
+}
+
+fn decode_base64_byte(byte: u8) -> Option<u8> {
+    match byte {
+        b'A'..=b'Z' => Some(byte - b'A'),
+        b'a'..=b'z' => Some(byte - b'a' + 26),
+        b'0'..=b'9' => Some(byte - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +329,7 @@ mod tests {
         assert_eq!(a.id_lo(), b.id_lo(), "id_lo");
         assert_eq!(a.timestamp, b.timestamp, "timestamp");
         assert_eq!(a.level, b.level, "level");
-        assert_eq!(a.message.as_str(), b.message.as_str(), "msg");
+        assert_eq!(a.message.as_bytes(), b.message.as_bytes(), "msg");
         assert_eq!(a.source_file(), b.source_file(), "source_file");
         assert_eq!(a.source_function(), b.source_function(), "source_function");
         assert_eq!(a.source_line(), b.source_line(), "source_line");
@@ -345,7 +385,7 @@ mod tests {
         let decoded = decode_record(&frame).expect("valid frame decodes");
         assert_records_equal(&original, &decoded);
         // Empty strings must round-trip to empty, not panic or misread.
-        assert_eq!(decoded.message.as_str(), "");
+        assert_eq!(decoded.message.as_utf8().unwrap(), "");
     }
 
     #[test]
@@ -354,7 +394,20 @@ mod tests {
         original.message.set(&"こんにちは世界 😀 ".repeat(40));
         let frame = encode_record(&original);
         let decoded = decode_record(&frame).expect("valid frame decodes");
-        assert_eq!(decoded.message.as_str(), original.message.as_str());
+        assert_eq!(decoded.message.as_bytes(), original.message.as_bytes());
+    }
+
+    #[test]
+    fn roundtrip_binary_message_uses_versioned_base64_compatibility_marker() {
+        let mut original = Record::new(0);
+        original.message.set_bytes(&[0, 0xff, 0x80, 0x01]);
+        let frame = encode_record(&original);
+        let decoded = decode_record(&frame).expect("valid binary compatibility frame decodes");
+        assert_eq!(
+            decoded.message.kind(),
+            crate::record::MessagePayloadKind::Binary
+        );
+        assert_eq!(decoded.message.as_bytes(), original.message.as_bytes());
     }
 
     #[test]
@@ -441,7 +494,7 @@ mod tests {
         let frame = encode_record(&original);
         let (decoded, compatibility) = decode_record_compat(&frame).expect("compat decode");
 
-        assert_eq!(decoded.message.as_str(), original.message.as_str());
+        assert_eq!(decoded.message.as_bytes(), original.message.as_bytes());
         assert!(compatibility.content_hash_present);
         assert!(!compatibility.dropped_legacy_fields());
     }
