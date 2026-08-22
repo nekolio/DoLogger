@@ -136,7 +136,9 @@ impl RecordPool {
     pub fn available(&self) -> usize {
         let allocs = self.alloc_count.load(Ordering::Relaxed);
         let frees = self.free_count.load(Ordering::Relaxed);
-        self.nodes.len().saturating_sub((allocs - frees) as usize)
+        self.nodes
+            .len()
+            .saturating_sub(allocs.saturating_sub(frees) as usize)
     }
 }
 
