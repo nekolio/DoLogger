@@ -206,13 +206,16 @@ fn read_status_round_trips_sink_writes() {
     });
     sink.open(&sysmon).expect("sink opens");
 
-    // A minimal SIF frame (magic + header + flatbuffer root offset).
+    // A minimal structurally framed SIF payload for slot transport coverage.
     let mut sif: Vec<u8> = Vec::new();
-    sif.extend_from_slice(b"SIF1");
-    sif.extend_from_slice(&0x0100_0000u32.to_le_bytes());
-    sif.extend_from_slice(&20u32.to_le_bytes());
-    sif.extend_from_slice(&1u32.to_le_bytes());
-    sif.extend_from_slice(&4u32.to_le_bytes());
+    sif.extend_from_slice(b"SIF\0");
+    sif.extend_from_slice(&32u16.to_le_bytes());
+    sif.extend_from_slice(&0u16.to_le_bytes());
+    sif.extend_from_slice(&32u32.to_le_bytes());
+    sif.extend_from_slice(&0u32.to_le_bytes());
+    sif.extend_from_slice(&0u32.to_le_bytes());
+    sif.extend_from_slice(&0u32.to_le_bytes());
+    sif.extend_from_slice(&0u32.to_le_bytes());
 
     const N: usize = 10;
     for _ in 0..N {

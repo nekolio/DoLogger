@@ -695,48 +695,42 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 
 ## Record Wire Formats
 
-DoLogger separates the current runtime frame from the retained compatibility
-format. The current Record architecture is fixed hot fields plus dynamic KV
-slots. New runtime and shared-memory producers use the versioned `KVF1` frame;
-JSON and text are display outputs; SIF remains an explicit compatibility reader.
+DoLogger separates the in-memory Record model from its byte boundary. A Record
+contains fixed hot fields, dynamic KV fields, and raw message bytes. SIF
+(**Standard Intermediate Format**) serializes that model into one bounded,
+cross-platform frame for communication and storage.
 
-### KVF1 current runtime frame
+### KV-backed SIF frame
 
-The `core::record::wire` module exposes the canonical binary boundary:
+The `core::sif` module exposes the canonical byte boundary:
 
-- `encode_record(&Record)` writes a bounded `KVF1` frame.
+- `encode_record(&Record)` writes a bounded SIF frame.
 - `decode_record_with(&[u8], DecodeOptions)` validates and decodes one frame.
-- `decode_any(&[u8], DecodeOptions)` accepts KV first and then the legacy SIF path,
-  returning the detected frame kind.
+- `validate_frame_with(&[u8], DecodeOptions)` validates without constructing a
+  Record.
 - `FrameScanner` handles length-prefixed fragmented input without trusting
   forged lengths or allocating an unbounded buffer.
 
-The frame validates magic, version, declared lengths, UTF-8, field names,
-closed value types, duplicate tags, field/message budgets, and optional content
-hashes before constructing a `Record`. Persisted KV and audit bytes are not
-converted through the display code-page policy.
+The frame contains a fixed header, fixed Record metadata, raw message bytes,
+and repeated KV entries. It validates magic, header and total lengths, field
+names, closed value types, duplicate tags, field/message budgets, raw-message
+kind, and optional content hashes before constructing a Record. Persisted SIF
+and audit bytes are not converted through the display code-page policy.
 
-### SIF compatibility frame
-
-SIF (**Standard Intermediate Format**) is the retained FlatBuffers format. It is
-kept for older files, integrations, WORM archives, replay, verification, and
-migration tooling. It is not the authority for new runtime SHM writers.
-
-The compatibility schema remains at `core/sif/dologger_sif.fbs`; generated
-bindings are committed as a fallback. SIF removal requires a separate
-consumer inventory and deprecation decision. This stage does not claim that
-SIF has been deleted or that every producer has migrated.
+SIF is useful for SHM, files, plugins, C ABI, cross-process, and cross-language
+boundaries. An in-process sink may consume Record directly and does not have to
+pay for SIF serialization.
 
 ### Audit and display boundaries
 
 Audit is an explicit, default-off scenario. When enabled, the audit envelope,
 hash chain, WORM persistence, and optional signature sidecar follow their own
-security contract; the existence of a KV frame does not enable audit. Display
+security contract; the existence of a SIF frame does not enable audit. Display
 formatters may render the same `Record` as JSON or text, using the independent
 codec policy for UTF-8, explicit code pages, or observable fallback.
 
-See [KV Wire and SIF Compatibility Migration](guides/KvWireAndSifMigration.md)
-for the migration rules and current open acceptance items.
+See [KV and SIF Serialization Boundary](guides/KvWireAndSifMigration.md) for
+the boundary rules and explicitly tracked engineering stubs.
 
 ---
 

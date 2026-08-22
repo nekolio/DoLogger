@@ -1,8 +1,8 @@
-//! Versioned KV wire frames.
+//! SIF serialization built from the Record KV model.
 //!
-//! The KV frame is the canonical runtime transport for the Record milestone.
-//! SIF/FlatBuffers remains a compatibility decoder for older integrations and
-//! is not used as the authority for current shared-memory persistence.
+//! The frame is intentionally owned by the SIF module: KV describes the
+//! dynamic data organization inside a Record, while SIF describes the
+//! cross-platform byte boundary used by sinks and external consumers.
 //!
 //! Frame layout (all integers little-endian):
 //!
@@ -18,21 +18,19 @@
 use std::collections::HashSet;
 use std::fmt;
 
-use super::kv::{KvPutError, KvSlot, KvType, KV_TAG_CORE_MAX};
-use super::{LogLevel, MessagePayloadKind, Record};
+use crate::record::kv::{KvPutError, KvSlot, KvType, KV_TAG_CORE_MAX};
+use crate::record::{LogLevel, MessagePayloadKind, Record};
 
-/// Four-byte identifier for a KV frame.
-pub const KV_MAGIC: [u8; 4] = *b"KVF1";
-/// Current KV protocol version.
-pub const KV_VERSION: u32 = 1;
+/// Four-byte identifier for a SIF frame.
+pub const SIF_MAGIC: [u8; 4] = *b"SIF\0";
 /// Fixed header size.
-pub const KV_HEADER_LEN: usize = 32;
+pub const SIF_HEADER_LEN: usize = 32;
 /// Fixed metadata size, including the message length word.
-pub const KV_FIXED_LEN: usize = 90;
+pub const SIF_FIXED_LEN: usize = 90;
 /// Offset of the content hash relative to the fixed metadata start.
-pub const KV_HASH_OFFSET: usize = 54;
+pub const SIF_HASH_OFFSET: usize = 54;
 /// Offset of the message length relative to the fixed metadata start.
-pub const KV_MESSAGE_LEN_OFFSET: usize = 86;
+pub const SIF_MESSAGE_LEN_OFFSET: usize = 86;
 /// Maximum accepted frame size.
 pub const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 /// Maximum number of dynamic fields.
@@ -44,26 +42,24 @@ pub const MAX_MESSAGE_SIZE: usize = 8 * 1024 * 1024;
 /// Maximum individual value length.
 pub const MAX_FIELD_VALUE: usize = 8 * 1024 * 1024;
 /// Frame contains a non-zero content hash.
-pub const KV_FLAG_CONTENT_HASH: u16 = 0x0001;
+pub const SIF_FLAG_CONTENT_HASH: u16 = 0x0001;
 /// Frame contains an AUDIT-level record.
-pub const KV_FLAG_AUDIT: u16 = 0x0002;
+pub const SIF_FLAG_AUDIT: u16 = 0x0002;
 /// Frame was emitted by the canonical writer.
-pub const KV_FLAG_CANONICAL: u16 = 0x0004;
+pub const SIF_FLAG_CANONICAL: u16 = 0x0004;
 /// Frame message contains bytes that were not validated as text.
-pub const KV_FLAG_MESSAGE_BINARY: u16 = 0x0008;
+pub const SIF_FLAG_MESSAGE_BINARY: u16 = 0x0008;
 /// Frame message contains text produced by explicit decoding.
-pub const KV_FLAG_MESSAGE_EXPLICIT_TEXT: u16 = 0x0010;
+pub const SIF_FLAG_MESSAGE_EXPLICIT_TEXT: u16 = 0x0010;
 
-/// Validation and codec failures for KV frames.
+/// Validation and codec failures for SIF frames.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(missing_docs)]
-pub enum KvWireError {
+pub enum SifError {
     /// Input ended before a complete value was available.
     Truncated { offset: usize, needed: usize },
-    /// Input does not begin with `KVF1`.
+    /// Input does not begin with the SIF magic bytes.
     InvalidMagic,
-    /// Wire version is not supported.
-    UnsupportedVersion { found: u32, supported: u32 },
     /// A fixed protocol length is inconsistent.
     InvalidHeaderLength { found: usize, expected: usize },
     /// Header length differs from the supplied buffer.
@@ -96,29 +92,28 @@ pub enum KvWireError {
     EncodeOverflow(&'static str),
 }
 
-impl fmt::Display for KvWireError {
+impl fmt::Display for SifError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Truncated { offset, needed } => {
-                write!(f, "truncated KV frame at {offset}, need {needed} bytes")
+                write!(f, "truncated SIF frame at {offset}, need {needed} bytes")
             }
-            Self::InvalidMagic => f.write_str("invalid KV frame magic"),
-            Self::UnsupportedVersion { found, supported } => {
-                write!(f, "unsupported KV version {found}, supported {supported}")
-            }
+            Self::InvalidMagic => f.write_str("invalid SIF frame magic"),
             Self::InvalidHeaderLength { found, expected } => {
-                write!(f, "invalid KV length {found}, expected {expected}")
+                write!(f, "invalid SIF length {found}, expected {expected}")
             }
             Self::LengthMismatch { declared, actual } => write!(
                 f,
-                "KV length mismatch: declared {declared}, actual {actual}"
+                "SIF length mismatch: declared {declared}, actual {actual}"
             ),
             Self::LengthExceeded { field, value, max } => {
-                write!(f, "KV {field} length {value} exceeds {max}")
+                write!(f, "SIF {field} length {value} exceeds {max}")
             }
-            Self::TooManyFields { found, max } => write!(f, "KV field count {found} exceeds {max}"),
+            Self::TooManyFields { found, max } => {
+                write!(f, "SIF field count {found} exceeds {max}")
+            }
             Self::DuplicateTag(tag) => write!(f, "duplicate KV tag {tag}"),
-            Self::InvalidUtf8 => f.write_str("invalid UTF-8 in KV frame"),
+            Self::InvalidUtf8 => f.write_str("invalid UTF-8 in SIF frame"),
             Self::InvalidMessageKind => f.write_str("invalid KV message kind flags"),
             Self::InvalidFieldName => f.write_str("invalid KV field name"),
             Self::UnknownType(ty) => write!(f, "unknown KV type {ty}"),
@@ -130,7 +125,7 @@ impl fmt::Display for KvWireError {
     }
 }
 
-impl std::error::Error for KvWireError {}
+impl std::error::Error for SifError {}
 
 /// Decode limits and integrity policy.
 #[derive(Debug, Clone, Copy)]
@@ -171,9 +166,7 @@ impl DecodeOptions {
 
 /// Metadata validated from a frame header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KvFrameHeader {
-    /// Protocol version.
-    pub version: u32,
+pub struct SifFrameHeader {
     /// Header flags.
     pub flags: u16,
     /// Complete frame length.
@@ -198,7 +191,7 @@ pub struct KvEntry<'a> {
 }
 
 /// Validate a frame with default bounds.
-pub fn validate_frame(frame: &[u8]) -> Result<KvFrameHeader, KvWireError> {
+pub fn validate_frame(frame: &[u8]) -> Result<SifFrameHeader, SifError> {
     validate_frame_with(frame, DecodeOptions::default())
 }
 
@@ -206,83 +199,75 @@ pub fn validate_frame(frame: &[u8]) -> Result<KvFrameHeader, KvWireError> {
 pub fn validate_frame_with(
     frame: &[u8],
     options: DecodeOptions,
-) -> Result<KvFrameHeader, KvWireError> {
+) -> Result<SifFrameHeader, SifError> {
     if frame.len() > options.max_frame_size {
-        return Err(KvWireError::LengthExceeded {
+        return Err(SifError::LengthExceeded {
             field: "frame",
             value: frame.len(),
             max: options.max_frame_size,
         });
     }
-    if frame.len() < KV_HEADER_LEN {
-        return Err(KvWireError::Truncated {
+    if frame.len() < SIF_HEADER_LEN {
+        return Err(SifError::Truncated {
             offset: frame.len(),
-            needed: KV_HEADER_LEN - frame.len(),
+            needed: SIF_HEADER_LEN - frame.len(),
         });
     }
-    if frame[..4] != KV_MAGIC {
-        return Err(KvWireError::InvalidMagic);
+    if frame[..4] != SIF_MAGIC {
+        return Err(SifError::InvalidMagic);
     }
-    let version = read_u32(frame, 4)?;
-    if version != KV_VERSION {
-        return Err(KvWireError::UnsupportedVersion {
-            found: version,
-            supported: KV_VERSION,
-        });
-    }
-    let header_len = read_u16(frame, 8)? as usize;
-    if header_len != KV_HEADER_LEN {
-        return Err(KvWireError::InvalidHeaderLength {
+    let header_len = read_u16(frame, 4)? as usize;
+    if header_len != SIF_HEADER_LEN {
+        return Err(SifError::InvalidHeaderLength {
             found: header_len,
-            expected: KV_HEADER_LEN,
+            expected: SIF_HEADER_LEN,
         });
     }
-    let flags = read_u16(frame, 10)?;
-    if flags & KV_FLAG_MESSAGE_BINARY != 0 && flags & KV_FLAG_MESSAGE_EXPLICIT_TEXT != 0 {
-        return Err(KvWireError::InvalidMessageKind);
+    let flags = read_u16(frame, 6)?;
+    if flags & SIF_FLAG_MESSAGE_BINARY != 0 && flags & SIF_FLAG_MESSAGE_EXPLICIT_TEXT != 0 {
+        return Err(SifError::InvalidMessageKind);
     }
-    let total_length = read_u32(frame, 12)? as usize;
+    let total_length = read_u32(frame, 8)? as usize;
     if total_length != frame.len() {
-        return Err(KvWireError::LengthMismatch {
+        return Err(SifError::LengthMismatch {
             declared: total_length,
             actual: frame.len(),
         });
     }
     if total_length > options.max_frame_size {
-        return Err(KvWireError::LengthExceeded {
+        return Err(SifError::LengthExceeded {
             field: "declared frame",
             value: total_length,
             max: options.max_frame_size,
         });
     }
-    let field_count = read_u32(frame, 16)? as usize;
+    let field_count = read_u32(frame, 12)? as usize;
     if field_count > options.max_field_count {
-        return Err(KvWireError::TooManyFields {
+        return Err(SifError::TooManyFields {
             found: field_count,
             max: options.max_field_count,
         });
     }
-    let fixed_length = read_u32(frame, 20)? as usize;
-    if fixed_length != KV_FIXED_LEN {
-        return Err(KvWireError::InvalidHeaderLength {
+    let fixed_length = read_u32(frame, 16)? as usize;
+    if fixed_length != SIF_FIXED_LEN {
+        return Err(SifError::InvalidHeaderLength {
             found: fixed_length,
-            expected: KV_FIXED_LEN,
+            expected: SIF_FIXED_LEN,
         });
     }
-    let minimum = KV_HEADER_LEN
+    let minimum = SIF_HEADER_LEN
         .checked_add(fixed_length)
-        .ok_or(KvWireError::LengthMismatch {
+        .ok_or(SifError::LengthMismatch {
             declared: total_length,
             actual: frame.len(),
         })?;
     if total_length < minimum {
-        return Err(KvWireError::Truncated {
+        return Err(SifError::Truncated {
             offset: total_length,
             needed: minimum - total_length,
         });
     }
-    Ok(KvFrameHeader {
-        version,
+    Ok(SifFrameHeader {
         flags,
         total_length,
         field_count,
@@ -290,43 +275,43 @@ pub fn validate_frame_with(
     })
 }
 
-/// Encode one Record as the canonical KV frame.
-pub fn encode_record(record: &Record) -> Result<Vec<u8>, KvWireError> {
+/// Encode one Record as a SIF frame whose dynamic fields are serialized as KV entries.
+pub fn encode_record(record: &Record) -> Result<Vec<u8>, SifError> {
     let fields = collect_entries(record);
     if fields.len() > MAX_FIELD_COUNT {
-        return Err(KvWireError::TooManyFields {
+        return Err(SifError::TooManyFields {
             found: fields.len(),
             max: MAX_FIELD_COUNT,
         });
     }
     let message = record.message.as_bytes();
     if message.len() > MAX_MESSAGE_SIZE {
-        return Err(KvWireError::LengthExceeded {
+        return Err(SifError::LengthExceeded {
             field: "message",
             value: message.len(),
             max: MAX_MESSAGE_SIZE,
         });
     }
-    let mut flags = KV_FLAG_CANONICAL;
+    let mut flags = SIF_FLAG_CANONICAL;
     if record.level == LogLevel::Audit {
-        flags |= KV_FLAG_AUDIT;
+        flags |= SIF_FLAG_AUDIT;
     }
     if record.content_hash != [0; 32] {
-        flags |= KV_FLAG_CONTENT_HASH;
+        flags |= SIF_FLAG_CONTENT_HASH;
     }
     match record.message.kind() {
         MessagePayloadKind::Utf8 => {}
-        MessagePayloadKind::Binary => flags |= KV_FLAG_MESSAGE_BINARY,
-        MessagePayloadKind::ExplicitDecodedText => flags |= KV_FLAG_MESSAGE_EXPLICIT_TEXT,
+        MessagePayloadKind::Binary => flags |= SIF_FLAG_MESSAGE_BINARY,
+        MessagePayloadKind::ExplicitDecodedText => flags |= SIF_FLAG_MESSAGE_EXPLICIT_TEXT,
     }
-    let mut frame = Vec::with_capacity(KV_HEADER_LEN + KV_FIXED_LEN + message.len());
-    frame.extend_from_slice(&KV_MAGIC);
-    frame.extend_from_slice(&KV_VERSION.to_le_bytes());
-    frame.extend_from_slice(&(KV_HEADER_LEN as u16).to_le_bytes());
+    let mut frame = Vec::with_capacity(SIF_HEADER_LEN + SIF_FIXED_LEN + message.len());
+    frame.extend_from_slice(&SIF_MAGIC);
+    frame.extend_from_slice(&(SIF_HEADER_LEN as u16).to_le_bytes());
     frame.extend_from_slice(&flags.to_le_bytes());
     frame.extend_from_slice(&0u32.to_le_bytes());
     frame.extend_from_slice(&(fields.len() as u32).to_le_bytes());
-    frame.extend_from_slice(&(KV_FIXED_LEN as u32).to_le_bytes());
+    frame.extend_from_slice(&(SIF_FIXED_LEN as u32).to_le_bytes());
+    frame.extend_from_slice(&0u32.to_le_bytes());
     frame.extend_from_slice(&0u32.to_le_bytes());
     frame.extend_from_slice(&0u32.to_le_bytes());
     frame.extend_from_slice(&record.id_hi().to_le_bytes());
@@ -344,23 +329,23 @@ pub fn encode_record(record: &Record) -> Result<Vec<u8>, KvWireError> {
     frame.extend_from_slice(message);
     for field in fields {
         if field.name.len() > MAX_FIELD_NAME {
-            return Err(KvWireError::LengthExceeded {
+            return Err(SifError::LengthExceeded {
                 field: "field name",
                 value: field.name.len(),
                 max: MAX_FIELD_NAME,
             });
         }
         if field.value.len() > MAX_FIELD_VALUE {
-            return Err(KvWireError::LengthExceeded {
+            return Err(SifError::LengthExceeded {
                 field: "field value",
                 value: field.value.len(),
                 max: MAX_FIELD_VALUE,
             });
         }
-        let name_len = u16::try_from(field.name.len())
-            .map_err(|_| KvWireError::EncodeOverflow("field name"))?;
+        let name_len =
+            u16::try_from(field.name.len()).map_err(|_| SifError::EncodeOverflow("field name"))?;
         let value_len = u32::try_from(field.value.len())
-            .map_err(|_| KvWireError::EncodeOverflow("field value"))?;
+            .map_err(|_| SifError::EncodeOverflow("field value"))?;
         frame.push(field.tag);
         frame.push(field.ty);
         frame.extend_from_slice(&name_len.to_le_bytes());
@@ -368,10 +353,10 @@ pub fn encode_record(record: &Record) -> Result<Vec<u8>, KvWireError> {
         frame.extend_from_slice(field.name.as_bytes());
         frame.extend_from_slice(&field.value);
     }
-    let total = u32::try_from(frame.len()).map_err(|_| KvWireError::EncodeOverflow("frame"))?;
-    frame[12..16].copy_from_slice(&total.to_le_bytes());
+    let total = u32::try_from(frame.len()).map_err(|_| SifError::EncodeOverflow("frame"))?;
+    frame[8..12].copy_from_slice(&total.to_le_bytes());
     if frame.len() > MAX_FRAME_SIZE {
-        return Err(KvWireError::LengthExceeded {
+        return Err(SifError::LengthExceeded {
             field: "frame",
             value: frame.len(),
             max: MAX_FRAME_SIZE,
@@ -381,35 +366,35 @@ pub fn encode_record(record: &Record) -> Result<Vec<u8>, KvWireError> {
 }
 
 /// Decode a frame with the default compatibility policy.
-pub fn decode_record(frame: &[u8]) -> Result<Record, KvWireError> {
+pub fn decode_record(frame: &[u8]) -> Result<Record, SifError> {
     decode_record_with(frame, DecodeOptions::default())
 }
 
 /// Decode a frame with explicit resource and integrity policy.
-pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record, KvWireError> {
+pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record, SifError> {
     let header = validate_frame_with(frame, options)?;
-    let fixed_start = KV_HEADER_LEN;
+    let fixed_start = SIF_HEADER_LEN;
     let fixed_end = fixed_start + header.fixed_length;
     let id_hi = read_u64(frame, fixed_start)?;
     let id_lo = read_u64(frame, fixed_start + 8)?;
     let timestamp = read_u64(frame, fixed_start + 16)?;
-    let level_raw = *frame.get(fixed_start + 24).ok_or(KvWireError::Truncated {
+    let level_raw = *frame.get(fixed_start + 24).ok_or(SifError::Truncated {
         offset: fixed_start + 24,
         needed: 1,
     })?;
-    let level = LogLevel::from_u8(level_raw).ok_or(KvWireError::InvalidLevel(level_raw))?;
+    let level = LogLevel::from_u8(level_raw).ok_or(SifError::InvalidLevel(level_raw))?;
     let thread_id = read_u32(frame, fixed_start + 32)?;
     let process_id = read_u32(frame, fixed_start + 36)?;
     let lsn = read_u64(frame, fixed_start + 40)?;
     let flags = read_u16(frame, fixed_start + 48)?;
     let pool_index = read_u32(frame, fixed_start + 50)?;
-    let content_hash = read_array::<32>(frame, fixed_start + KV_HASH_OFFSET)?;
-    let message_len = read_u32(frame, fixed_start + KV_MESSAGE_LEN_OFFSET)? as usize;
+    let content_hash = read_array::<32>(frame, fixed_start + SIF_HASH_OFFSET)?;
+    let message_len = read_u32(frame, fixed_start + SIF_MESSAGE_LEN_OFFSET)? as usize;
     if message_len > MAX_MESSAGE_SIZE
         || fixed_end.checked_add(message_len).is_none()
         || fixed_end + message_len > frame.len()
     {
-        return Err(KvWireError::LengthExceeded {
+        return Err(SifError::LengthExceeded {
             field: "message",
             value: message_len,
             max: MAX_MESSAGE_SIZE,
@@ -417,15 +402,15 @@ pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record
     }
     let message_end = fixed_end + message_len;
     let message = &frame[fixed_end..message_end];
-    let message_kind = match header.flags & (KV_FLAG_MESSAGE_BINARY | KV_FLAG_MESSAGE_EXPLICIT_TEXT)
-    {
-        0 => MessagePayloadKind::Utf8,
-        KV_FLAG_MESSAGE_BINARY => MessagePayloadKind::Binary,
-        KV_FLAG_MESSAGE_EXPLICIT_TEXT => MessagePayloadKind::ExplicitDecodedText,
-        _ => return Err(KvWireError::InvalidMessageKind),
-    };
+    let message_kind =
+        match header.flags & (SIF_FLAG_MESSAGE_BINARY | SIF_FLAG_MESSAGE_EXPLICIT_TEXT) {
+            0 => MessagePayloadKind::Utf8,
+            SIF_FLAG_MESSAGE_BINARY => MessagePayloadKind::Binary,
+            SIF_FLAG_MESSAGE_EXPLICIT_TEXT => MessagePayloadKind::ExplicitDecodedText,
+            _ => return Err(SifError::InvalidMessageKind),
+        };
     if message_kind != MessagePayloadKind::Binary && std::str::from_utf8(message).is_err() {
-        return Err(KvWireError::InvalidUtf8);
+        return Err(SifError::InvalidUtf8);
     }
     let mut record = Record::new(pool_index);
     record.set_id(id_hi, id_lo);
@@ -440,41 +425,41 @@ pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record
         MessagePayloadKind::Utf8 => record
             .message
             .set_utf8_bytes(message)
-            .map_err(|_| KvWireError::InvalidUtf8)?,
+            .map_err(|_| SifError::InvalidUtf8)?,
         MessagePayloadKind::Binary => record.message.set_bytes(message),
         MessagePayloadKind::ExplicitDecodedText => {
-            let text = std::str::from_utf8(message).map_err(|_| KvWireError::InvalidUtf8)?;
+            let text = std::str::from_utf8(message).map_err(|_| SifError::InvalidUtf8)?;
             record.message.set_explicit_decoded_text(text);
         }
     }
     let mut cursor = message_end;
     let mut tags = HashSet::with_capacity(header.field_count);
     for _ in 0..header.field_count {
-        let tag = *frame.get(cursor).ok_or(KvWireError::Truncated {
+        let tag = *frame.get(cursor).ok_or(SifError::Truncated {
             offset: cursor,
             needed: 1,
         })?;
         cursor += 1;
-        let ty = *frame.get(cursor).ok_or(KvWireError::Truncated {
+        let ty = *frame.get(cursor).ok_or(SifError::Truncated {
             offset: cursor,
             needed: 1,
         })?;
         cursor += 1;
         if KvType::from_u8(ty).is_none() {
-            return Err(KvWireError::UnknownType(ty));
+            return Err(SifError::UnknownType(ty));
         }
         let name_len = read_u16(frame, cursor)? as usize;
         cursor += 2;
         let value_len = read_u32(frame, cursor)? as usize;
         cursor += 4;
         if tag == 0 || !tags.insert(tag) {
-            return Err(KvWireError::DuplicateTag(tag));
+            return Err(SifError::DuplicateTag(tag));
         }
         if name_len == 0 || name_len > MAX_FIELD_NAME {
-            return Err(KvWireError::InvalidFieldName);
+            return Err(SifError::InvalidFieldName);
         }
         if value_len > MAX_FIELD_VALUE {
-            return Err(KvWireError::LengthExceeded {
+            return Err(SifError::LengthExceeded {
                 field: "field value",
                 value: value_len,
                 max: MAX_FIELD_VALUE,
@@ -482,24 +467,24 @@ pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record
         }
         let name_end = cursor
             .checked_add(name_len)
-            .ok_or(KvWireError::LengthMismatch {
+            .ok_or(SifError::LengthMismatch {
                 declared: frame.len(),
                 actual: cursor,
             })?;
         let value_end = name_end
             .checked_add(value_len)
-            .ok_or(KvWireError::LengthMismatch {
+            .ok_or(SifError::LengthMismatch {
                 declared: frame.len(),
                 actual: cursor,
             })?;
         if value_end > frame.len() {
-            return Err(KvWireError::Truncated {
+            return Err(SifError::Truncated {
                 offset: cursor,
                 needed: value_end - frame.len(),
             });
         }
         let name =
-            std::str::from_utf8(&frame[cursor..name_end]).map_err(|_| KvWireError::InvalidUtf8)?;
+            std::str::from_utf8(&frame[cursor..name_end]).map_err(|_| SifError::InvalidUtf8)?;
         validate_name(name)?;
         if tag > KV_TAG_CORE_MAX {
             register_vendor_tag(name, tag);
@@ -508,7 +493,7 @@ pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record
         cursor = value_end;
     }
     if cursor != frame.len() {
-        return Err(KvWireError::LengthMismatch {
+        return Err(SifError::LengthMismatch {
             declared: frame.len(),
             actual: cursor,
         });
@@ -517,25 +502,25 @@ pub fn decode_record_with(frame: &[u8], options: DecodeOptions) -> Result<Record
         && content_hash != [0; 32]
         && Record::compute_content_hash_from(&record) != content_hash
     {
-        return Err(KvWireError::ContentHashMismatch);
+        return Err(SifError::ContentHashMismatch);
     }
     Ok(record)
 }
 
 /// Return zero-copy entry views for inspection and replay tooling.
-pub fn entries(frame: &[u8]) -> Result<Vec<KvEntry<'_>>, KvWireError> {
+pub fn entries(frame: &[u8]) -> Result<Vec<KvEntry<'_>>, SifError> {
     let header = validate_frame(frame)?;
-    let fixed_start = KV_HEADER_LEN;
+    let fixed_start = SIF_HEADER_LEN;
     let fixed_end = fixed_start + header.fixed_length;
-    let message_len = read_u32(frame, fixed_start + KV_MESSAGE_LEN_OFFSET)? as usize;
+    let message_len = read_u32(frame, fixed_start + SIF_MESSAGE_LEN_OFFSET)? as usize;
     let mut cursor = fixed_end
         .checked_add(message_len)
-        .ok_or(KvWireError::LengthMismatch {
+        .ok_or(SifError::LengthMismatch {
             declared: frame.len(),
             actual: fixed_end,
         })?;
     if cursor > frame.len() {
-        return Err(KvWireError::Truncated {
+        return Err(SifError::Truncated {
             offset: fixed_end,
             needed: cursor - frame.len(),
         });
@@ -543,12 +528,12 @@ pub fn entries(frame: &[u8]) -> Result<Vec<KvEntry<'_>>, KvWireError> {
     let mut result = Vec::with_capacity(header.field_count);
     let mut tags = HashSet::with_capacity(header.field_count);
     for _ in 0..header.field_count {
-        let tag = *frame.get(cursor).ok_or(KvWireError::Truncated {
+        let tag = *frame.get(cursor).ok_or(SifError::Truncated {
             offset: cursor,
             needed: 1,
         })?;
         cursor += 1;
-        let ty = *frame.get(cursor).ok_or(KvWireError::Truncated {
+        let ty = *frame.get(cursor).ok_or(SifError::Truncated {
             offset: cursor,
             needed: 1,
         })?;
@@ -558,28 +543,28 @@ pub fn entries(frame: &[u8]) -> Result<Vec<KvEntry<'_>>, KvWireError> {
         let value_len = read_u32(frame, cursor)? as usize;
         cursor += 4;
         if !tags.insert(tag) {
-            return Err(KvWireError::DuplicateTag(tag));
+            return Err(SifError::DuplicateTag(tag));
         }
         let name_end = cursor
             .checked_add(name_len)
-            .ok_or(KvWireError::LengthMismatch {
+            .ok_or(SifError::LengthMismatch {
                 declared: frame.len(),
                 actual: cursor,
             })?;
         let value_end = name_end
             .checked_add(value_len)
-            .ok_or(KvWireError::LengthMismatch {
+            .ok_or(SifError::LengthMismatch {
                 declared: frame.len(),
                 actual: cursor,
             })?;
         if value_end > frame.len() {
-            return Err(KvWireError::Truncated {
+            return Err(SifError::Truncated {
                 offset: cursor,
                 needed: value_end - frame.len(),
             });
         }
         let name =
-            std::str::from_utf8(&frame[cursor..name_end]).map_err(|_| KvWireError::InvalidUtf8)?;
+            std::str::from_utf8(&frame[cursor..name_end]).map_err(|_| SifError::InvalidUtf8)?;
         validate_name(name)?;
         result.push(KvEntry {
             tag,
@@ -590,7 +575,7 @@ pub fn entries(frame: &[u8]) -> Result<Vec<KvEntry<'_>>, KvWireError> {
         cursor = value_end;
     }
     if cursor != frame.len() {
-        return Err(KvWireError::LengthMismatch {
+        return Err(SifError::LengthMismatch {
             declared: frame.len(),
             actual: cursor,
         });
@@ -598,59 +583,6 @@ pub fn entries(frame: &[u8]) -> Result<Vec<KvEntry<'_>>, KvWireError> {
     Ok(result)
 }
 
-/// Identify the two supported record transports.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameKind {
-    /// Canonical current KV frame.
-    Kv,
-    /// Transitional FlatBuffers SIF frame.
-    Sif,
-}
-
-/// Error returned by the compatibility decoder.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AnyWireError {
-    /// Current KV frame failed validation.
-    Kv(KvWireError),
-    /// Transitional SIF frame failed validation.
-    Sif(crate::sif::SifError),
-    /// The input does not identify a supported transport.
-    UnknownFormat,
-}
-
-impl fmt::Display for AnyWireError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Kv(error) => write!(f, "KV: {error}"),
-            Self::Sif(error) => write!(f, "SIF: {error}"),
-            Self::UnknownFormat => f.write_str("unknown record frame format"),
-        }
-    }
-}
-
-impl std::error::Error for AnyWireError {}
-
-/// Decode a current KV frame or a transitional SIF frame.
-///
-/// New producers must call [`encode_record`]. The SIF branch exists only so
-/// existing files, WORM segments, and older plugins remain readable during the
-/// staged migration.
-pub fn decode_any(
-    frame: &[u8],
-    options: DecodeOptions,
-) -> Result<(Record, FrameKind), AnyWireError> {
-    if frame.starts_with(&KV_MAGIC) {
-        decode_record_with(frame, options)
-            .map(|record| (record, FrameKind::Kv))
-            .map_err(AnyWireError::Kv)
-    } else if frame.starts_with(&crate::sif::SIF_MAGIC) {
-        crate::sif::decode_record(frame)
-            .map(|record| (record, FrameKind::Sif))
-            .map_err(AnyWireError::Sif)
-    } else {
-        Err(AnyWireError::UnknownFormat)
-    }
-}
 #[derive(Debug)]
 struct Entry {
     tag: u8,
@@ -709,7 +641,7 @@ fn name_for_tag(tag: u8) -> String {
         "security.gap",
     ];
     for name in NAMES {
-        if super::resolve_tag(name, false) == Some(tag) {
+        if crate::record::resolve_tag(name, false) == Some(tag) {
             return (*name).to_string();
         }
     }
@@ -717,7 +649,7 @@ fn name_for_tag(tag: u8) -> String {
 }
 
 fn vendor_name_for_tag(tag: u8) -> Option<String> {
-    let lock = super::VENDOR_TAGS.get()?.lock().ok()?;
+    let lock = crate::record::VENDOR_TAGS.get()?.lock().ok()?;
     lock.iter()
         .find_map(|(name, value)| (*value == tag).then(|| name.clone()))
 }
@@ -726,90 +658,86 @@ fn register_vendor_tag(name: &str, tag: u8) {
     if tag <= KV_TAG_CORE_MAX || !(name.starts_with("ext.") || name.starts_with("verified.")) {
         return;
     }
-    if let Some(lock) = super::VENDOR_TAGS.get() {
+    if let Some(lock) = crate::record::VENDOR_TAGS.get() {
         if let Ok(mut tags) = lock.lock() {
             tags.entry(name.to_string()).or_insert(tag);
         }
     }
 }
 
-fn validate_name(name: &str) -> Result<(), KvWireError> {
+fn validate_name(name: &str) -> Result<(), SifError> {
     if name.is_empty() || name.len() > MAX_FIELD_NAME || name.contains('\0') {
-        return Err(KvWireError::InvalidFieldName);
+        return Err(SifError::InvalidFieldName);
     }
     if !name
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
     {
-        return Err(KvWireError::InvalidFieldName);
+        return Err(SifError::InvalidFieldName);
     }
     if !name.starts_with("ext.") && !name.starts_with("verified.") && !name.contains('.') {
-        return Err(KvWireError::InvalidFieldName);
+        return Err(SifError::InvalidFieldName);
     }
     Ok(())
 }
 
-fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, KvWireError> {
+fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, SifError> {
     let slice = bytes
         .get(offset..offset + 2)
-        .ok_or(KvWireError::Truncated { offset, needed: 2 })?;
+        .ok_or(SifError::Truncated { offset, needed: 2 })?;
     Ok(u16::from_le_bytes([slice[0], slice[1]]))
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, KvWireError> {
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, SifError> {
     let slice = bytes
         .get(offset..offset + 4)
-        .ok_or(KvWireError::Truncated { offset, needed: 4 })?;
+        .ok_or(SifError::Truncated { offset, needed: 4 })?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, KvWireError> {
+fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, SifError> {
     let slice = bytes
         .get(offset..offset + 8)
-        .ok_or(KvWireError::Truncated { offset, needed: 8 })?;
+        .ok_or(SifError::Truncated { offset, needed: 8 })?;
     Ok(u64::from_le_bytes(
         slice.try_into().expect("checked eight bytes"),
     ))
 }
 
-fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], KvWireError> {
+fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], SifError> {
     let slice = bytes
         .get(offset..offset + N)
-        .ok_or(KvWireError::Truncated { offset, needed: N })?;
+        .ok_or(SifError::Truncated { offset, needed: N })?;
     Ok(slice.try_into().expect("checked array length"))
 }
 
 impl Record {
-    fn put_wire_slot(&mut self, tag: u8, ty: u8, value: &[u8]) -> Result<(), KvWireError> {
+    fn put_wire_slot(&mut self, tag: u8, ty: u8, value: &[u8]) -> Result<(), SifError> {
         if let Some(slot) = self.kv_find_mut(tag) {
             // SAFETY: kv_find_mut returns a pointer to an initialized slot owned by self.
-            unsafe { (&mut *slot).wire_put(tag, ty, value) }.map_err(|_| {
-                KvWireError::FieldApply {
-                    name: name_for_tag(tag),
-                }
+            unsafe { (&mut *slot).wire_put(tag, ty, value) }.map_err(|_| SifError::FieldApply {
+                name: name_for_tag(tag),
             })?;
             return Ok(());
         }
         if let Some(slot) = self.kv_find_empty() {
             // SAFETY: kv_find_empty returns a pointer to an initialized slot owned by self.
-            unsafe { (&mut *slot).wire_put(tag, ty, value) }.map_err(|_| {
-                KvWireError::FieldApply {
-                    name: name_for_tag(tag),
-                }
+            unsafe { (&mut *slot).wire_put(tag, ty, value) }.map_err(|_| SifError::FieldApply {
+                name: name_for_tag(tag),
             })?;
             return Ok(());
         }
         let ext = self.kv_ext_mut();
         let mut slot = KvSlot::empty();
         slot.wire_put(tag, ty, value)
-            .map_err(|_| KvWireError::FieldApply {
+            .map_err(|_| SifError::FieldApply {
                 name: name_for_tag(tag),
             })?;
         ext.push(slot);
         Ok(())
     }
 }
-impl From<KvPutError> for KvWireError {
+impl From<KvPutError> for SifError {
     fn from(_: KvPutError) -> Self {
         Self::FieldApply {
             name: "<slot>".to_string(),
@@ -840,16 +768,16 @@ impl fmt::Debug for ReusableEncoder {
 
 impl ReusableEncoder {
     /// Create an encoder with a bounded maximum frame size.
-    pub fn new(max_frame_size: usize) -> Result<Self, KvWireError> {
-        if !(KV_HEADER_LEN + KV_FIXED_LEN..=MAX_FRAME_SIZE).contains(&max_frame_size) {
-            return Err(KvWireError::LengthExceeded {
+    pub fn new(max_frame_size: usize) -> Result<Self, SifError> {
+        if !(SIF_HEADER_LEN + SIF_FIXED_LEN..=MAX_FRAME_SIZE).contains(&max_frame_size) {
+            return Err(SifError::LengthExceeded {
                 field: "encoder budget",
                 value: max_frame_size,
                 max: MAX_FRAME_SIZE,
             });
         }
         Ok(Self {
-            buffer: Vec::with_capacity(KV_HEADER_LEN + KV_FIXED_LEN),
+            buffer: Vec::with_capacity(SIF_HEADER_LEN + SIF_FIXED_LEN),
             max_frame_size,
         })
     }
@@ -860,10 +788,10 @@ impl ReusableEncoder {
     }
 
     /// Encode and borrow the reusable frame buffer.
-    pub fn encode(&mut self, record: &Record) -> Result<&[u8], KvWireError> {
+    pub fn encode(&mut self, record: &Record) -> Result<&[u8], SifError> {
         let encoded = encode_record(record)?;
         if encoded.len() > self.max_frame_size {
-            return Err(KvWireError::LengthExceeded {
+            return Err(SifError::LengthExceeded {
                 field: "frame",
                 value: encoded.len(),
                 max: self.max_frame_size,
@@ -892,8 +820,8 @@ impl ReusableEncoder {
 
 /// Incremental length-prefixed KV stream decoder.
 ///
-/// The stream envelope is `[u32 little-endian frame length][KV frame]`. The
-/// envelope is transport-only; the embedded KV frame still performs all its
+/// The stream envelope is `[u32 little-endian frame length][SIF frame]`. The
+/// envelope is transport-only; the embedded SIF frame still performs all its
 /// own validation. `feed` accepts arbitrary chunks and never allocates beyond
 /// the configured stream budget.
 pub struct FrameScanner {
@@ -929,9 +857,9 @@ pub struct ScannerStats {
 
 impl FrameScanner {
     /// Construct a scanner with an explicit frame limit.
-    pub fn new(max_frame_size: usize) -> Result<Self, KvWireError> {
-        if !(KV_HEADER_LEN + KV_FIXED_LEN..=MAX_FRAME_SIZE).contains(&max_frame_size) {
-            return Err(KvWireError::LengthExceeded {
+    pub fn new(max_frame_size: usize) -> Result<Self, SifError> {
+        if !(SIF_HEADER_LEN + SIF_FIXED_LEN..=MAX_FRAME_SIZE).contains(&max_frame_size) {
+            return Err(SifError::LengthExceeded {
                 field: "scanner budget",
                 value: max_frame_size,
                 max: MAX_FRAME_SIZE,
@@ -952,13 +880,13 @@ impl FrameScanner {
     }
 
     /// Append an arbitrary transport chunk.
-    pub fn feed(&mut self, chunk: &[u8]) -> Result<(), KvWireError> {
+    pub fn feed(&mut self, chunk: &[u8]) -> Result<(), SifError> {
         if chunk.len() as u64 > u64::MAX.saturating_sub(self.bytes_seen) {
-            return Err(KvWireError::EncodeOverflow("stream bytes"));
+            return Err(SifError::EncodeOverflow("stream bytes"));
         }
         let buffered = self.buffer.len().saturating_sub(self.cursor);
         if buffered.saturating_add(chunk.len()) > self.max_frame_size.saturating_add(4) {
-            return Err(KvWireError::LengthExceeded {
+            return Err(SifError::LengthExceeded {
                 field: "stream buffer",
                 value: buffered + chunk.len(),
                 max: self.max_frame_size + 4,
@@ -970,8 +898,8 @@ impl FrameScanner {
         Ok(())
     }
 
-    /// Yield the next complete KV frame, if available.
-    pub fn next_frame(&mut self) -> Result<Option<Vec<u8>>, KvWireError> {
+    /// Yield the next complete SIF frame, if available.
+    pub fn next_frame(&mut self) -> Result<Option<Vec<u8>>, SifError> {
         if self.buffer.len().saturating_sub(self.cursor) < 4 {
             return Ok(None);
         }
@@ -980,8 +908,8 @@ impl FrameScanner {
                 .try_into()
                 .expect("four bytes checked"),
         ) as usize;
-        if length < KV_HEADER_LEN + KV_FIXED_LEN || length > self.max_frame_size {
-            return Err(KvWireError::LengthExceeded {
+        if length < SIF_HEADER_LEN + SIF_FIXED_LEN || length > self.max_frame_size {
+            return Err(SifError::LengthExceeded {
                 field: "stream frame",
                 value: length,
                 max: self.max_frame_size,
@@ -991,7 +919,7 @@ impl FrameScanner {
             .cursor
             .checked_add(4)
             .and_then(|start| start.checked_add(length))
-            .ok_or(KvWireError::LengthMismatch {
+            .ok_or(SifError::LengthMismatch {
                 declared: length,
                 actual: self.buffer.len(),
             })?;
@@ -1007,11 +935,11 @@ impl FrameScanner {
     }
 
     /// Decode the next complete frame directly.
-    pub fn next_record(&mut self, options: DecodeOptions) -> Result<Option<Record>, AnyWireError> {
-        let Some(frame) = self.next_frame().map_err(AnyWireError::Kv)? else {
+    pub fn next_record(&mut self, options: DecodeOptions) -> Result<Option<Record>, SifError> {
+        let Some(frame) = self.next_frame()? else {
             return Ok(None);
         };
-        decode_any(&frame, options).map(|(record, _kind)| Some(record))
+        decode_record_with(&frame, options).map(Some)
     }
 
     /// Return scanner counters.
@@ -1046,10 +974,10 @@ impl FrameScanner {
 }
 
 /// Encode a frame with a four-byte stream length prefix.
-pub fn encode_length_prefixed(record: &Record) -> Result<Vec<u8>, KvWireError> {
+pub fn encode_length_prefixed(record: &Record) -> Result<Vec<u8>, SifError> {
     let frame = encode_record(record)?;
     let length =
-        u32::try_from(frame.len()).map_err(|_| KvWireError::EncodeOverflow("stream frame"))?;
+        u32::try_from(frame.len()).map_err(|_| SifError::EncodeOverflow("stream frame"))?;
     let mut output = Vec::with_capacity(4 + frame.len());
     output.extend_from_slice(&length.to_le_bytes());
     output.extend_from_slice(&frame);
@@ -1103,7 +1031,7 @@ mod tests {
         original.compute_content_hash();
         let frame = encode_record(&original).unwrap();
         let header = validate_frame(&frame).unwrap();
-        assert_ne!(header.flags & KV_FLAG_MESSAGE_BINARY, 0);
+        assert_ne!(header.flags & SIF_FLAG_MESSAGE_BINARY, 0);
         let decoded = decode_record(&frame).unwrap();
         assert_eq!(decoded.message.kind(), MessagePayloadKind::Binary);
         assert_eq!(decoded.message.as_bytes(), &[0, 0xff, 0x80, 0]);
@@ -1113,9 +1041,9 @@ mod tests {
     #[test]
     fn invalid_message_kind_flags_are_rejected() {
         let mut frame = encode_record(&populated()).unwrap();
-        let flags = KV_FLAG_MESSAGE_BINARY | KV_FLAG_MESSAGE_EXPLICIT_TEXT;
-        frame[10..12].copy_from_slice(&flags.to_le_bytes());
-        assert_eq!(validate_frame(&frame), Err(KvWireError::InvalidMessageKind));
+        let flags = SIF_FLAG_MESSAGE_BINARY | SIF_FLAG_MESSAGE_EXPLICIT_TEXT;
+        frame[6..8].copy_from_slice(&flags.to_le_bytes());
+        assert_eq!(validate_frame(&frame), Err(SifError::InvalidMessageKind));
     }
 
     #[test]
@@ -1124,10 +1052,10 @@ mod tests {
             assert!(validate_frame(&frame).is_err());
         }
         let mut frame = encode_record(&populated()).unwrap();
-        frame[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+        frame[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
         assert!(matches!(
             validate_frame(&frame),
-            Err(KvWireError::LengthMismatch { .. })
+            Err(SifError::LengthMismatch { .. })
         ));
     }
 
@@ -1145,19 +1073,19 @@ mod tests {
         record.level = LogLevel::Audit;
         record.compute_content_hash();
         let mut frame = encode_record(&record).unwrap();
-        frame[KV_HEADER_LEN + KV_HASH_OFFSET] ^= 1;
+        frame[SIF_HEADER_LEN + SIF_HASH_OFFSET] ^= 1;
         assert!(matches!(
             decode_record_with(&frame, DecodeOptions::audit()),
-            Err(KvWireError::ContentHashMismatch)
+            Err(SifError::ContentHashMismatch)
         ));
     }
 
     #[test]
-    fn version_and_size_constants_are_stable() {
-        assert_eq!(&KV_MAGIC, b"KVF1");
-        assert_eq!(KV_HEADER_LEN, 32);
-        assert_eq!(KV_FIXED_LEN, 90);
-        assert_eq!(KV_MESSAGE_LEN_OFFSET, 86);
+    fn sif_layout_constants_are_stable() {
+        assert_eq!(&SIF_MAGIC, b"SIF\0");
+        assert_eq!(SIF_HEADER_LEN, 32);
+        assert_eq!(SIF_FIXED_LEN, 90);
+        assert_eq!(SIF_MESSAGE_LEN_OFFSET, 86);
     }
     #[test]
     fn reusable_encoder_reuses_capacity() {
@@ -1173,7 +1101,7 @@ mod tests {
 
     #[test]
     fn reusable_encoder_rejects_unreasonable_budget() {
-        assert!(ReusableEncoder::new(KV_HEADER_LEN + KV_FIXED_LEN - 1).is_err());
+        assert!(ReusableEncoder::new(SIF_HEADER_LEN + SIF_FIXED_LEN - 1).is_err());
         assert!(ReusableEncoder::new(MAX_FRAME_SIZE + 1).is_err());
     }
 
@@ -1225,7 +1153,7 @@ mod tests {
         scanner.feed(&u32::MAX.to_le_bytes()).unwrap();
         assert!(matches!(
             scanner.next_frame(),
-            Err(KvWireError::LengthExceeded {
+            Err(SifError::LengthExceeded {
                 field: "stream frame",
                 ..
             })
@@ -1238,7 +1166,7 @@ mod tests {
         let oversized = vec![0u8; 1029];
         assert!(matches!(
             scanner.feed(&oversized),
-            Err(KvWireError::LengthExceeded {
+            Err(SifError::LengthExceeded {
                 field: "stream buffer",
                 ..
             })
@@ -1253,12 +1181,5 @@ mod tests {
         scanner.reset();
         assert_eq!(scanner.stats(), ScannerStats::default());
         assert!(scanner.next_frame().unwrap().is_none());
-    }
-
-    #[test]
-    fn any_decoder_reports_current_frame_kind() {
-        let frame = encode_record(&populated()).unwrap();
-        let (_, kind) = decode_any(&frame, DecodeOptions::default()).unwrap();
-        assert_eq!(kind, FrameKind::Kv);
     }
 }

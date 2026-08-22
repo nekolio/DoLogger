@@ -4,7 +4,7 @@
  * This header defines the shared memory layout used by sink_shm.
  * External consumer processes (monitoring agents, TUI dashboards, etc.)
  * use these structures to attach to the shared memory ring buffer
- * and read SIF-formatted records with zero copy.
+ * and read SIF-formatted records with bounded validation.
  *
  * # Quick start for consumers
  *
@@ -28,7 +28,7 @@
  *        void *slot = ptr + DOLOGGER_SHM_HEADER_SIZE + slot_idx * hdr->slot_size_bytes;
  *        uint32_t record_len = *(uint32_t*)slot;
  *        void *sif_data = slot + 4;     // 4B LE length prefix
- *        // process sif_data[0..record_len] as SIF
+ *        // validate sif_data[0..record_len] as SIF before reading it
  *        consumer_seq++;
  *        CAS(&hdr->consumer_seq, consumer_seq - 1, consumer_seq);
  *    }
@@ -147,9 +147,8 @@ _Static_assert(sizeof(dologger_shm_header_t) == 64,
  * where `record_len` is the total length of the SIF data in bytes,
  * stored as little-endian uint32_t.
  *
- * The SIF binary format starts with magic "SIF1" (4 bytes) followed
- * by a little-endian uint32_t total_length, then the record fields.
- * See the SIF (Standard Intermediate Format) specification for the full binary layout.
+ * The SIF binary format starts with magic "SIF\0" (4 bytes), followed by
+ * a fixed header and a KV-backed record payload. All integers are little-endian.
  */
 
 /** Maximum SIF record size supported (matches the simplified SIF). */
@@ -161,40 +160,35 @@ _Static_assert(sizeof(dologger_shm_header_t) == 64,
 #define DOLOGGER_SHM_SLOT_DATA_OFFSET 4
 
 /* -------------------------------------------------------------------------
- * SIF record frame (standard — FlatBuffers)
+ * SIF record frame (KV-backed serialization)
  * ------------------------------------------------------------------------- */
 
 /**
  * The SIF (Standard Intermediate Format) payload written into each slot is a
- * single-record SIF frame, NOT a hand-rolled fixed-layout struct. The full
- * schema is defined in `core/sif/dologger_sif.fbs` and the encoder/decoder
- * live in `core/src/sif/` (Rust). This header only documents the on-wire
- * frame boundary so consumers can locate and validate the payload.
+ * single-record SIF frame built from fixed metadata and KV entries. The
+ * encoder/decoder live in `core/src/sif/` (Rust). This header documents the
+ * on-wire frame boundary so consumers can locate and validate the payload.
  *
  * Frame layout (all multi-byte integers little-endian):
- *   [0..3]    Magic "SIF1"
- *   [4..7]    version    — schema version (MAJOR<<24|MINOR<<16|PATCH); 1.0.0
- *   [8..11]   total_length — total SIF frame length (magic + header + payload)
- *   [12..15]  record_count — number of Record tables (1 for single record)
- *   [16..]    FlatBuffer payload (root type `Record`)
+ *   [0..3]    magic: "SIF\0"
+ *   [4..5]    header_len: fixed SIF header length
+ *   [6..7]    flags: payload and integrity flags
+ *   [8..11]   total_len: complete frame length
+ *   [12..15]  field_count: number of dynamic KV entries
+ *   [16..19]  fixed_len: fixed record metadata length
+ *   [20..31]  reserved: zero-filled for deterministic framing
+ *   [32..]    fixed record metadata, raw message bytes, and KV entries
  *
- * The 16-byte frame overhead is `SIF_MAGIC` (4) + `SifHeader` (12).
- * `total_length` includes the 4 magic bytes + 12 header bytes + payload.
- *
- * Consumers MUST validate the magic bytes (`"SIF1"`) and the schema version
- * before interpreting the FlatBuffer payload. For version-independent field
- * access, parse the payload with the matching FlatBuffers-generated code for
- * the `Record` schema in `core/sif/dologger_sif.fbs`.
+ * Consumers MUST validate all lengths, limits, field names, types, and the
+ * content hash when the frame requests integrity verification. KV is the
+ * internal dynamic-field organization; SIF is the transport boundary.
  */
 
-/** Magic bytes for the SIF frame ("SIF1" — first 4 bytes of the payload). */
-#define DOLOGGER_SIF_MAGIC 0x31464953u
+/** Magic bytes for the SIF frame ("SIF\0" — first 4 bytes of the payload). */
+#define DOLOGGER_SIF_MAGIC 0x00464953u
 
-/** SIF frame overhead: 4-byte magic + 12-byte SifHeader. */
-#define DOLOGGER_SIF_FRAME_OVERHEAD 16u
-
-/** Current SIF schema version, packed (1.0.0). */
-#define DOLOGGER_SIF_VERSION 0x01000000u
+/** SIF fixed header size, including the four-byte magic. */
+#define DOLOGGER_SIF_FRAME_OVERHEAD 32u
 
 #ifdef __cplusplus
 }

@@ -177,8 +177,7 @@
 
 | 值 | 名称 | 说明 |
 |:-:|:-:|:-:|
-| `-0x0D01` | `DO_LOG_ERR_SIF_INVALID` | SIF 帧损坏或未通过 FlatBuffer 结构校验 |
-| `-0x0D02` | `DO_LOG_ERR_SIF_VERSION_UNSUPPORTED` | 插件声明的 SIF schema 版本不被核心支持 |
+| `-0x0D01` | `DO_LOG_ERR_SIF_INVALID` | SIF 帧损坏、超出资源边界或未通过结构校验 |
 
 ## 0x0Exx — 内部 / 致命
 

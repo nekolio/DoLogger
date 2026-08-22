@@ -336,8 +336,8 @@ Overrides are merged on top of the profile defaults. Non-downgradable items cann
 
 ## Shared Memory Sink (sink_shm)
 
-`sink_shm` delivers KVF1 records (and retains SIF compatibility reading) to external consumer processes through a
-zero-copy, cross-process shared-memory ring buffer. It is wired **separately**
+`sink_shm` delivers length-prefixed SIF records to external consumer processes
+through a bounded, cross-process shared-memory ring buffer. It is wired **separately**
 from `[sinks.*]` and is not a member of the sink registry. Enable it with the
 top-level `[shm]` table:
 

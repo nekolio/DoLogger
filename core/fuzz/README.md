@@ -38,8 +38,8 @@ cargo +nightly fuzz run fuzz_ring_buffer -- -max_total_time=300
 # TOML config parser (5 minutes)
 cargo +nightly fuzz run fuzz_toml_config -- -max_total_time=300
 
-# Record / SIF format (5 minutes)
-cargo +nightly fuzz run fuzz_sif_record -- -max_total_time=300
+# SIF frame format (5 minutes)
+cargo +nightly fuzz run fuzz_sif_frame -- -max_total_time=300
 ```
 
 Longer runs for CI or nightly regression testing:
@@ -48,7 +48,7 @@ Longer runs for CI or nightly regression testing:
 # 30 minutes each
 cargo +nightly fuzz run fuzz_ring_buffer -- -max_total_time=1800 -jobs=4
 cargo +nightly fuzz run fuzz_toml_config -- -max_total_time=1800 -jobs=4
-cargo +nightly fuzz run fuzz_sif_record -- -max_total_time=1800 -jobs=4
+cargo +nightly fuzz run fuzz_sif_frame -- -max_total_time=1800 -jobs=4
 ```
 
 ### 4. Run the edge-case unit tests
@@ -93,17 +93,15 @@ Exercises the TOML configuration parser:
 - Edge cases: empty string, deeply nested tables, very long values,
   unknown profile strings, garbage binary
 
-### fuzz_sif_record
+### fuzz_sif_frame
 
-Exercises the Record/SIF binary format and field access API:
+Exercises the SIF binary boundary and Record field restoration:
 
-- Record creation and field_get/set with random field names
-- Ring permission checks (Ring 0-3) for all caller levels
-- RecordString set/as_str round-trip (inline ≤ 254 B, heap `Arc<str>` ≥ 255 B) with full-length preservation
-- CRC32C computation determinism, incremental update, empty input
-- LogLevel parsing from arbitrary u8 values
-- Ring 2 audit tag appending
-- Ring 3 KV writes and content-hash coverage
+- SIF structural validation before decode
+- Bounded length, field-count, name, type, and raw-message checks
+- Borrowed KV entry inspection without trusting input lengths
+- Binary and explicit-text message restoration
+- Optional content-hash verification under untrusted decode limits
 
 ## Directory Layout
 
@@ -114,7 +112,7 @@ core/fuzz/
   fuzz_targets/
     fuzz_ring_buffer.rs    # Ring buffer fuzzer
     fuzz_toml_config.rs    # Config parser fuzzer
-    fuzz_sif_record.rs     # Record / SIF format fuzzer
+    fuzz_sif_frame.rs      # SIF frame fuzzer
 ```
 
 ## CI Integration
@@ -136,10 +134,10 @@ Add to your CI pipeline:
     cd core/fuzz
     cargo +nightly fuzz run fuzz_toml_config -- -max_total_time=300
 
-- name: Fuzz Record SIF (5 min)
+- name: Fuzz SIF frame (5 min)
   run: |
     cd core/fuzz
-    cargo +nightly fuzz run fuzz_sif_record -- -max_total_time=300
+    cargo +nightly fuzz run fuzz_sif_frame -- -max_total_time=300
 ```
 
 ## Adding a New Fuzz Target

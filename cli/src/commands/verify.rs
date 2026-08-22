@@ -20,8 +20,8 @@ use sha2::{Digest, Sha256};
 use crate::output::{self, color, OutputFormat};
 use crate::EXIT_VERIFY_FAILED;
 use crate::{stderr, stdout};
-use dologger_core::record::wire::{decode_any, DecodeOptions};
 use dologger_core::record::Record;
+use dologger_core::sif::{decode_record_with, DecodeOptions, MAX_FRAME_SIZE};
 
 // ---------------------------------------------------------------------------
 // Colour helpers
@@ -53,10 +53,10 @@ fn bright_cyan() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// SIF binary record parsing
+// SIF record parsing
 // ---------------------------------------------------------------------------
 
-/// Parsed SIF record fields relevant to audit verification.
+/// Parsed wire-record fields relevant to audit verification.
 #[derive(Debug, Clone)]
 struct SifRecord {
     /// Metadata retained for future diagnostics/display; tamper-evidence for
@@ -86,7 +86,7 @@ struct SifRecord {
     source_line: u32,
     #[allow(dead_code)]
     source_column: u32,
-    /// A.3 canonical-serialization hash carried by the SIF record.
+    /// A.3 canonical-serialization hash carried by the wire record.
     content_hash: [u8; 32],
     /// True when `content_hash` is nonzero — the record participates in the
     /// audit chain and must carry a sidecar signature.
@@ -101,9 +101,9 @@ struct SifRecord {
 
 /// Parse a single SIF record from a byte slice.
 ///
-/// Returns `None` if the frame is not a valid canonical SIF record.
+/// Returns `None` if the frame is not a valid canonical wire record.
 fn parse_sif(data: &[u8]) -> Option<SifRecord> {
-    let rec = decode_any(data, DecodeOptions::untrusted()).ok()?.0;
+    let rec = decode_record_with(data, DecodeOptions::untrusted()).ok()?;
 
     let stored_hash = rec.content_hash;
     let in_chain = stored_hash != [0u8; 32];
@@ -149,8 +149,18 @@ fn read_sif_file(path: &str) -> Result<Vec<SifRecord>, String> {
             continue;
         }
 
-        let payload_start = off + 4;
-        let payload_end = payload_start + frame_len;
+        if frame_len > MAX_FRAME_SIZE {
+            return Err(format!(
+                "Frame at offset {offset} exceeds the {MAX_FRAME_SIZE}B verification limit"
+            ));
+        }
+
+        let payload_start = off
+            .checked_add(4)
+            .ok_or_else(|| format!("Frame offset overflow at {offset}"))?;
+        let payload_end = payload_start
+            .checked_add(frame_len)
+            .ok_or_else(|| format!("Frame length overflow at {offset}"))?;
 
         if payload_end > data.len() {
             stderr!(

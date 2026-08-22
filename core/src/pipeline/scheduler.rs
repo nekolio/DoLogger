@@ -227,7 +227,7 @@ struct ConsumerCtx<'a> {
     /// I/O thread pool; stored for ordered drop (must outlive channel sender)
     #[allow(dead_code)]
     io_pool: Option<Arc<ThreadPool>>,
-    /// Optional shared-memory sink. Written per accepted record (KV frame) on the
+    /// Optional shared-memory sink. Written per accepted record (SIF frame) on the
     /// consumer thread, parallel to the configured sink.
     shm_sink: Option<&'a Arc<ShmSink>>,
     /// Monotonically increasing LSN counter for the audit chain. Borrowed from the
@@ -289,16 +289,16 @@ impl ConsumerCtx<'_> {
 /// retried. A plugin error or an unreasonable size requirement falls back to
 /// the built-in format so a misbehaving formatter can never lose a record.
 fn mirror_record_to_shm(record: &Record, shm: &ShmSink) {
-    match crate::record::wire::encode_record(record) {
+    match crate::sif::encode_record(record) {
         Ok(frame) => {
             if !shm.write(&frame) {
-                crate::sys::diagnostics::warn("pipeline", "KV shared-memory write dropped");
+                crate::sys::diagnostics::warn("pipeline", "SIF shared-memory write dropped");
             }
         }
         Err(error) => {
             crate::sys::diagnostics::error(
                 "pipeline",
-                &format!("KV frame encoding failed; record not mirrored: {error}"),
+                &format!("SIF encoding failed; record not mirrored: {error}"),
             );
         }
     }

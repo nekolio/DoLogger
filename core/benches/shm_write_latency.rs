@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 
+use dologger_core::record::Record;
+use dologger_core::sif::encode_record;
 use dologger_core::sink::{ShmFullPolicy, ShmSink, ShmSinkConfig};
 use dologger_core::sys::Sysmon;
 
@@ -25,25 +27,15 @@ const SAMPLES: usize = 200_000;
 /// on close (auto_cleanup=true).
 const SHM_PATH: &str = "/dologger_bench_shm.shm";
 
-/// A small but valid SIF frame (16-byte overhead + a FlatBuffer root table
-/// offset). The absolute bytes do not matter for latency measurement — only
-/// that the slot copy happens on the hot path.
+/// A small valid SIF frame. The exact bytes do not matter for latency
+/// measurement; using the production encoder keeps the benchmark fixture
+/// aligned with the public transport contract.
 fn sif_sample() -> Vec<u8> {
-    let mut buf = Vec::with_capacity(128);
-    // Magic "SIF1"
-    buf.extend_from_slice(b"SIF1");
-    // SifHeader: version(1.0.0) | total_length | record_count
-    buf.extend_from_slice(&0x0100_0000u32.to_le_bytes());
-    buf.extend_from_slice(&(16u32 + 4).to_le_bytes());
-    buf.extend_from_slice(&1u32.to_le_bytes());
-    // FlatBuffer payload: root table offset 4 (minimal, self-referential)
-    buf.extend_from_slice(&4u32.to_le_bytes());
-    buf.extend_from_slice(&0u32.to_le_bytes()); // vtable offset
-    buf.extend_from_slice(&4u32.to_le_bytes()); // table size
-    buf.extend_from_slice(&4u32.to_le_bytes()); // vtable size
-                                                // Pad to 128 bytes to model a realistic record payload.
-    buf.resize(128, 0);
-    buf
+    let mut record = Record::new(0);
+    record.timestamp = 1_700_000_000_000_000_000;
+    record.process_id = std::process::id();
+    record.message.set("benchmark");
+    encode_record(&record).expect("benchmark SIF fixture")
 }
 
 // ---------------------------------------------------------------------------

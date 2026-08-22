@@ -658,42 +658,36 @@ dologger_error_t plugin_state_deserialize(const dologger_state_buf_t *in);
 
 ## Record 线格式
 
-DoLogger 将当前运行时帧与保留的兼容格式分开。当前 Record 是固定热字段
-加动态 KV 槽；新的运行时和共享内存生产者使用版本化 `KVF1` 帧，JSON/文本
-是展示输出，SIF 只作为显式兼容读取路径。
+DoLogger 将内存中的 Record 模型与字节边界分开。Record 包含固定热字段、动态
+KV 字段和原始消息字节。SIF（**Standard Intermediate Format**）把这个模型
+序列化为一个有边界、跨平台的通信与存储帧。
 
-### KVF1 当前运行时帧
+### 由 KV 构建的 SIF 帧
 
-`core::record::wire` 提供规范二进制边界：
+`core::sif` 提供规范字节边界：
 
-- `encode_record(&Record)` 写出有边界的 `KVF1` 帧；
+- `encode_record(&Record)` 写出有边界的 SIF 帧；
 - `decode_record_with(&[u8], DecodeOptions)` 校验并解码单帧；
-- `decode_any(&[u8], DecodeOptions)` 先识别 KV，再走旧 SIF 路径，并返回帧类型；
+- `validate_frame_with(&[u8], DecodeOptions)` 只做校验，不构造 Record；
 - `FrameScanner` 处理长度前缀分片输入，不信任伪造长度，也不进行无界分配。
 
-帧在构造 `Record` 之前校验 magic、版本、声明长度、UTF-8、字段名、封闭类型
-集合、重复标签、字段/消息预算以及可选内容哈希。持久化 KV 和审计字节不会
-经过展示代码页策略转换。
+帧由固定头、Record 固定元数据、原始消息字节和重复 KV 条目组成。在构造
+Record 前校验 magic、头部和总长度、字段名、封闭类型集合、重复标签、字段/消息
+预算、原始消息类型以及可选内容哈希。持久化 SIF 和审计字节不会经过展示代码页
+策略转换。
 
-### SIF 兼容帧
-
-SIF（**Standard Intermediate Format**）是保留的 FlatBuffers 格式，用于旧文件、
-旧集成、WORM 归档、回放、验证和迁移工具。它不再是新的运行时 SHM 写入者
-的规范格式。
-
-兼容 schema 仍位于 `core/sif/dologger_sif.fbs`，生成绑定也作为 fallback 提交。
-删除 SIF 必须先完成消费者清单和独立的废弃决策；本阶段不声称 SIF 已删除，
-也不声称所有生产者都已完成迁移。
+SIF 适用于 SHM、文件、插件、C ABI、跨进程和跨语言边界。进程内 Sink 可以直接
+消费 Record，不必支付 SIF 序列化开销。
 
 ### 审计与展示边界
 
 审计是显式开启、默认关闭的使用场景。开启后，审计封装、哈希链、WORM 持久化
-和可选签名 sidecar 遵循独立安全契约；存在 KV 帧不会自动开启审计。展示
+和可选签名 sidecar 遵循独立安全契约；存在 SIF 帧不会自动开启审计。展示
 Formatter 可以把同一个 `Record` 渲染为 JSON 或文本，并使用独立的 UTF-8、
 显式代码页和可观察 fallback 编解码策略。
 
-参见 [KV 线格式与 SIF 兼容迁移](guides/KvWireAndSifMigration.md)，其中记录了
-迁移规则和当前仍开放的验收项目。
+参见 [KV 与 SIF 序列化边界](guides/KvWireAndSifMigration.md)，其中记录了
+当前边界和明确保留的开发桩子。
 
 ---
 

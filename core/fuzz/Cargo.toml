@@ -26,13 +26,7 @@ test = false
 doc = false
 
 [[bin]]
-name = "fuzz_sif_record"
-path = "fuzz_targets/fuzz_sif_record.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_kv_frame"
-path = "fuzz_targets/fuzz_kv_frame.rs"
+name = "fuzz_sif_frame"
+path = "fuzz_targets/fuzz_sif_frame.rs"
 test = false
 doc = false

@@ -307,17 +307,8 @@ pub const DO_LOG_ERR_TIME_BACKWARD: i32 = -0x0C01;
 // 0x0Dxx SIF / Serialization
 // ---------------------------------------------------------------------------
 
-/// SIF frame malformed (bad magic, version, or length) or failed FlatBuffer
-/// structural verification.
+/// SIF frame malformed, over limit, or failed structural verification.
 pub const DO_LOG_ERR_SIF_INVALID: i32 = -0x0D01;
-/// SIF schema version declared by a plugin is not supported by the core.
-pub const DO_LOG_ERR_SIF_VERSION_UNSUPPORTED: i32 = -0x0D02;
-/// KV frame is malformed or violates resource limits.
-pub const DO_LOG_ERR_KV_INVALID: i32 = -0x0D03;
-/// KV frame version is not supported by this core.
-pub const DO_LOG_ERR_KV_VERSION_UNSUPPORTED: i32 = -0x0D04;
-/// KV frame content hash does not match canonical record bytes.
-pub const DO_LOG_ERR_KV_HASH_MISMATCH: i32 = -0x0D05;
 
 // ---------------------------------------------------------------------------
 /// The stage or boundary that produced an error report.
@@ -584,12 +575,6 @@ pub const fn error_descriptor(code: i32) -> ErrorDescriptor {
         ),
         DO_LOG_ERR_TIME_BACKWARD => ("time.backward", "clock moved backward"),
         DO_LOG_ERR_SIF_INVALID => ("sif.invalid", "SIF frame invalid"),
-        DO_LOG_ERR_SIF_VERSION_UNSUPPORTED => {
-            ("sif.version_unsupported", "SIF version unsupported")
-        }
-        DO_LOG_ERR_KV_INVALID => ("kv.invalid", "KV frame invalid"),
-        DO_LOG_ERR_KV_VERSION_UNSUPPORTED => ("kv.version_unsupported", "KV version unsupported"),
-        DO_LOG_ERR_KV_HASH_MISMATCH => ("kv.hash_mismatch", "KV content hash mismatch"),
         DO_LOG_ERR_FATAL => ("fatal", "fatal engine error"),
         _ if code <= -0x8000_0000 => ("plugin.custom", "plugin-defined error"),
         _ => ("error.unknown", "unknown error"),
@@ -754,10 +739,6 @@ mod tests {
             DO_LOG_ERR_AUDIT_DURABILITY_INSUFFICIENT,
             DO_LOG_ERR_TIME_BACKWARD,
             DO_LOG_ERR_SIF_INVALID,
-            DO_LOG_ERR_SIF_VERSION_UNSUPPORTED,
-            DO_LOG_ERR_KV_INVALID,
-            DO_LOG_ERR_KV_VERSION_UNSUPPORTED,
-            DO_LOG_ERR_KV_HASH_MISMATCH,
             DO_LOG_ERR_FATAL,
         ];
         assert!(codes.iter().all(|c| *c < 0), "all error codes are negative");
@@ -889,13 +870,6 @@ mod tests {
             ),
             (DO_LOG_ERR_TIME_BACKWARD, "TIME_BACKWARD"),
             (DO_LOG_ERR_SIF_INVALID, "SIF_INVALID"),
-            (
-                DO_LOG_ERR_SIF_VERSION_UNSUPPORTED,
-                "SIF_VERSION_UNSUPPORTED",
-            ),
-            (DO_LOG_ERR_KV_INVALID, "KV_INVALID"),
-            (DO_LOG_ERR_KV_VERSION_UNSUPPORTED, "KV_VERSION_UNSUPPORTED"),
-            (DO_LOG_ERR_KV_HASH_MISMATCH, "KV_HASH_MISMATCH"),
             (DO_LOG_ERR_FATAL, "FATAL"),
         ];
         for (code, name) in pairs {

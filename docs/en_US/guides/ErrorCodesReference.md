@@ -193,8 +193,7 @@ Remote sinks (Kafka / Syslog / Webhook): connection, TLS, SASL, circuit breaker.
 
 | Value | Name | Description |
 |:-:|:-:|:-:|
-| `-0x0D01` | `DO_LOG_ERR_SIF_INVALID` | SIF frame malformed or failed FlatBuffer structural verification |
-| `-0x0D02` | `DO_LOG_ERR_SIF_VERSION_UNSUPPORTED` | SIF schema version declared by a plugin not supported by the core |
+| `-0x0D01` | `DO_LOG_ERR_SIF_INVALID` | SIF frame malformed, over limit, or failed structural verification |
 
 ## 0x0Exx — Internal / Fatal
 

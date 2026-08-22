@@ -628,7 +628,7 @@ pub extern "C" fn dologger_sif_validate_frame(
     }
 }
 
-/// Encode a record into a complete SIF frame (magic + header + FlatBuffer).
+/// Encode a record into a complete SIF frame (magic + header + KV-backed payload).
 ///
 /// On success allocates a host-owned buffer via [`dologger_alloc`], stores its
 /// pointer in `*out` and its byte length in `*out_len`, and returns `DO_LOG_OK`.
@@ -647,7 +647,13 @@ pub extern "C" fn dologger_sif_encode_record(
     // SAFETY: `record` is a valid opaque handle to a live Record; cast back
     // through the raw pointer the way the engine's record pool hands them out.
     let rec = unsafe { &*(record as *const Record) };
-    let bytes = crate::sif::encode_record(rec);
+    let bytes = match crate::sif::encode_record(rec) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            set_last_error(DO_LOG_ERR_SIF_INVALID, &error.to_string());
+            return DO_LOG_ERR_SIF_INVALID;
+        }
+    };
     let len = bytes.len();
     // SAFETY: allocates `len` bytes of host-owned memory (never freed here).
     let ptr = dologger_alloc(len) as *mut u8;

@@ -297,7 +297,7 @@ DoLogger/
 │   ├── benches/                # Criterion benchmarks (throughput, latency, percentiles)
 │   ├── examples/               # C-FFI usage examples (file, simple, sqlite)
 │   ├── fuzz/                   # Fuzz targets (ring buffer, SIF, TOML config)
-│   ├── sif/                    # SIF record schema (FlatBuffers)
+│   ├── sif/                    # SIF codec: KV-backed serialization boundary
 │   └── tests/                  # Core integration + security suites
 ├── cli/                        # dologctl CLI tool
 │   └── src/commands/           # Subcommands (config, perf, plugin, record, run, shm, verify)

@@ -41,7 +41,6 @@ use crate::error::{
 
 pub mod kv;
 pub mod view;
-pub mod wire;
 
 pub use kv::{KvSlot, KvType};
 pub use view::{DerivedMessageView, ViewError, ViewTransform};
@@ -416,7 +415,7 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 /// Process-wide vendor tag map: name → tag (64+).
-static VENDOR_TAGS: OnceLock<Mutex<HashMap<String, u8>>> = OnceLock::new();
+pub(crate) static VENDOR_TAGS: OnceLock<Mutex<HashMap<String, u8>>> = OnceLock::new();
 /// Next vendor tag to allocate (starts at 64).
 static VENDOR_NEXT: OnceLock<Mutex<u8>> = OnceLock::new();
 
@@ -458,7 +457,7 @@ fn vendor_tag_for(name: &str, allocate: bool) -> Option<u8> {
 ///
 /// Returns `None` for fixed fields (timestamp, level, pid, tid, lsn, flags,
 /// pool_index, msg) which are not stored in KV slots.
-fn resolve_tag(name: &str, allocate_vendor: bool) -> Option<u8> {
+pub(crate) fn resolve_tag(name: &str, allocate_vendor: bool) -> Option<u8> {
     match name {
         // Core tags (A.4 table)
         "id" | "record.id" => Some(1), // tag 1 = id (binary 16B)
@@ -624,7 +623,7 @@ impl Record {
     // ── KV internal operations ──
 
     /// Access the kv_ext Vec (if allocated).
-    fn kv_ext(&self) -> Option<&Vec<KvSlot>> {
+    pub(crate) fn kv_ext(&self) -> Option<&Vec<KvSlot>> {
         if self.kv_ext.is_null() {
             None
         } else {
@@ -635,7 +634,7 @@ impl Record {
     }
 
     /// Mutable access to kv_ext Vec (allocates if needed).
-    fn kv_ext_mut(&mut self) -> &mut Vec<KvSlot> {
+    pub(crate) fn kv_ext_mut(&mut self) -> &mut Vec<KvSlot> {
         if self.kv_ext.is_null() {
             self.kv_ext = Box::into_raw(Box::new(Vec::new()));
         }
@@ -678,7 +677,7 @@ impl Record {
     }
 
     /// Find a mutable KV slot by tag.
-    fn kv_find_mut(&mut self, tag: u8) -> Option<*mut KvSlot> {
+    pub(crate) fn kv_find_mut(&mut self, tag: u8) -> Option<*mut KvSlot> {
         if tag == KV_TAG_EMPTY {
             return None;
         }
@@ -702,7 +701,7 @@ impl Record {
     }
 
     /// Find the first empty KV slot.
-    fn kv_find_empty(&mut self) -> Option<*mut KvSlot> {
+    pub(crate) fn kv_find_empty(&mut self) -> Option<*mut KvSlot> {
         if self.kv0.is_empty() {
             return Some(&mut self.kv0 as *mut KvSlot);
         }

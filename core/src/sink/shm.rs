@@ -802,7 +802,7 @@ impl ShmSink {
         Ok(())
     }
 
-    /// Write a serialized canonical KV record to the ring buffer.
+    /// Write a serialized canonical SIF record to the ring buffer.
     ///
     /// Non-blocking: applies `full_policy` if buffer is full.
     /// Returns `true` if written, `false` if dropped.
@@ -898,9 +898,12 @@ impl ShmSink {
         }
     }
 
-    /// Write a Record as a canonical KV frame to shared memory.
+    /// Write a Record as a canonical SIF frame to shared memory.
     pub fn write_record(&self, record: &Record) -> bool {
-        let frame = crate::record::wire::encode_record(record).unwrap_or_default();
+        let frame = match crate::sif::encode_record(record) {
+            Ok(frame) => frame,
+            Err(_) => return false,
+        };
         self.write(&frame)
     }
 
@@ -1000,11 +1003,11 @@ impl Drop for ShmSink {
 }
 
 // ---------------------------------------------------------------------------
-// Record → KV
+// Record → SIF
 // ---------------------------------------------------------------------------
 
-// Current SHM producers emit the versioned KV frame; SIF remains a compatibility input.
-// The one-time hand-rolled "SIF1"
+// Current SHM producers emit the canonical SIF frame built from Record KV entries.
+// The SIF frame
 // compact blob was removed when the shm sink unified on `core::sif`.
 
 // ---------------------------------------------------------------------------
@@ -1054,23 +1057,20 @@ mod tests {
     #[test]
     fn test_record_to_kv() {
         let rec = make_test_record();
-        let frame = crate::record::wire::encode_record(&rec).expect("KV encoding");
-        assert!(frame.len() >= crate::record::wire::KV_HEADER_LEN);
-        assert_eq!(&frame[..4], b"KVF1");
-        assert!(crate::record::wire::validate_frame(&frame).is_ok());
-        let decoded = crate::record::wire::decode_record(&frame).expect("valid KV frame");
+        let frame = crate::sif::encode_record(&rec).expect("SIF encoding");
+        assert!(frame.len() >= crate::sif::SIF_HEADER_LEN);
+        assert_eq!(&frame[..4], b"SIF\0");
+        assert!(crate::sif::validate_frame(&frame).is_ok());
+        let decoded = crate::sif::decode_record(&frame).expect("valid SIF frame");
         assert_eq!(decoded.lsn, rec.lsn);
         assert_eq!(decoded.message.as_utf8().unwrap(), "test message");
     }
 
     #[test]
-    fn test_sif_compatibility_remains_readable() {
+    fn test_sif_round_trip_remains_readable() {
         let rec = make_test_record();
-        let frame = crate::sif::encode_record(&rec);
-        let (decoded, kind) =
-            crate::record::wire::decode_any(&frame, crate::record::wire::DecodeOptions::default())
-                .expect("legacy SIF remains readable");
-        assert_eq!(kind, crate::record::wire::FrameKind::Sif);
+        let frame = crate::sif::encode_record(&rec).expect("SIF encoding");
+        let decoded = crate::sif::decode_record(&frame).expect("valid SIF frame");
         assert_eq!(decoded.message.as_utf8().unwrap(), "test message");
     }
 
@@ -1098,7 +1098,8 @@ mod tests {
         // Write some records
         let rec = make_test_record();
         assert!(sink.write_record(&rec));
-        assert!(sink.write(&crate::sif::encode_record(&rec)));
+        let frame = crate::sif::encode_record(&rec).expect("SIF encoding");
+        assert!(sink.write(&frame));
 
         // Flush is no-op but shouldn't error
         assert!(sink.flush().is_ok());

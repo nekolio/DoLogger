@@ -287,7 +287,7 @@ DoLogger/
 │   ├── benches/                # Criterion 基准测试（throughput、latency、percentiles）
 │   ├── examples/               # C-FFI 使用示例（file、simple、sqlite）
 │   ├── fuzz/                   # 模糊测试目标（环形缓冲区、SIF、TOML 配置）
-│   ├── sif/                    # SIF 记录格式 schema（FlatBuffers）
+│   ├── sif/                    # SIF 编解码：由 KV 构建的序列化边界
 │   └── tests/                  # 核心集成与安全测试
 ├── cli/                        # dologctl CLI 工具
 │   └── src/commands/           # 子命令（config、perf、plugin、record、run、shm、verify）

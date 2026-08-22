@@ -1,4 +1,4 @@
-//! Integration coverage for the canonical KV runtime path.
+//! Integration coverage for the canonical SIF serialization path.
 //!
 //! These tests intentionally sit outside `record` so they exercise the public
 //! module boundary used by SHM, CLI replay, and future adapters.
@@ -8,12 +8,12 @@ use dologger_core::codec::log_output::{
 };
 use dologger_core::codec::policy::{resolve_from_detection, EncodingPolicy, EncodingPreference};
 use dologger_core::codec::EncodingDetection;
-use dologger_core::record::wire::{
-    decode_any, encode_length_prefixed, encode_record, DecodeOptions, FrameKind, FrameScanner,
-    ReusableEncoder, KV_HEADER_LEN,
-};
 use dologger_core::record::{FieldRing, LogLevel, Record};
 use dologger_core::security::{ReplayDecision, ReplayGuard, ReplayPolicy};
+use dologger_core::sif::{
+    decode_record_with, encode_length_prefixed, encode_record, DecodeOptions, FrameScanner,
+    ReusableEncoder, SIF_HEADER_LEN,
+};
 
 fn record(lsn: u64, message: &str) -> Record {
     let mut value = Record::new(11);
@@ -30,16 +30,15 @@ fn record(lsn: u64, message: &str) -> Record {
 }
 
 #[test]
-fn public_kv_frame_round_trip_survives_vendor_fields() {
+fn public_sif_round_trip_survives_vendor_fields() {
     let mut original = record(1, "integration");
     original
         .field_set("ext.integration.case", "value", FieldRing::Ring3)
         .unwrap();
     original.compute_content_hash();
     let frame = encode_record(&original).unwrap();
-    assert!(frame.len() > KV_HEADER_LEN);
-    let (decoded, kind) = decode_any(&frame, DecodeOptions::untrusted()).unwrap();
-    assert_eq!(kind, FrameKind::Kv);
+    assert!(frame.len() > SIF_HEADER_LEN);
+    let decoded = decode_record_with(&frame, DecodeOptions::untrusted()).unwrap();
     assert_eq!(
         decoded
             .field_get("ext.integration.case", FieldRing::Ring3)
@@ -47,15 +46,6 @@ fn public_kv_frame_round_trip_survives_vendor_fields() {
         "value"
     );
     assert_eq!(decoded.content_hash, original.content_hash);
-}
-
-#[test]
-fn public_legacy_sif_decode_is_explicitly_compatibility_only() {
-    let original = record(2, "legacy");
-    let sif = dologger_core::sif::encode_record(&original);
-    let (decoded, kind) = decode_any(&sif, DecodeOptions::default()).unwrap();
-    assert_eq!(kind, FrameKind::Sif);
-    assert_eq!(decoded.message.as_utf8().unwrap(), "legacy");
 }
 
 #[test]
@@ -164,7 +154,6 @@ fn audit_hash_round_trip_is_verifiable() {
     value.level = LogLevel::Audit;
     value.compute_content_hash();
     let frame = encode_record(&value).unwrap();
-    let decoded =
-        dologger_core::record::wire::decode_record_with(&frame, DecodeOptions::audit()).unwrap();
+    let decoded = dologger_core::sif::decode_record_with(&frame, DecodeOptions::audit()).unwrap();
     assert_eq!(decoded.content_hash, value.content_hash);
 }

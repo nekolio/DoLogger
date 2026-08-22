@@ -318,7 +318,8 @@ dologctl recovery-report ./logs          # 默认:当前目录
 
 ### dologctl record
 
-生成合成 SIF 测试记录(用于管道集成测试)。
+生成用于管道集成测试的合成 SIF 记录。输出为带长度前缀的 SIF，
+可由同一解码器回放。
 
 ```text
 dologctl record <domain> --output-file <file> [--duration <secs>]
@@ -326,7 +327,7 @@ dologctl record <domain> --output-file <file> [--duration <secs>]
 
 | 选项 | 说明 |
 |:-:|:-:|
-| `-f, --output-file <file>` | 输出 SIF 文件路径 |
+| `-f, --output-file <file>` | 输出带长度前缀的 SIF 文件路径 |
 | `-d, --duration <secs>` | 录制时长(秒,默认 `10`) |
 
 ```bash
@@ -335,7 +336,7 @@ dologctl record smoke -f capture.sif -d 10
 
 ### dologctl replay
 
-将 SIF 文件中的记录重放进管道。
+将带长度前缀的 SIF 文件中的记录重放进管道。
 
 ```text
 dologctl replay <input> [--speed max|1]
@@ -346,11 +347,11 @@ dologctl replay <input> [--speed max|1]
 | `-s, --speed` | `max`、`1` | `max` | `max` = 全速;`1` = 按原始时间戳实时停顿 |
 
 ```bash
-dologctl replay capture.sif
-dologctl replay capture.sif --speed 1
+dologctl replay capture.kvf
+dologctl replay capture.kvf --speed 1
 ```
 
-（注：输入 SIF 文件需由 `dologctl record` 生成。）
+（输入也可以是旧的带长度前缀 SIF 文件。）
 
 ### dologctl record-stop
 

@@ -52,7 +52,7 @@ Deep dive into the full specification?
 | **1** | [Quick Start Guide](en_US/QuickStart.md) | 5-minute setup — clone, build, run. For new users. |
 | **2** | [Integration Guide](en_US/IntegrationGuide.md) | C API, config deep-dive, domain inheritance, plugin selection, language adapters. For application developers. |
 | **3** | [Architecture Reference](en_US/ArchitectureReference.md) | Pipeline design, ring buffer, audit chain, security model, backpressure, and wire boundaries. For core developers and systems engineers. |
-| [KV and SIF Migration](en_US/guides/KvWireAndSifMigration.md) | KVF1 runtime framing, retained SIF compatibility, and migration rules. |
+| [KV and SIF Serialization Boundary](en_US/guides/KvWireAndSifMigration.md) | KV is the Record field model; SIF is the serialization boundary. |
 | **3+** | [Architecture Evolution](en_US/ArchitectureEvolution.md) | Root-level before/after analysis of the Sink plugin→core-builtin refactor. For architecture reviewers. |
 | **4** | [Operations & Security Guide](en_US/OperationsAndSecurity.md) | Deployment modes, monitoring, key management, audit verification, incident response, compliance configuration. For SREs and security engineers. |
 
@@ -93,7 +93,7 @@ Deep dive into the full specification?
 | **1** | [快速开始指南](zh_CN/QuickStart.md) | 5分钟快速上手 |
 | **2** | [集成指南](zh_CN/IntegrationGuide.md) | C API、配置、域继承、语言适配器 |
 | **3** | [架构参考手册](zh_CN/ArchitectureReference.md) | 管道设计、环形缓冲区、审计链、安全模型与线格式边界 |
-| [KV 与 SIF 迁移](zh_CN/guides/KvWireAndSifMigration.md) | KVF1 运行帧、SIF 兼容读取与迁移规则 |
+| [KV 与 SIF 序列化边界](zh_CN/guides/KvWireAndSifMigration.md) | KV 是 Record 字段模型，SIF 是序列化边界 |
 | **3+** | [架构演进](zh_CN/ArchitectureEvolution.md) | Sink 插件→核心内置大改的前后根源性差异分析。面向架构评审者。 |
 | **4** | [运维与安全指南](zh_CN/OperationsAndSecurity.md) | 部署、监控、密钥管理、事件响应 |
 

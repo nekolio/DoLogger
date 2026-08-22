@@ -1,6 +1,6 @@
 //! Bounded audit replay protection.
 //!
-//! KV frames make record transport explicit, but transport integrity is not
+//! SIF frames make record transport explicit, but transport integrity is not
 //! replay protection. This module provides a small, allocation-bounded guard
 //! for audit consumers. It tracks a sliding LSN window and the content hash
 //! associated with each accepted LSN. It does not replace signatures or the

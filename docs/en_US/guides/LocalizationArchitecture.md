@@ -8,7 +8,7 @@ a first-class core service used by byte ingestion, sinks, catalog files, and
 display adapters. Localization only owns locale detection, catalog lookup, and
 fallback. Error codes and message keys are the machine contract. A translated
 message is a presentation-layer result and must never be used for branching,
-signature input, WORM content, KVF1 canonical bytes, or audit verification.
+signature input, WORM content, canonical SIF bytes, or audit verification.
 
 ## Design Source
 
@@ -26,7 +26,7 @@ flowchart LR
     C --> D[Human-facing output only]
     E[Stable error code + key] --> C
     F[Record and audit hot path] --> G[Immutable raw message bytes]
-    G --> H[KVF1 / hashes / signatures]
+    G --> H[SIF / hashes / signatures]
     G -. derived copy only .-> I[codec / formatter / plugin view]
     I -. never authoritative .-> J[console / external sink]
 ```
@@ -52,7 +52,7 @@ human-facing text. It does not own or redefine encoding policy.
 
 - `Record.message` is immutable-source raw bytes. Its payload kind is explicit:
   validated UTF-8, binary/unknown, or explicitly decoded text.
-- KVF1, WORM envelopes, signatures, and content hashes use the raw bytes and
+- SIF, WORM envelopes, signatures, and content hashes use the raw bytes and
   payload kind. They never perform display transcoding.
 - Codec, formatter, and plugin work creates bounded immutable derived views;
   it never mutates the authoritative Record in place.
@@ -153,7 +153,7 @@ catalog.
 | Stage | Scope | Status |
 |---|---|---|
 | E0 | Core UTF-8 codec, validation, and display code-page hook | scaffold landed |
-| E1 | Canonical log/sink encoder and decoder integration | KVF1 raw-message path landed; new byte ABI TODO(author) |
+| E1 | Canonical log/sink encoder and decoder integration | SIF raw-message path landed; new byte ABI TODO(author) |
 | E2 | Windows/POSIX/macOS native codec adapters | Windows hook landed; full adapters TODO(author) |
 | L0 | Error key catalog, locale chain, validated in-memory registry | scaffold landed |
 | L1 | Wire locale policy and catalog selection into config/CLI | Encoding config landed; locale catalog selection TODO(author) |

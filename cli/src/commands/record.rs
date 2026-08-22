@@ -1,14 +1,14 @@
 //! SIF recording and replay commands for `dologctl`.
 //!
-//! SIF (Standard Intermediate Format) record generation, replay,
-//! and recording session control for offline analysis and testing.
+//! SIF record generation, replay, and recording session control for offline
+//! analysis and testing.
 //!
 //! # Commands
 //!
 //! | Command        | Description |
 //! |----------------|-------------|
 //! | `record`       | Generate synthetic test records, write SIF file with framing |
-//! | `replay`       | Read SIF file, print record summaries with configurable speed |
+//! | `replay`       | Read SIF files and print record summaries with configurable speed |
 //! | `record-stop`  | Manage recording PID file in temp directory |
 
 use std::fs;
@@ -16,9 +16,8 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use dologger_core::record::wire::{decode_any, DecodeOptions};
 use dologger_core::record::{LogLevel, Record};
-use dologger_core::sif::encode_record;
+use dologger_core::sif::{decode_record, encode_record, SifError, MAX_FRAME_SIZE};
 
 use crate::output::{self, color, OutputFormat};
 use crate::{stderr, stdout, EXIT_ERR};
@@ -67,10 +66,13 @@ const DEFAULT_RECORDS_PER_SEC: u64 = 100;
 
 /// Generate a synthetic SIF record with the given LSN, timestamp, level, and message.
 ///
-/// Uses the canonical [`dologger_core::sif::encode_record`] FlatBuffer encoding —
-/// the same wire format the core shm sink emits and `dologctl replay`/`verify-log`
-/// consume.
-fn generate_sif_record(lsn: u64, timestamp_ms: u64, level: u8, message: &str) -> Vec<u8> {
+/// SIF is the serialization boundary; its dynamic fields are organized as KV.
+fn generate_sif_record(
+    lsn: u64,
+    timestamp_ms: u64,
+    level: u8,
+    message: &str,
+) -> Result<Vec<u8>, SifError> {
     let mut rec = Record::new(0);
     rec.lsn = lsn;
     // Timestamp: u64 nanoseconds since UNIX epoch.
@@ -159,13 +161,23 @@ pub fn cmd_record(domain: &str, output: &str, duration: u64, format: OutputForma
             "[{domain}] [{level_name}] Synthetic record #{lsn}: test message for verification and replay"
         );
 
-        let sif = generate_sif_record(lsn, timestamp_ms, level_code, &message);
+        let frame = match generate_sif_record(lsn, timestamp_ms, level_code, &message) {
+            Ok(frame) => frame,
+            Err(error) => {
+                stderr!(
+                    "{r}Error:{reset} Cannot encode SIF record: {error}",
+                    r = red(),
+                    reset = reset
+                );
+                std::process::exit(1);
+            }
+        };
 
-        let frame_len = sif.len() as u32;
+        let frame_len = frame.len() as u32;
         let len_bytes = frame_len.to_le_bytes();
         writer.write_all(&len_bytes).ok();
-        writer.write_all(&sif).ok();
-        total_bytes += 4 + sif.len() as u64;
+        writer.write_all(&frame).ok();
+        total_bytes += 4 + frame.len() as u64;
 
         if i > 0 && i % 1000 == 0 {
             let pct = i as f64 / total_records as f64 * 100.0;
@@ -238,11 +250,22 @@ fn cmd_record_json(domain: &str, output: &str, duration: u64, total_records: u64
         let message = format!(
             "[{domain}] [{level_name}] Synthetic record #{lsn}: test message for verification and replay"
         );
-        let sif = generate_sif_record(lsn, timestamp_ms, level_code, &message);
-        let frame_len = sif.len() as u32;
+        let frame = match generate_sif_record(lsn, timestamp_ms, level_code, &message) {
+            Ok(frame) => frame,
+            Err(error) => {
+                let obj = serde_json::json!({
+                    "status": "error",
+                    "error_code": EXIT_ERR,
+                    "message": format!("Cannot encode SIF record: {error}")
+                });
+                output::stdout_line(&obj.to_string());
+                std::process::exit(EXIT_ERR);
+            }
+        };
+        let frame_len = frame.len() as u32;
         writer.write_all(&frame_len.to_le_bytes()).ok();
-        writer.write_all(&sif).ok();
-        total_bytes += 4 + sif.len() as u64;
+        writer.write_all(&frame).ok();
+        total_bytes += 4 + frame.len() as u64;
     }
     writer.flush().ok();
 
@@ -336,8 +359,24 @@ pub fn cmd_replay(input: &str, speed: &str, format: OutputFormat) {
             continue;
         }
 
-        let payload_start = offset + 4;
-        let payload_end = payload_start + frame_len;
+        if frame_len > MAX_FRAME_SIZE {
+            stderr!(
+                "{r}Warning:{reset} Frame at offset {offset} exceeds the {max}B replay limit",
+                r = red(),
+                reset = reset,
+                max = MAX_FRAME_SIZE
+            );
+            break;
+        }
+
+        let payload_start = match offset.checked_add(4) {
+            Some(start) => start,
+            None => break,
+        };
+        let payload_end = match payload_start.checked_add(frame_len) {
+            Some(end) => end,
+            None => break,
+        };
 
         if payload_end > data.len() {
             break;
@@ -345,9 +384,9 @@ pub fn cmd_replay(input: &str, speed: &str, format: OutputFormat) {
 
         let payload = &data[payload_start..payload_end];
 
-        // Decode the canonical SIF frame for display.
-        let rec = match decode_any(payload, DecodeOptions::default()) {
-            Ok((record, _kind)) => record,
+        // Decode the SIF frame.
+        let rec = match decode_record(payload) {
+            Ok(record) => record,
             Err(_) => {
                 offset = payload_end;
                 continue;
@@ -435,8 +474,17 @@ fn cmd_replay_json(input: &str, speed: &str) {
             offset += 4;
             continue;
         }
-        let payload_start = offset + 4;
-        let payload_end = payload_start + frame_len;
+        if frame_len > MAX_FRAME_SIZE {
+            break;
+        }
+        let payload_start = match offset.checked_add(4) {
+            Some(start) => start,
+            None => break,
+        };
+        let payload_end = match payload_start.checked_add(frame_len) {
+            Some(end) => end,
+            None => break,
+        };
         if payload_end > data.len() {
             break;
         }

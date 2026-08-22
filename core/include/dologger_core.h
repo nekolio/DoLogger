@@ -192,10 +192,6 @@ typedef enum {
 
     /* --- SIF / Serialization (0x0Dxx) --- */
     DO_LOG_ERR_SIF_INVALID           = -0x0D01,  /**< SIF frame malformed / failed verification */
-    DO_LOG_ERR_SIF_VERSION_UNSUPPORTED = -0x0D02, /**< SIF schema version not supported */
-    DO_LOG_ERR_KV_INVALID             = -0x0D03, /**< KV frame malformed or over limit */
-    DO_LOG_ERR_KV_VERSION_UNSUPPORTED = -0x0D04, /**< KV frame version not supported */
-    DO_LOG_ERR_KV_HASH_MISMATCH       = -0x0D05, /**< KV content hash mismatch */
     DO_LOG_ERR_FATAL                 = -0x0E01  /**< Fatal engine condition */,
 
     /* --- Internal / Fatal (0x0Exx): engine-fatal conditions.
@@ -716,7 +712,7 @@ DOLOGGER_API int32_t dologger_sif_validate_frame(const uint8_t *frame,
                                                  dologger_error_t *err);
 
 /**
- * @brief Encode a record into a complete SIF frame (magic + header + FlatBuffer).
+ * @brief Encode a record into a complete SIF frame (magic + header + KV payload).
  * @param record   Record handle to encode.
  * @param out      Out-param receiving a host-owned buffer (allocated via
  *                 dologger_alloc) on success.
