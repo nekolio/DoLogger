@@ -29,6 +29,7 @@ use crate::record::Record;
 use crate::security::SignatureEngine;
 use crate::sink::ShmSink;
 use crate::sink::SinkRef;
+use crate::sys::control_plane::ControlPlaneStats;
 use crate::sys::ThreadPool;
 
 /// Channel messages for I/O worker dispatch.
@@ -73,6 +74,39 @@ impl Pipeline {
         io_pool: Option<Arc<ThreadPool>>,
         shm_sink: Option<Arc<ShmSink>>,
     ) -> Result<Self, String> {
+        Self::new_with_stats(
+            config,
+            ring_buffer,
+            pool,
+            sink,
+            signature_engine,
+            rate_limiter,
+            drop_level_policy,
+            dispatch,
+            io_pool,
+            shm_sink,
+            Arc::new(ControlPlaneStats::new()),
+        )
+    }
+
+    /// Create a pipeline using the caller-owned live control-plane counters.
+    ///
+    /// The engine uses this entry point so accepted, processed, dropped, and
+    /// ring-fill metrics describe the real production consumer.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_stats(
+        config: &DologgerConfig,
+        ring_buffer: Arc<RingBuffer<RecordPtr>>,
+        pool: Arc<RecordPool>,
+        sink: Arc<SinkRef>,
+        signature_engine: Arc<SignatureEngine>,
+        rate_limiter: Arc<RateLimiter>,
+        drop_level_policy: Arc<DropLevelPolicy>,
+        dispatch: PluginDispatch,
+        io_pool: Option<Arc<ThreadPool>>,
+        shm_sink: Option<Arc<ShmSink>>,
+        control_stats: Arc<ControlPlaneStats>,
+    ) -> Result<Self, String> {
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_flag = Arc::clone(&shutdown);
         let batch_size = config.batch_size;
@@ -90,18 +124,21 @@ impl Pipeline {
         // The shared sink handle is owned by the caller (the Engine keeps it so hot
         // reload can swap the inner sink at runtime); the consumer thread and
         // any io_pool worker hold their own `Arc` clones below.
+        let io_stats = Arc::clone(&control_stats);
         let (sink_tx, sink_done, consumer_sink) = match io_pool {
             Some(ref io_pool) => {
                 let (tx, rx) = crossbeam_channel::bounded::<SinkMsg>(256);
                 let done = Arc::new(AtomicBool::new(false));
                 let done_clone = Arc::clone(&done);
                 let sink = Arc::clone(&sink);
+                let worker_stats = Arc::clone(&io_stats);
 
                 io_pool.execute(move || {
                     while let Ok(msg) = rx.recv() {
                         match msg {
                             SinkMsg::Write(data) => {
                                 if let Err(e) = sink.write(&data) {
+                                    worker_stats.record_sink_error();
                                     crate::sys::diagnostics::error(
                                         "pipeline",
                                         &format!("Sink write error: {e}"),
@@ -109,16 +146,40 @@ impl Pipeline {
                                 }
                             }
                             SinkMsg::Flush => {
-                                let _ = sink.flush();
+                                if let Err(e) = sink.flush() {
+                                    worker_stats.record_sink_error();
+                                    crate::sys::diagnostics::error(
+                                        "pipeline",
+                                        &format!("Sink flush error: {e}"),
+                                    );
+                                }
                             }
                             SinkMsg::Close => {
-                                let _ = sink.close();
+                                if let Err(e) = sink.close() {
+                                    worker_stats.record_sink_error();
+                                    crate::sys::diagnostics::error(
+                                        "pipeline",
+                                        &format!("Sink close error: {e}"),
+                                    );
+                                }
                             }
                         }
                     }
                     // Channel closed — final cleanup
-                    let _ = sink.flush();
-                    let _ = sink.close();
+                    if let Err(e) = sink.flush() {
+                        worker_stats.record_sink_error();
+                        crate::sys::diagnostics::error(
+                            "pipeline",
+                            &format!("Sink final flush error: {e}"),
+                        );
+                    }
+                    if let Err(e) = sink.close() {
+                        worker_stats.record_sink_error();
+                        crate::sys::diagnostics::error(
+                            "pipeline",
+                            &format!("Sink final close error: {e}"),
+                        );
+                    }
                     done_clone.store(true, Ordering::Release);
                 });
 
@@ -145,6 +206,7 @@ impl Pipeline {
                     pool,
                     shutdown: shutdown_flag,
                     batch_size,
+                    control_stats,
                     sink: consumer_sink.as_deref(),
                     signature_engine: &signature_engine,
                     rate_limiter: &rate_limiter,
@@ -208,6 +270,7 @@ struct ConsumerCtx<'a> {
     pool: Arc<RecordPool>,
     shutdown: Arc<AtomicBool>,
     batch_size: usize,
+    control_stats: Arc<ControlPlaneStats>,
     sink: Option<&'a SinkRef>,
     signature_engine: &'a SignatureEngine,
     rate_limiter: &'a RateLimiter,
@@ -250,6 +313,7 @@ impl ConsumerCtx<'_> {
             // Channel-based dispatch — send blocks if the I/O
             // worker is behind, providing natural backpressure.
             if tx.send(SinkMsg::Write(formatted)).is_err() {
+                self.control_stats.record_dispatch_error();
                 crate::sys::diagnostics::error(
                     "pipeline",
                     "Sink channel disconnected — write dropped",
@@ -257,6 +321,7 @@ impl ConsumerCtx<'_> {
             }
         } else if let Some(sink) = self.sink {
             if let Err(e) = sink.write(&formatted) {
+                self.control_stats.record_sink_error();
                 crate::sys::diagnostics::error("pipeline", &format!("Sink write error: {e}"));
             }
         }
@@ -265,18 +330,28 @@ impl ConsumerCtx<'_> {
     /// Flush the sink.
     fn dispatch_flush(&mut self) {
         if let Some(ref tx) = self.sink_tx {
-            let _ = tx.send(SinkMsg::Flush);
+            if tx.send(SinkMsg::Flush).is_err() {
+                self.control_stats.record_dispatch_error();
+            }
         } else if let Some(sink) = self.sink {
-            let _ = sink.flush();
+            if let Err(error) = sink.flush() {
+                self.control_stats.record_sink_error();
+                crate::sys::diagnostics::error("pipeline", &format!("Sink flush error: {error}"));
+            }
         }
     }
 
     /// Close the sink.
     fn dispatch_close(&mut self) {
         if let Some(ref tx) = self.sink_tx {
-            let _ = tx.send(SinkMsg::Close);
+            if tx.send(SinkMsg::Close).is_err() {
+                self.control_stats.record_dispatch_error();
+            }
         } else if let Some(sink) = self.sink {
-            let _ = sink.close();
+            if let Err(error) = sink.close() {
+                self.control_stats.record_sink_error();
+                crate::sys::diagnostics::error("pipeline", &format!("Sink close error: {error}"));
+            }
         }
     }
 }
@@ -288,14 +363,16 @@ impl ConsumerCtx<'_> {
 /// [`OutputBuffer`]; on `DO_LOG_ERR_BUFFER_TOO_SMALL` the buffer is grown and
 /// retried. A plugin error or an unreasonable size requirement falls back to
 /// the built-in format so a misbehaving formatter can never lose a record.
-fn mirror_record_to_shm(record: &Record, shm: &ShmSink) {
+fn mirror_record_to_shm(record: &Record, shm: &ShmSink, stats: &ControlPlaneStats) {
     match crate::sif::encode_record(record) {
         Ok(frame) => {
             if !shm.write(&frame) {
+                stats.record_shm_drop();
                 crate::sys::diagnostics::warn("pipeline", "SIF shared-memory write dropped");
             }
         }
         Err(error) => {
+            stats.record_sink_error();
             crate::sys::diagnostics::error(
                 "pipeline",
                 &format!("SIF encoding failed; record not mirrored: {error}"),
@@ -408,7 +485,8 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
             // SAFETY: record_ptr has exclusive ownership during drain.
             let record = unsafe { &mut *record_ptr.as_ptr() };
 
-            if run_pipeline(record, &mut pctx) {
+            let pipeline_accepted = run_pipeline(record, &mut pctx);
+            if pipeline_accepted {
                 // Persist the audit signature to the sidecar when the produced
                 // LSN matches this record — guards against a stale signature
                 // left behind by a record dropped at a later stage.
@@ -426,8 +504,10 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
             // Mirror the accepted record into the shared-memory sink (if any)
             // while it is still owned by the consumer. SIF serialisation is
             // cheap and the shm write is non-blocking / lossy by design.
-            if let Some(shm) = c.shm_sink {
-                mirror_record_to_shm(record, shm);
+            if pipeline_accepted {
+                if let Some(shm) = c.shm_sink {
+                    mirror_record_to_shm(record, shm, &c.control_stats);
+                }
             }
 
             // SAFETY: record_ptr was obtained from this pool via alloc() and
@@ -445,6 +525,10 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
 
         total_processed += batch_processed;
         total_dropped += batch_dropped;
+        let batch_errors = pctx.stage_stats.iter().map(|stats| stats.errors).sum();
+        c.control_stats
+            .record_batch(batch_processed, batch_dropped, batch_errors);
+        c.control_stats.set_ring_fill(c.ring_buffer.fill_level());
 
         if drained == 0 {
             // Idle — flush buffered sidecar lines before sleeping.
@@ -479,21 +563,29 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
     );
 
     let mut final_writes: Vec<String> = Vec::new();
+    let mut final_processed = 0u64;
+    let mut final_dropped = 0u64;
     let remaining = c.ring_buffer.drain(usize::MAX, |record_ptr| {
         // SAFETY: final drain on shutdown — record_ptr has exclusive ownership.
         let record = unsafe { &mut *record_ptr.as_ptr() };
-        if run_pipeline(record, &mut pctx) {
+        let pipeline_accepted = run_pipeline(record, &mut pctx);
+        if pipeline_accepted {
+            final_processed += 1;
             if let Some((lsn, ch, sig)) = pctx.take_last_signature() {
                 if lsn == record.lsn {
                     write_sidecar_line(&mut sig_sidecar, lsn, &ch, &sig);
                 }
             }
             final_writes.push(format_record(record, c.dispatch));
+        } else {
+            final_dropped += 1;
         }
 
         // Mirror the accepted record into the shared-memory sink (if any).
-        if let Some(shm) = c.shm_sink {
-            mirror_record_to_shm(record, shm);
+        if pipeline_accepted {
+            if let Some(shm) = c.shm_sink {
+                mirror_record_to_shm(record, shm, &c.control_stats);
+            }
         }
 
         // SAFETY: record_ptr was obtained from this pool via alloc() and
@@ -507,6 +599,11 @@ fn consumer_loop(c: &mut ConsumerCtx<'_>, mut sig_sidecar: Option<BufWriter<std:
     for formatted in final_writes {
         c.dispatch_write(formatted);
     }
+
+    let final_errors = pctx.stage_stats.iter().map(|stats| stats.errors).sum();
+    c.control_stats
+        .record_batch(final_processed, final_dropped, final_errors);
+    c.control_stats.set_ring_fill(c.ring_buffer.fill_level());
 
     if remaining > 0 {
         crate::sys::diagnostics::info(
@@ -592,13 +689,15 @@ mod tests {
         let records_written = Arc::new(AtomicUsize::new(0));
         let write_threads = Arc::new(Mutex::new(Vec::new()));
 
+        let control_stats = Arc::new(ControlPlaneStats::new());
+
         let sink = Arc::new(SinkRef::new(ThreadTrackingSink::new(
             Arc::clone(&records_written),
             Arc::clone(&write_threads),
         )));
         sink.open().unwrap();
 
-        let mut pipeline = Pipeline::new(
+        let mut pipeline = Pipeline::new_with_stats(
             &config,
             Arc::clone(&ring_buffer),
             Arc::clone(&pool),
@@ -609,6 +708,7 @@ mod tests {
             PluginDispatch::default(), // no plugins loaded
             None,                      // No io_pool — inline writes
             None,                      // No shm sink
+            Arc::clone(&control_stats),
         )
         .expect("Pipeline creation should succeed");
 
@@ -648,6 +748,9 @@ mod tests {
             N,
             "All records should be written"
         );
+        let snapshot = control_stats.snapshot("INFO");
+        assert_eq!(snapshot.processed, N as u64);
+        assert_eq!(snapshot.ring_fill_permille, 0);
     }
 
     #[test]

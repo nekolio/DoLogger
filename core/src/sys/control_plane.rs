@@ -15,6 +15,7 @@
 //! | POST | `/metrics/reset` | Reset process counters |
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::SocketAddr;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -23,6 +24,8 @@ use std::time::{Duration, Instant};
 
 /// Shared engine log level.
 pub type SharedLevel = Arc<Mutex<String>>;
+/// Callback used to apply a validated runtime log level to the engine policy.
+pub type LevelCb = Arc<Mutex<Option<Box<dyn Fn(&str) -> Result<(), String> + Send>>>>;
 /// Config reload callback.
 pub type ReloadCb = Arc<Mutex<Option<Box<dyn Fn() -> Result<(), String> + Send>>>>;
 
@@ -44,6 +47,10 @@ pub struct ControlPlaneStats {
     processed: AtomicU64,
     dropped: AtomicU64,
     errors: AtomicU64,
+    sink_errors: AtomicU64,
+    dispatch_errors: AtomicU64,
+    shm_drops: AtomicU64,
+    reload_requests: AtomicU64,
     reloads: AtomicU64,
     active_connections: AtomicU64,
     ring_capacity: AtomicU64,
@@ -70,6 +77,10 @@ impl ControlPlaneStats {
             processed: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
             errors: AtomicU64::new(0),
+            sink_errors: AtomicU64::new(0),
+            dispatch_errors: AtomicU64::new(0),
+            shm_drops: AtomicU64::new(0),
+            reload_requests: AtomicU64::new(0),
             reloads: AtomicU64::new(0),
             active_connections: AtomicU64::new(0),
             ring_capacity: AtomicU64::new(0),
@@ -145,7 +156,32 @@ impl ControlPlaneStats {
         self.errors.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Count an error reported by a sink and include it in the total errors.
+    pub fn record_sink_error(&self) {
+        self.sink_errors.fetch_add(1, Ordering::Relaxed);
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Count an error reported while dispatching a record and include it in
+    /// the total errors.
+    pub fn record_dispatch_error(&self) {
+        self.dispatch_errors.fetch_add(1, Ordering::Relaxed);
+        self.errors.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Count a record dropped at the shared-memory boundary and include it in
+    /// the total dropped records.
+    pub fn record_shm_drop(&self) {
+        self.shm_drops.fetch_add(1, Ordering::Relaxed);
+        self.dropped.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Count a successful or attempted reload request.
+    pub fn record_reload_request(&self) {
+        self.reload_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Count a configuration reload attempt owned by the engine.
     pub fn record_reload(&self) {
         self.reloads.fetch_add(1, Ordering::Relaxed);
     }
@@ -176,6 +212,10 @@ impl ControlPlaneStats {
             processed: self.processed.load(Ordering::Acquire),
             dropped: self.dropped.load(Ordering::Acquire),
             errors: self.errors.load(Ordering::Acquire),
+            sink_errors: self.sink_errors.load(Ordering::Acquire),
+            dispatch_errors: self.dispatch_errors.load(Ordering::Acquire),
+            shm_drops: self.shm_drops.load(Ordering::Acquire),
+            reload_requests: self.reload_requests.load(Ordering::Acquire),
             reloads: self.reloads.load(Ordering::Acquire),
             active_connections: self.active_connections.load(Ordering::Acquire),
             ring_capacity: self.ring_capacity.load(Ordering::Acquire),
@@ -204,6 +244,10 @@ impl ControlPlaneStats {
         self.processed.store(0, Ordering::Release);
         self.dropped.store(0, Ordering::Release);
         self.errors.store(0, Ordering::Release);
+        self.sink_errors.store(0, Ordering::Release);
+        self.dispatch_errors.store(0, Ordering::Release);
+        self.shm_drops.store(0, Ordering::Release);
+        self.reload_requests.store(0, Ordering::Release);
         self.reloads.store(0, Ordering::Release);
         self.push_history(StatusEvent::CountersReset);
     }
@@ -255,7 +299,15 @@ pub struct StatusSnapshot {
     pub dropped: u64,
     /// Internal processing or sink errors.
     pub errors: u64,
+    /// Errors reported by configured sinks.
+    pub sink_errors: u64,
+    /// Errors raised while dispatching records to pipeline stages.
+    pub dispatch_errors: u64,
+    /// Records dropped at the shared-memory boundary.
+    pub shm_drops: u64,
     /// Reload requests observed by the engine.
+    pub reload_requests: u64,
+    /// Configuration reload attempts applied by the engine.
     pub reloads: u64,
     /// Current number of handled connections.
     pub active_connections: u64,
@@ -298,6 +350,8 @@ pub struct ControlPlane {
     listener_thread: Option<JoinHandle<()>>,
     /// Shared log level for the engine.
     pub engine_level: SharedLevel,
+    /// Optional callback that applies a level to the real engine policy.
+    pub level_callback: LevelCb,
     /// Callback triggered on POST `/reload`.
     pub reload_callback: ReloadCb,
     /// Actual bound address (useful when binding to port 0).
@@ -328,11 +382,38 @@ impl ControlPlane {
         reload_callback: ReloadCb,
         stats: Arc<ControlPlaneStats>,
     ) -> Result<Self, String> {
+        Self::start_with_handlers(
+            config,
+            engine_level,
+            Arc::new(Mutex::new(None)),
+            reload_callback,
+            stats,
+        )
+    }
+
+    /// Start the server with live engine mutation callbacks.
+    ///
+    /// The compatibility [`Self::start_with_stats`] constructor only updates
+    /// the display level. Engine integrations should use this constructor so
+    /// `/level` also updates the pre-filter policy used by the pipeline.
+    pub fn start_with_handlers(
+        config: ControlPlaneConfig,
+        engine_level: SharedLevel,
+        level_callback: LevelCb,
+        reload_callback: ReloadCb,
+        stats: Arc<ControlPlaneStats>,
+    ) -> Result<Self, String> {
         if config.enable_tls {
             return Err("control plane TLS is not implemented; refusing insecure downgrade".into());
         }
 
         let bind_addr = config.bind_addr.clone();
+        if !is_loopback_bind_address(&bind_addr) {
+            return Err(
+                "control plane requires a loopback bind address until TLS/authentication is implemented"
+                    .into(),
+            );
+        }
         let listener = TcpListener::bind(&bind_addr)
             .map_err(|error| format!("Control plane bind {bind_addr}: {error}"))?;
         let local_addr = listener
@@ -345,12 +426,20 @@ impl ControlPlane {
         let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_flag = Arc::clone(&shutdown);
         let level = Arc::clone(&engine_level);
+        let level_handler = Arc::clone(&level_callback);
         let callback = Arc::clone(&reload_callback);
         let thread_stats = Arc::clone(&stats);
         let listener_thread = thread::Builder::new()
             .name("dologger-control-plane".into())
             .spawn(move || {
-                control_loop(listener, shutdown_flag, level, callback, thread_stats);
+                control_loop(
+                    listener,
+                    shutdown_flag,
+                    level,
+                    level_handler,
+                    callback,
+                    thread_stats,
+                );
             })
             .map_err(|error| format!("Control plane thread: {error}"))?;
 
@@ -363,6 +452,7 @@ impl ControlPlane {
             shutdown,
             listener_thread: Some(listener_thread),
             engine_level,
+            level_callback,
             reload_callback,
             stats,
             local_addr: local_addr.to_string(),
@@ -394,6 +484,7 @@ fn control_loop(
     listener: TcpListener,
     shutdown: Arc<AtomicBool>,
     engine_level: SharedLevel,
+    level_callback: LevelCb,
     reload_callback: ReloadCb,
     stats: Arc<ControlPlaneStats>,
 ) {
@@ -404,6 +495,7 @@ fn control_loop(
                 handle_request(
                     stream,
                     Arc::clone(&engine_level),
+                    Arc::clone(&level_callback),
                     Arc::clone(&reload_callback),
                     Arc::clone(&stats),
                 );
@@ -442,6 +534,7 @@ enum RequestError {
 fn handle_request(
     mut stream: TcpStream,
     engine_level: SharedLevel,
+    level_callback: LevelCb,
     reload_callback: ReloadCb,
     stats: Arc<ControlPlaneStats>,
 ) {
@@ -516,6 +609,21 @@ fn handle_request(
                 stats.record_error();
                 return;
             }
+            let apply_result = level_callback
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_ref()
+                .map(|callback| callback(requested_level));
+            if let Some(Err(error)) = apply_result {
+                stats.record_error();
+                send_error(
+                    &mut stream,
+                    500,
+                    crate::error::DO_LOG_ERR_INVALID_ARG,
+                    Some(&error),
+                );
+                return;
+            }
             *engine_level
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = requested_level.to_string();
@@ -526,7 +634,7 @@ fn handle_request(
             send_response(&mut stream, 200, &response);
         }
         ("POST", "/reload") => {
-            stats.record_reload();
+            stats.record_reload_request();
             let result = reload_callback
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -541,7 +649,7 @@ fn handle_request(
                 Some(Ok(())) => send_response(
                     &mut stream,
                     200,
-                    "{\"status\":\"ok\",\"message\":\"reload completed\"}",
+                    "{\"status\":\"ok\",\"message\":\"reload queued\"}",
                 ),
                 Some(Err(error)) => {
                     stats.record_error();
@@ -691,7 +799,7 @@ impl StatusSnapshot {
 
     fn to_json(&self) -> String {
         format!(
-            "{{\"status\":\"{}\",\"level\":\"{}\",\"profile\":\"{}\",\"uptime_seconds\":{},\"accepted\":{},\"processed\":{},\"dropped\":{},\"errors\":{},\"reloads\":{},\"active_connections\":{},\"ring_capacity\":{},\"ring_fill_permille\":{},\"plugins\":{},\"signature_enabled\":{},\"hot_reload_epoch\":{}}}",
+            "{{\"status\":\"{}\",\"level\":\"{}\",\"profile\":\"{}\",\"uptime_seconds\":{},\"accepted\":{},\"processed\":{},\"dropped\":{},\"errors\":{},\"sink_errors\":{},\"dispatch_errors\":{},\"shm_drops\":{},\"reload_requests\":{},\"reloads\":{},\"active_connections\":{},\"ring_capacity\":{},\"ring_fill_permille\":{},\"plugins\":{},\"signature_enabled\":{},\"hot_reload_epoch\":{}}}",
             escape_json(&self.status),
             escape_json(&self.level),
             escape_json(&self.profile),
@@ -700,6 +808,10 @@ impl StatusSnapshot {
             self.processed,
             self.dropped,
             self.errors,
+            self.sink_errors,
+            self.dispatch_errors,
+            self.shm_drops,
+            self.reload_requests,
             self.reloads,
             self.active_connections,
             self.ring_capacity,
@@ -712,10 +824,14 @@ impl StatusSnapshot {
 }
 
 fn is_valid_level(level: &str) -> bool {
-    matches!(
-        level,
-        "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL" | "AUDIT"
-    )
+    crate::record::LogLevel::parse_canonical(level).is_some()
+}
+
+fn is_loopback_bind_address(bind_addr: &str) -> bool {
+    let Ok(address) = bind_addr.parse::<SocketAddr>() else {
+        return bind_addr.strip_prefix("localhost:").is_some();
+    };
+    address.ip().is_loopback()
 }
 
 fn extract_json_string<'a>(body: &'a str, key: &str) -> Option<&'a str> {
@@ -792,6 +908,26 @@ mod tests {
     }
 
     #[test]
+    fn fine_grained_metrics_update_totals_and_json() {
+        let stats = ControlPlaneStats::new();
+        stats.record_sink_error();
+        stats.record_dispatch_error();
+        stats.record_shm_drop();
+
+        let snapshot = stats.snapshot("INFO");
+        assert_eq!(snapshot.errors, 2);
+        assert_eq!(snapshot.sink_errors, 1);
+        assert_eq!(snapshot.dispatch_errors, 1);
+        assert_eq!(snapshot.dropped, 1);
+        assert_eq!(snapshot.shm_drops, 1);
+
+        let json = snapshot.to_json();
+        assert!(json.contains("\"sink_errors\":1"));
+        assert!(json.contains("\"dispatch_errors\":1"));
+        assert!(json.contains("\"shm_drops\":1"));
+    }
+
+    #[test]
     fn batch_updates_and_exact_fill_are_consistent() {
         let stats = ControlPlaneStats::new();
         stats.configure("prod", 100, false);
@@ -811,9 +947,17 @@ mod tests {
         let stats = ControlPlaneStats::new();
         stats.configure("dev", 1024, false);
         stats.record_accepted();
+        stats.record_sink_error();
+        stats.record_dispatch_error();
+        stats.record_shm_drop();
         stats.reset_counters();
         let snapshot = stats.snapshot("INFO");
         assert_eq!(snapshot.accepted, 0);
+        assert_eq!(snapshot.errors, 0);
+        assert_eq!(snapshot.sink_errors, 0);
+        assert_eq!(snapshot.dispatch_errors, 0);
+        assert_eq!(snapshot.dropped, 0);
+        assert_eq!(snapshot.shm_drops, 0);
         assert_eq!(snapshot.profile, "dev");
         assert_eq!(stats.history(), vec![StatusEvent::CountersReset]);
     }
@@ -846,6 +990,74 @@ mod tests {
         assert!(response.starts_with("HTTP/1.1 200 OK"));
         assert!(response.contains("\"accepted\":1"));
         assert!(response.contains("\"ring_capacity\":4096"));
+    }
+
+    #[test]
+    fn level_endpoint_invokes_engine_policy_callback() {
+        let stats = Arc::new(ControlPlaneStats::new());
+        let level = Arc::new(Mutex::new("INFO".to_string()));
+        let applied = Arc::new(std::sync::atomic::AtomicU8::new(u8::MAX));
+        let applied_copy = Arc::clone(&applied);
+        let level_callback: LevelCb = Arc::new(Mutex::new(Some(Box::new(move |value| {
+            let parsed = crate::record::LogLevel::parse_canonical(value)
+                .ok_or_else(|| "invalid level".to_string())?;
+            applied_copy.store(parsed as u8, Ordering::Release);
+            Ok(())
+        }))));
+        let reload_callback: ReloadCb = Arc::new(Mutex::new(None));
+        let mut control_plane = ControlPlane::start_with_handlers(
+            ControlPlaneConfig {
+                enabled: true,
+                bind_addr: "127.0.0.1:0".to_string(),
+                enable_tls: false,
+            },
+            Arc::clone(&level),
+            level_callback,
+            reload_callback,
+            stats,
+        )
+        .expect("control plane starts");
+
+        let body = br#"{"level":"ERROR"}"#;
+        let request = format!(
+            "POST /level HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            std::str::from_utf8(body).expect("request body is utf8")
+        );
+        let mut stream = TcpStream::connect(control_plane.local_addr()).expect("connect");
+        stream.write_all(request.as_bytes()).expect("request");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("response");
+        control_plane.shutdown();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert_eq!(
+            applied.load(Ordering::Acquire),
+            crate::record::LogLevel::Error as u8
+        );
+        assert_eq!(
+            level
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .as_str(),
+            "ERROR"
+        );
+    }
+
+    #[test]
+    fn remote_control_plane_bind_is_rejected_without_transport_security() {
+        let result = ControlPlane::start_with_stats(
+            ControlPlaneConfig {
+                enabled: true,
+                bind_addr: "0.0.0.0:0".to_string(),
+                enable_tls: false,
+            },
+            Arc::new(Mutex::new("INFO".to_string())),
+            Arc::new(Mutex::new(None)),
+            Arc::new(ControlPlaneStats::new()),
+        );
+        let error = result.err().expect("remote bind must be refused");
+        assert!(error.contains("loopback"));
     }
 
     #[test]

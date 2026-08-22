@@ -114,7 +114,7 @@ impl WatcherBackend {
 }
 
 /// Configuration for the file watcher.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatcherConfig {
     /// Active watcher backend (auto-detected at startup)
     pub backend: WatcherBackend,

@@ -12,7 +12,7 @@ pub mod system_monitor;
 pub mod thread_pool;
 pub mod time;
 
-pub use control_plane::{ControlPlane, ControlPlaneConfig};
+pub use control_plane::{ControlPlane, ControlPlaneConfig, ControlPlaneStats, LevelCb, ReloadCb};
 pub use host_info::HostInfoProvider;
 pub use internal_log::{DiagLevel, InternalLog};
 pub use system_monitor::{Sysmon, SysmonEvent};

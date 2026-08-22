@@ -26,6 +26,7 @@ pub mod sys;
 pub mod util;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -46,7 +47,9 @@ use crate::sink::ShmSinkConfig;
 use crate::sink::SinkRef;
 use crate::sink::WormSink;
 use crate::sink::WormSinkConfig;
-use crate::sys::control_plane::{ControlPlane, ControlPlaneConfig, ControlPlaneStats, ReloadCb};
+use crate::sys::control_plane::{
+    ControlPlane, ControlPlaneConfig, ControlPlaneStats, LevelCb, ReloadCb, SharedLevel,
+};
 use crate::sys::Sysmon;
 use crate::sys::TimeSource;
 
@@ -125,6 +128,9 @@ pub use util::hex;
 pub struct CooperativeHelping {
     ring_buffer: Arc<RingBuffer<RecordPtr>>,
     pool: Arc<RecordPool>,
+    drop_level_policy: Arc<DropLevelPolicy>,
+    rate_limiter: Arc<RateLimiter>,
+    control_stats: Arc<ControlPlaneStats>,
     /// Dedicated sink for cooperative helping writes.
     /// Mutex-protected so it can be called from shared references.
     /// Contention is zero in practice — only the helping path locks it.
@@ -137,12 +143,18 @@ impl CooperativeHelping {
     fn new(
         ring_buffer: Arc<RingBuffer<RecordPtr>>,
         pool: Arc<RecordPool>,
+        drop_level_policy: Arc<DropLevelPolicy>,
+        rate_limiter: Arc<RateLimiter>,
+        control_stats: Arc<ControlPlaneStats>,
         sink: SinkRef,
         enabled: bool,
     ) -> Self {
         Self {
             ring_buffer,
             pool,
+            drop_level_policy,
+            rate_limiter,
+            control_stats,
             sink: Mutex::new(sink),
             enabled,
         }
@@ -172,7 +184,12 @@ impl CooperativeHelping {
         // Lock the sink for the duration of the helping drain.
         // This is the only path that locks this Mutex, so contention
         // is zero in practice.
-        let sink = self.sink.lock().unwrap();
+        let sink = self
+            .sink
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut processed = 0u64;
+        let mut dropped = 0u64;
 
         // SAFETY: drain_helping uses CAS on consumer_sequence so it
         // interoperates safely with the dedicated consumer thread.
@@ -182,10 +199,21 @@ impl CooperativeHelping {
             // SAFETY: drain_helping CAS protocol guarantees exclusive ownership
             // of the record pointer for the duration of this callback.
             let record = unsafe { &mut *record_ptr.as_ptr() };
-            let formatted = SinkRef::format_record(record);
-            // ConsoleSink::write uses stdout.lock() internally, making
-            // concurrent writes from the consumer and helper threads safe.
-            let _ = sink.write(&formatted);
+            if self.drop_level_policy.evaluate(record.level) && self.rate_limiter.evaluate() {
+                let formatted = SinkRef::format_record(record);
+                // ConsoleSink::write uses stdout.lock() internally, making
+                // concurrent writes from the consumer and helper threads safe.
+                if let Err(error) = sink.write(&formatted) {
+                    self.control_stats.record_sink_error();
+                    crate::sys::diagnostics::error(
+                        "coop_helping",
+                        &format!("Helping sink write error: {error}"),
+                    );
+                }
+                processed += 1;
+            } else {
+                dropped += 1;
+            }
             // SAFETY: record is exclusively owned at this point (we won the
             // CAS). Returning it to the pool relinquishes our ownership.
             // The pointer came from this pool via alloc() and has not been freed yet.
@@ -193,6 +221,10 @@ impl CooperativeHelping {
                 self.pool.free(record as *const Record);
             }
         });
+
+        self.control_stats.record_batch(processed, dropped, 0);
+        self.control_stats
+            .set_ring_fill(self.ring_buffer.fill_level());
 
         if drained > 0 {
             crate::sys::diagnostics::info(
@@ -231,10 +263,18 @@ pub struct Engine {
     pub config: DologgerConfig,
     /// Live counters shared with the optional control plane.
     pub control_stats: Arc<ControlPlaneStats>,
+    /// Runtime pre-filter policy shared by producers and the consumer.
+    pub drop_level_policy: Arc<DropLevelPolicy>,
     /// Epoch-aware state manager for plugin and configuration reloads.
     pub hot_reload_manager: Arc<HotReloadManager>,
     /// Pending configuration parsed by the watcher thread.
     pending_reload: Arc<Mutex<Option<DologgerConfig>>>,
+    /// Runtime display level shared with the control-plane listener.
+    runtime_level: SharedLevel,
+    /// Set by `/reload`; consumed by the engine owner on the next poll.
+    control_reload_requested: Arc<AtomicBool>,
+    /// Config source used by a queued control-plane reload request.
+    reload_source_path: Arc<Mutex<Option<std::path::PathBuf>>>,
     /// Optional native config watcher owned by the engine.
     config_watcher: Option<ConfigWatcher>,
     /// Optional operational control-plane listener.
@@ -263,6 +303,8 @@ impl Engine {
         crate::sys::diagnostics::init("./dologger_internal.log");
 
         let pool_capacity = config.ring_buffer_size;
+        let initial_level = crate::record::LogLevel::parse_canonical(&config.level)
+            .ok_or_else(|| format!("invalid log level: {}", config.level))?;
         let pool = Arc::new(RecordPool::new(pool_capacity));
         let ring_buffer = Arc::new(RingBuffer::new(pool_capacity));
 
@@ -278,6 +320,9 @@ impl Engine {
 
         // Initialise live operational metrics before any producer can submit.
         let pending_reload = Arc::new(Mutex::new(None));
+        let runtime_level = Arc::new(Mutex::new(config.level.clone()));
+        let control_reload_requested = Arc::new(AtomicBool::new(false));
+        let reload_source_path = Arc::new(Mutex::new(config.config_path.clone()));
         let control_stats = Arc::new(ControlPlaneStats::new());
         control_stats.configure(
             &format!("{:?}", config.performance_profile),
@@ -307,9 +352,7 @@ impl Engine {
 
         // Initialise policy components
         let rate_limiter = Arc::new(RateLimiter::default());
-        let drop_level_policy = Arc::new(DropLevelPolicy::new(
-            crate::record::LogLevel::Trace, // Allow all levels by default
-        ));
+        let drop_level_policy = Arc::new(DropLevelPolicy::new(initial_level));
 
         // Initialise plugin manager
         let mut plugin_manager = PluginManager::new(
@@ -402,7 +445,7 @@ impl Engine {
 
         // Create the main pipeline for ordinary records. AUDIT records are
         // routed away before they can enter this ring.
-        let mut pipeline = Pipeline::new(
+        let mut pipeline = Pipeline::new_with_stats(
             &config,
             Arc::clone(&ring_buffer),
             Arc::clone(&pool),
@@ -413,6 +456,7 @@ impl Engine {
             dispatch,
             None,
             pipeline_shm,
+            Arc::clone(&control_stats),
         )?;
         if config.enable_audit && config.enable_signature && config.sig_sidecar_path.is_none() {
             return Err("signed audit mode requires sig_sidecar_path".to_string());
@@ -465,7 +509,10 @@ impl Engine {
         };
 
         // Create cooperative helping context
-        let coop_helping = if config.ring_buffer_coop_helping {
+        let coop_helping = if config.ring_buffer_coop_helping
+            && !config.plugin_enable_pipeline
+            && !config.enable_signature
+        {
             let helping_sink = SinkRef::new(ConsoleSink::new());
             helping_sink
                 .open()
@@ -473,6 +520,9 @@ impl Engine {
             Some(CooperativeHelping::new(
                 Arc::clone(&ring_buffer),
                 Arc::clone(&pool),
+                Arc::clone(&drop_level_policy),
+                Arc::clone(&rate_limiter),
+                Arc::clone(&control_stats),
                 helping_sink,
                 true,
             ))
@@ -498,8 +548,12 @@ impl Engine {
             shm_sink,
             config,
             control_stats,
+            drop_level_policy,
             hot_reload_manager,
             pending_reload,
+            runtime_level,
+            control_reload_requested,
+            reload_source_path,
             config_watcher: None,
             control_plane: None,
             time_source: TimeSource::new(),
@@ -516,12 +570,12 @@ impl Engine {
     ///
     /// Builds a new fan-out sink from `new_config` and opens it; only on
     /// success does it swap the active sink (under `SinkRef`'s write lock) and
-    /// replace the stored config. Encoding settings are protected: when they
-    /// change, all other fields are applied, the previous encoding snapshot is
-    /// retained, and `DO_LOG_ERR_CONFIG_RESTART_REQUIRED` is returned to make
-    /// the partial application explicit. On sink errors the previous
-    /// configuration and sink stay in effect and no records are lost. The
-    /// returned error is one of the config reload codes:
+    /// replace the stored hot-reloadable config. Only level and sinks have a
+    /// live mutation path; structural settings are retained and produce
+    /// `DO_LOG_ERR_CONFIG_RESTART_REQUIRED` so status cannot claim a runtime
+    /// change that the already-built pipeline did not receive. On sink errors
+    /// the previous configuration and sink stay in effect and no records are
+    /// lost. The returned error is one of the config reload codes:
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID`] (new config rejected) or
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`] (sink build/open failed).
     ///
@@ -529,21 +583,61 @@ impl Engine {
     /// [`DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED`]: crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED
     /// [`DO_LOG_ERR_CONFIG_RESTART_REQUIRED`]: crate::error::DO_LOG_ERR_CONFIG_RESTART_REQUIRED
     pub fn reload_config(&mut self, new_config: DologgerConfig) -> Result<(), i32> {
+        use crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID;
+        let new_level = match crate::record::LogLevel::parse_canonical(&new_config.level) {
+            Some(level) => level,
+            None => {
+                self.control_stats.record_error();
+                self.sysmon.error(
+                    "engine",
+                    &format!("Config reload rejected: invalid log level '{}', keeping current configuration", new_config.level),
+                );
+                return Err(DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID);
+            }
+        };
         let reload_ticket = self.hot_reload_manager.begin_config_reload();
         let reload_epoch = reload_ticket.epoch;
         self.control_stats.set_hot_reload_epoch(reload_epoch);
         self.control_stats.record_reload();
 
         use crate::error::{
-            DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED, DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID,
-            DO_LOG_ERR_CONFIG_RESTART_REQUIRED,
+            DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED, DO_LOG_ERR_CONFIG_RESTART_REQUIRED,
         };
 
-        let protected_encoding_change = new_config.encoding != self.config.encoding;
+        // The running pipeline owns its ring capacity, batch size, policy
+        // graph, audit routing, plugin dispatch, and encoding boundary. Only
+        // `level` and `sinks` have a live mutation path today. Retaining every
+        // other field prevents status/config drift where a reload appears to
+        // succeed but the already-built runtime still uses the old value.
         let mut effective_config = new_config;
-        if protected_encoding_change {
-            effective_config.encoding = self.config.encoding.clone();
+        let mut restart_required = false;
+        macro_rules! retain_until_restart {
+            ($field:ident) => {
+                if effective_config.$field != self.config.$field {
+                    effective_config.$field = self.config.$field.clone();
+                    restart_required = true;
+                }
+            };
         }
+        retain_until_restart!(performance_profile);
+        retain_until_restart!(ring_buffer_size);
+        retain_until_restart!(batch_size);
+        retain_until_restart!(enable_signature);
+        retain_until_restart!(enable_audit);
+        retain_until_restart!(sig_sidecar_path);
+        retain_until_restart!(audit_worm_path);
+        retain_until_restart!(audit_security_path);
+        retain_until_restart!(shutdown_policy);
+        retain_until_restart!(shutdown_timeout_ms);
+        retain_until_restart!(key_rotation_grace_period_days);
+        retain_until_restart!(ring_buffer_coop_helping);
+        retain_until_restart!(plugin_trust_store);
+        retain_until_restart!(plugin_trust_anchor);
+        retain_until_restart!(plugin_allow_red_plugins);
+        retain_until_restart!(plugin_enable_pipeline);
+        retain_until_restart!(shm);
+        retain_until_restart!(watcher);
+        retain_until_restart!(encoding);
 
         // Build a new fan-out from the incoming config. Validation happens
         // here via the registry's sink construction; a rejected config is
@@ -590,15 +684,23 @@ impl Engine {
         }
 
         self.config = effective_config;
-        if protected_encoding_change {
+        self.drop_level_policy.set_min_level(new_level);
+        *self
+            .runtime_level
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = self.config.level.clone();
+        if restart_required {
             self.hot_reload_manager.complete_config_reload(
                 reload_ticket,
                 false,
-                Some("encoding configuration retained; restart required".to_string()),
+                Some(
+                    "one or more runtime-structural settings were retained; restart required"
+                        .to_string(),
+                ),
             );
             self.sysmon.warn(
                 "engine",
-                "Configuration hot-reloaded partially; encoding changes require restart",
+                "Configuration hot-reloaded partially; runtime-structural changes require restart",
             );
             return Err(DO_LOG_ERR_CONFIG_RESTART_REQUIRED);
         }
@@ -614,6 +716,10 @@ impl Engine {
     /// never mutates sinks or engine state from the background thread.
     pub fn start_config_watcher(&mut self, path: impl AsRef<Path>) -> Result<(), String> {
         let path = path.as_ref().to_path_buf();
+        *self
+            .reload_source_path
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(path.clone());
         let pending = Arc::clone(&self.pending_reload);
         let watcher_config = self.config.watcher.clone();
         let watcher = ConfigWatcher::start(
@@ -639,16 +745,74 @@ impl Engine {
     }
 
     /// Apply one configuration queued by the watcher, if any.
+    ///
+    /// A control-plane `/reload` request is consumed by the same method. This
+    /// keeps all sink mutation and configuration ownership on the Engine
+    /// thread; the listener never captures or mutates `&mut Engine`.
     pub fn poll_config_reload(&mut self) -> Result<bool, i32> {
+        let control_request = self.control_reload_requested.swap(false, Ordering::AcqRel);
         let next = self
             .pending_reload
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
-        match next {
-            Some(config) => self.reload_config(config).map(|()| true),
-            None => Ok(false),
+        if let Some(config) = next {
+            return self.reload_config(config).map(|()| true);
         }
+
+        if !control_request {
+            return Ok(false);
+        }
+
+        let path = self
+            .reload_source_path
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+            .or_else(|| self.config.config_path.clone());
+        let Some(path) = path else {
+            self.control_stats.record_error();
+            return Err(crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED);
+        };
+        let path_str = path
+            .to_str()
+            .ok_or(crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID)?;
+        let (config, warnings) = match DologgerConfig::load_from_file(path_str) {
+            Ok(result) => result,
+            Err((code, message)) => {
+                self.control_stats.record_error();
+                crate::sys::diagnostics::error("control_plane", &message);
+                return Err(if code == crate::error::DO_LOG_ERR_CONFIG_NOT_FOUND {
+                    crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_FAILED
+                } else {
+                    crate::error::DO_LOG_ERR_CONFIG_HOT_RELOAD_INVALID
+                });
+            }
+        };
+        for warning in warnings {
+            crate::sys::diagnostics::warn("control_plane", &warning);
+        }
+        self.reload_config(config).map(|()| true)
+    }
+
+    /// Queue a configuration reload for the next owner-thread poll.
+    ///
+    /// This is the programmatic equivalent of the control-plane `/reload`
+    /// endpoint and is intentionally non-blocking.
+    pub fn request_config_reload(&self) {
+        self.control_reload_requested.store(true, Ordering::Release);
+    }
+
+    /// Return whether a watcher or control-plane reload is waiting to be
+    /// applied. The result is advisory and may change immediately after it is
+    /// observed.
+    pub fn config_reload_pending(&self) -> bool {
+        self.control_reload_requested.load(Ordering::Acquire)
+            || self
+                .pending_reload
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .is_some()
     }
 
     /// Stop the watcher and discard a configuration that has not been applied.
@@ -668,13 +832,33 @@ impl Engine {
     /// [`Engine::status_stats`]. Reload requests are acknowledged only after
     /// the caller has installed a watcher and polls `poll_config_reload`.
     pub fn start_control_plane(&mut self, config: ControlPlaneConfig) -> Result<(), String> {
+        if !config.enabled {
+            return Ok(());
+        }
         if self.control_plane.is_some() {
             return Err("control plane is already running".into());
         }
-        let level = Arc::new(Mutex::new(self.config.level.clone()));
-        let reload_callback: ReloadCb = Arc::new(Mutex::new(Some(Box::new(|| Ok(())))));
-        let control_plane =
-            ControlPlane::start_with_stats(config, level, reload_callback, self.status_stats())?;
+        let level = Arc::clone(&self.runtime_level);
+        let policy = Arc::clone(&self.drop_level_policy);
+        let level_callback: LevelCb = Arc::new(Mutex::new(Some(Box::new(move |value| {
+            let Some(level) = crate::record::LogLevel::parse_canonical(value) else {
+                return Err("level must use a canonical uppercase name".to_string());
+            };
+            policy.set_min_level(level);
+            Ok(())
+        }))));
+        let reload_requested = Arc::clone(&self.control_reload_requested);
+        let reload_callback: ReloadCb = Arc::new(Mutex::new(Some(Box::new(move || {
+            reload_requested.store(true, Ordering::Release);
+            Ok(())
+        }))));
+        let control_plane = ControlPlane::start_with_handlers(
+            config,
+            level,
+            level_callback,
+            reload_callback,
+            self.status_stats(),
+        )?;
         self.control_plane = Some(control_plane);
         Ok(())
     }

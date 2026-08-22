@@ -55,7 +55,7 @@ impl RateLimiter {
         Self {
             rate_per_sec,
             burst_size,
-            tokens: AtomicU64::new(burst_size * 1000), // Store as millitokens
+            tokens: AtomicU64::new(burst_size.saturating_mul(1000)), // Store as millitokens
             last_refill: std::sync::Mutex::new(Instant::now()),
             refill_interval: Duration::from_millis(100),
             tokens_per_refill,
@@ -106,18 +106,23 @@ impl RateLimiter {
 
     /// Refill tokens based on elapsed time.
     fn refill(&self) {
-        let mut last = self.last_refill.lock().unwrap();
+        let mut last = self
+            .last_refill
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let now = Instant::now();
         let elapsed = now.duration_since(*last);
 
         if elapsed >= self.refill_interval {
             let refills = (elapsed.as_millis() / self.refill_interval.as_millis()) as u64;
-            let add = refills * self.tokens_per_refill * 1000; // Convert to millitokens
-            let max_tokens = self.burst_size * 1000;
+            let add = refills
+                .saturating_mul(self.tokens_per_refill)
+                .saturating_mul(1000); // Convert to millitokens
+            let max_tokens = self.burst_size.saturating_mul(1000);
 
             loop {
                 let current = self.tokens.load(Ordering::Acquire);
-                let new = (current + add).min(max_tokens);
+                let new = current.saturating_add(add).min(max_tokens);
                 match self.tokens.compare_exchange_weak(
                     current,
                     new,
@@ -159,13 +164,17 @@ impl Default for RateLimiter {
 // Drop-level policy — static rule to drop records by level
 // ===========================================================================
 
-/// Static policy: drop records below a configured minimum level.
+/// Runtime policy: drop records below a configured minimum level.
 ///
 /// The level check MUST be inlineable. This is called
 /// from the pipeline; will hoist it into the `dologger_log` hot path.
 pub struct DropLevelPolicy {
-    /// Minimum level to allow through (records below this are dropped)
-    min_level: LogLevel,
+    /// Minimum level to allow through (records below this are dropped).
+    ///
+    /// The atomic representation keeps `/level` off the producer and
+    /// consumer coordination locks. Only the control-plane write is rare;
+    /// evaluation remains one acquire load plus the existing counter update.
+    min_level: std::sync::atomic::AtomicU8,
     /// Total records allowed
     allowed: AtomicU64,
     /// Total records dropped
@@ -176,7 +185,7 @@ impl DropLevelPolicy {
     /// Create a policy that drops records below `min_level`.
     pub fn new(min_level: LogLevel) -> Self {
         Self {
-            min_level,
+            min_level: std::sync::atomic::AtomicU8::new(min_level as u8),
             allowed: AtomicU64::new(0),
             dropped: AtomicU64::new(0),
         }
@@ -184,13 +193,28 @@ impl DropLevelPolicy {
 
     /// Evaluate: return true if the record should be kept.
     pub fn evaluate(&self, level: LogLevel) -> bool {
-        if level >= self.min_level {
+        let minimum = LogLevel::from_u8(self.min_level.load(Ordering::Acquire))
+            // A corrupted or invalid atomic value must fail closed for
+            // ordinary records rather than accidentally enabling all logs.
+            .unwrap_or(LogLevel::Audit);
+        if level >= minimum {
             self.allowed.fetch_add(1, Ordering::Relaxed);
             true
         } else {
             self.dropped.fetch_add(1, Ordering::Relaxed);
             false
         }
+    }
+
+    /// Return the current minimum level.
+    pub fn min_level(&self) -> LogLevel {
+        LogLevel::from_u8(self.min_level.load(Ordering::Acquire)).unwrap_or(LogLevel::Audit)
+    }
+
+    /// Replace the minimum level and return the previous value.
+    pub fn set_min_level(&self, min_level: LogLevel) -> LogLevel {
+        let previous = self.min_level.swap(min_level as u8, Ordering::AcqRel);
+        LogLevel::from_u8(previous).unwrap_or(LogLevel::Audit)
     }
 
     /// Total records allowed.
@@ -234,6 +258,26 @@ mod tests {
     }
 
     #[test]
+    fn test_drop_level_policy_updates_without_replacement() {
+        let policy = DropLevelPolicy::new(LogLevel::Warn);
+        assert!(!policy.evaluate(LogLevel::Info));
+        assert_eq!(policy.min_level(), LogLevel::Warn);
+
+        let previous = policy.set_min_level(LogLevel::Info);
+        assert_eq!(previous, LogLevel::Warn);
+        assert_eq!(policy.min_level(), LogLevel::Info);
+        assert!(policy.evaluate(LogLevel::Info));
+    }
+
+    #[test]
+    fn test_drop_level_policy_invalid_atomic_value_fails_closed() {
+        let policy = DropLevelPolicy::new(LogLevel::Trace);
+        policy.min_level.store(0xff, Ordering::Release);
+        assert_eq!(policy.min_level(), LogLevel::Audit);
+        assert!(!policy.evaluate(LogLevel::Info));
+    }
+
+    #[test]
     fn test_rate_limiter_drops_excess() {
         // Allow only 100/sec, burst 10
         let limiter = RateLimiter::new(100, 10);
@@ -256,5 +300,12 @@ mod tests {
             dropped > 0,
             "Some records should be dropped after burst exhausted"
         );
+    }
+
+    #[test]
+    fn test_rate_limiter_saturates_extreme_capacity_without_overflow() {
+        let limiter = RateLimiter::new(u64::MAX, u64::MAX);
+        assert_eq!(limiter.available_tokens(), u64::MAX / 1000);
+        assert!(limiter.evaluate());
     }
 }

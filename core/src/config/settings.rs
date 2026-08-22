@@ -846,6 +846,14 @@ impl DologgerConfig {
         // Parse `[dologger]` section
         if let Some(dologger) = table.get("dologger").and_then(|v| v.as_table()) {
             if let Some(level) = dologger.get("level").and_then(|v| v.as_str()) {
+                if crate::record::LogLevel::parse_canonical(level).is_none() {
+                    return Err((
+                        crate::error::DO_LOG_ERR_CONFIG_VALIDATION,
+                        format!(
+                            "invalid log level '{level}'; expected TRACE, DEBUG, INFO, WARN, ERROR, FATAL, or AUDIT"
+                        ),
+                    ));
+                }
                 config.level = level.to_string();
             }
             if let Some(profile) = dologger.get("performance_profile").and_then(|v| v.as_str()) {
@@ -1179,6 +1187,15 @@ mod tests {
         assert!(
             !config.watcher.enabled,
             "hot reload must be opt-in and disabled by default"
+        );
+    }
+
+    #[test]
+    fn invalid_log_level_is_rejected_at_config_boundary() {
+        let result = DologgerConfig::parse("[dologger]\nlevel = \"info\"\n", None);
+        assert_eq!(
+            result.unwrap_err().0,
+            crate::error::DO_LOG_ERR_CONFIG_VALIDATION
         );
     }
 

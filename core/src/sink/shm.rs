@@ -533,7 +533,7 @@ pub enum ShmFullPolicy {
 // ---------------------------------------------------------------------------
 
 /// Configuration for sink_shm.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(default)]
 pub struct ShmSinkConfig {
     /// Shared memory object path

@@ -33,6 +33,7 @@
 use std::borrow::Cow;
 use std::mem::ManuallyDrop;
 use std::ptr;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::error::{
@@ -94,6 +95,32 @@ impl LogLevel {
             5 => Some(Self::Fatal),
             6 => Some(Self::Audit),
             _ => None,
+        }
+    }
+
+    /// Parse one of the canonical uppercase level names.
+    ///
+    /// Runtime control-plane input intentionally accepts only the canonical
+    /// spellings. This avoids locale-dependent case folding and prevents an
+    /// ambiguous value from silently changing filtering behaviour.
+    pub fn parse_canonical(value: &str) -> Option<Self> {
+        value.parse().ok()
+    }
+}
+
+impl FromStr for LogLevel {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "TRACE" => Ok(Self::Trace),
+            "DEBUG" => Ok(Self::Debug),
+            "INFO" => Ok(Self::Info),
+            "WARN" => Ok(Self::Warn),
+            "ERROR" => Ok(Self::Error),
+            "FATAL" => Ok(Self::Fatal),
+            "AUDIT" => Ok(Self::Audit),
+            _ => Err(()),
         }
     }
 }
@@ -1880,6 +1907,9 @@ mod tests {
         assert_eq!(LogLevel::from_u8(0), Some(LogLevel::Trace));
         assert_eq!(LogLevel::from_u8(6), Some(LogLevel::Audit));
         assert_eq!(LogLevel::from_u8(7), None);
+        assert_eq!(LogLevel::parse_canonical("WARN"), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::parse_canonical("warn"), None);
+        assert_eq!(LogLevel::parse_canonical("INFO "), None);
     }
 
     // ── uint128 conversions (kept for compatibility) ──

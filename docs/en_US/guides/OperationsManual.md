@@ -546,17 +546,18 @@ event: "PIPELINE_BACKLOG" AND pct > 90
 ### Triggering Configuration Reload
 
 Hot reload is triggered automatically when `[watcher]` is enabled (see the
-Hot Reload section above). A control-plane reload endpoint remains planned:
+Hot Reload section above). An explicitly started control plane can also queue
+a reload request:
 
 ```bash
-# planned — the control plane is not started in this version
-# Reload without validation (applies changes if syntax is valid)
+# The request is queued; the engine owner applies it on its next
+# `poll_config_reload()` call. The configured source path must be available.
 # curl -X POST http://127.0.0.1:9090/reload
 ```
 
 ### Security Considerations
 
-- The control plane listens on `127.0.0.1:9090` by default (planned — the control plane is not started in v0.0.1) — only processes on the same host can reach it.
+- The control plane is opt-in, refuses disabled configuration, and only accepts loopback bind addresses until transport authentication is implemented.
 - mTLS + JWT authentication for remote access is planned.
 - Production deployments should use host-level firewall rules to restrict access to the control plane port:
   ```bash
