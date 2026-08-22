@@ -11,8 +11,8 @@ use dologger_core::codec::EncodingDetection;
 use dologger_core::record::{FieldRing, LogLevel, Record};
 use dologger_core::security::{ReplayDecision, ReplayGuard, ReplayPolicy};
 use dologger_core::sif::{
-    decode_record_with, encode_length_prefixed, encode_record, DecodeOptions, FrameScanner,
-    ReusableEncoder, SIF_HEADER_LEN,
+    decode_record_flatbuffers, decode_record_with, encode_length_prefixed, encode_record,
+    DecodeOptions, FlatbuffersCompatibility, FrameScanner, ReusableEncoder, SIF_HEADER_LEN,
 };
 
 fn record(lsn: u64, message: &str) -> Record {
@@ -46,6 +46,45 @@ fn public_sif_round_trip_survives_vendor_fields() {
         "value"
     );
     assert_eq!(decoded.content_hash, original.content_hash);
+}
+
+#[test]
+fn flatbuffers_backend_preserves_raw_message_and_kv_fields() {
+    let mut original = record(3, "ignored text");
+    original.message.set_bytes(&[0, 0xff, 0x80, 0x01]);
+    original
+        .field_set("ext.flatbuffers.case", "value", FieldRing::Ring3)
+        .unwrap();
+    original.compute_content_hash();
+
+    let frame = dologger_core::sif::encode_record_flatbuffers(&original).unwrap();
+    assert_eq!(&frame[..4], b"SIFB");
+    let decoded = decode_record_flatbuffers(&frame).unwrap();
+
+    assert_eq!(decoded.message.as_bytes(), original.message.as_bytes());
+    assert_eq!(decoded.message.kind(), original.message.kind());
+    assert_eq!(decoded.content_hash, original.content_hash);
+    assert_eq!(
+        decoded
+            .field_get("ext.flatbuffers.case", FieldRing::Ring3)
+            .unwrap(),
+        "value"
+    );
+}
+
+#[test]
+fn flatbuffers_backend_reports_current_kv_envelope() {
+    let mut original = record(4, "flatbuffers");
+    original
+        .field_set("ext.flatbuffers.compat", "present", FieldRing::Ring3)
+        .unwrap();
+    let frame = dologger_core::sif::encode_record_flatbuffers(&original).unwrap();
+    let (_, compatibility): (_, FlatbuffersCompatibility) =
+        dologger_core::sif::backends::flatbuffers::decode_record_compat(&frame).unwrap();
+
+    assert!(compatibility.kv_envelope_present);
+    assert!(!compatibility.legacy_ext_data_present);
+    assert!(!compatibility.dropped_legacy_fields());
 }
 
 #[test]

@@ -26,9 +26,26 @@ The public API is in `dologger_core::sif`:
 - `FrameScanner` handles length-prefixed fragmented streams;
 - `ReusableEncoder` avoids repeated output allocations for one producer.
 
-The codec preserves raw message bytes, validates field names and lengths,
-and optionally verifies the canonical content hash. It does not perform display
-encoding, localization, or audit activation.
+The default codec preserves raw message bytes, validates field names and lengths,
+and optionally verifies the canonical content hash. The explicit FlatBuffers
+backend is available as `encode_record_flatbuffers` and
+`decode_record_flatbuffers`; it uses the same Record/KV semantics and is useful
+for zero-copy-compatible or cross-language consumers. Neither backend performs
+display encoding, localization, or audit activation.
+
+## Backend roles
+
+```text
+Record (fixed fields + KV + raw bytes)
+             |
+             +-- Native KV-backed SIF (default, bounded and allocation-aware)
+             +-- FlatBuffers SIF (explicit backend, schema-driven access)
+```
+
+KV is the data organization model inside Record and inside each backend's
+payload. SIF is the neutral serialization boundary. FlatBuffers is a
+serialization technology used to implement that boundary; it is not a second
+Record model and it does not make audit mandatory.
 
 ## C and other hosts
 

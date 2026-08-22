@@ -50,8 +50,11 @@ SIF 在构造 `Record` 前校验 magic、长度、资源边界、字段名、封
 - `ReusableEncoder` 复用生产者缓冲区，不改变所有权规则；
 - `entries` 为检查工具提供借用的动态条目视图。
 
-当前实现是手写且由 KV 构建。已删除的 FlatBuffers schema 不再属于当前构建
-或公共契约。
+当前默认实现是手写且由 KV 构建。FlatBuffers 仍作为显式 SIF 后端保留在
+`dologger_core::sif::backends::flatbuffers`，不是默认运行时路径，进程内 Sink
+也不被强制要求使用它。两个后端都序列化同一个 Record 模型，包括原始消息字节
+和动态 KV 集合；FlatBuffers 后端通过提交到仓库的 schema 与生成绑定，服务于
+零拷贝兼容消费者和跨语言集成。
 
 ## Sink 与插件指导
 

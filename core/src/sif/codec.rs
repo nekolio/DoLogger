@@ -598,7 +598,7 @@ fn collect_entries(record: &Record) -> Vec<Entry> {
             entries.push(Entry {
                 tag,
                 ty,
-                name: name_for_tag(tag),
+                name: field_name_for_tag(tag),
                 value: value.to_vec(),
             });
         }
@@ -613,7 +613,7 @@ fn collect_entries(record: &Record) -> Vec<Entry> {
     entries
 }
 
-fn name_for_tag(tag: u8) -> String {
+pub(crate) fn field_name_for_tag(tag: u8) -> String {
     const NAMES: &[&str] = &[
         "trace.id",
         "span.id",
@@ -654,7 +654,7 @@ fn vendor_name_for_tag(tag: u8) -> Option<String> {
         .find_map(|(name, value)| (*value == tag).then(|| name.clone()))
 }
 
-fn register_vendor_tag(name: &str, tag: u8) {
+pub(crate) fn register_vendor_tag(name: &str, tag: u8) {
     if tag <= KV_TAG_CORE_MAX || !(name.starts_with("ext.") || name.starts_with("verified.")) {
         return;
     }
@@ -712,18 +712,18 @@ fn read_array<const N: usize>(bytes: &[u8], offset: usize) -> Result<[u8; N], Si
 }
 
 impl Record {
-    fn put_wire_slot(&mut self, tag: u8, ty: u8, value: &[u8]) -> Result<(), SifError> {
+    pub(crate) fn put_wire_slot(&mut self, tag: u8, ty: u8, value: &[u8]) -> Result<(), SifError> {
         if let Some(slot) = self.kv_find_mut(tag) {
             // SAFETY: kv_find_mut returns a pointer to an initialized slot owned by self.
             unsafe { (&mut *slot).wire_put(tag, ty, value) }.map_err(|_| SifError::FieldApply {
-                name: name_for_tag(tag),
+                name: field_name_for_tag(tag),
             })?;
             return Ok(());
         }
         if let Some(slot) = self.kv_find_empty() {
             // SAFETY: kv_find_empty returns a pointer to an initialized slot owned by self.
             unsafe { (&mut *slot).wire_put(tag, ty, value) }.map_err(|_| SifError::FieldApply {
-                name: name_for_tag(tag),
+                name: field_name_for_tag(tag),
             })?;
             return Ok(());
         }
@@ -731,7 +731,7 @@ impl Record {
         let mut slot = KvSlot::empty();
         slot.wire_put(tag, ty, value)
             .map_err(|_| SifError::FieldApply {
-                name: name_for_tag(tag),
+                name: field_name_for_tag(tag),
             })?;
         ext.push(slot);
         Ok(())

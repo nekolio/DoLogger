@@ -700,7 +700,7 @@ contains fixed hot fields, dynamic KV fields, and raw message bytes. SIF
 (**Standard Intermediate Format**) serializes that model into one bounded,
 cross-platform frame for communication and storage.
 
-### KV-backed SIF frame
+### SIF backends
 
 The `core::sif` module exposes the canonical byte boundary:
 
@@ -711,11 +711,20 @@ The `core::sif` module exposes the canonical byte boundary:
 - `FrameScanner` handles length-prefixed fragmented input without trusting
   forged lengths or allocating an unbounded buffer.
 
-The frame contains a fixed header, fixed Record metadata, raw message bytes,
-and repeated KV entries. It validates magic, header and total lengths, field
-names, closed value types, duplicate tags, field/message budgets, raw-message
-kind, and optional content hashes before constructing a Record. Persisted SIF
-and audit bytes are not converted through the display code-page policy.
+The default frame contains a fixed header, fixed Record metadata, raw message
+bytes, and repeated KV entries. It validates magic, header and total lengths,
+field names, closed value types, duplicate tags, field/message budgets,
+raw-message kind, and optional content hashes before constructing a Record.
+Persisted SIF and audit bytes are not converted through the display code-page
+policy.
+
+The same boundary also has an explicit FlatBuffers backend:
+`encode_record_flatbuffers`, `decode_record_flatbuffers`, and
+`validate_frame_flatbuffers`. It is schema-driven and suitable for zero-copy
+readers, cross-language integrations, and existing FlatBuffers hosts. It is
+not the default codec, and no sink must use it when an in-process `Record` view
+is sufficient. KV remains the Record field model; FlatBuffers is only one
+implementation of SIF.
 
 SIF is useful for SHM, files, plugins, C ABI, cross-process, and cross-language
 boundaries. An in-process sink may consume Record directly and does not have to

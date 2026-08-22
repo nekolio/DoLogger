@@ -54,8 +54,13 @@ The `dologger_core::sif` module owns the boundary:
 - `ReusableEncoder` reuses a producer buffer without changing ownership rules.
 - `entries` exposes borrowed dynamic-entry views for inspection tooling.
 
-The implementation is hand-written and KV-backed. The removed FlatBuffers
-schema is not part of the current build or public contract.
+The default implementation is hand-written and KV-backed. FlatBuffers remains
+an explicit SIF backend at `dologger_core::sif::backends::flatbuffers`; it is
+not the default runtime path and is never required by an in-process sink.
+Both backends serialize the same Record model, including raw message bytes and
+the dynamic KV set. The FlatBuffers backend uses the committed schema and
+generated bindings for zero-copy-compatible consumers and cross-language
+integration.
 
 ## Sink and plugin guidance
 

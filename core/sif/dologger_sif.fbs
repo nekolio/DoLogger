@@ -1,0 +1,262 @@
+// =============================================================================
+// DoLogger SIF (Standard Intermediate Format) — FlatBuffers Schema
+// =============================================================================
+//
+// The SIF is the zero-copy binary representation of a log record that sits
+// between the Formatter and Sink stages in the DoLogger pipeline.  Records
+// are serialised into SIF by the Formatter, then consumed directly from the
+// wire by Sinks without any deserialisation or heap allocation.
+//
+// Design document reference: §14.4  "SIF — Standard Intermediate Format"
+//
+// Schema version: 1.0.0
+// FlatBuffers version: 24.3+ (requires `string` and `vector` support)
+// =============================================================================
+
+// ---------------------------------------------------------------------------
+// File identifier & root type
+// ---------------------------------------------------------------------------
+
+/// Magic bytes written at offset 4..8 so consumers can validate the payload.
+/// Corresponds to the FlatBuffers backend marker in the Rust module.
+file_identifier "SIFB";
+
+/// Non-standard `length:` vector attribute used on Ring 0/1 fixed-size fields
+/// (signature, prev_hash) to document exact byte lengths. Declared here so
+/// flatc accepts it; it carries no codegen semantics.
+attribute "length";
+
+// ---------------------------------------------------------------------------
+// Record — main log record table
+// ---------------------------------------------------------------------------
+
+/// A complete log record with field permission rings (Ring 0–3).
+///
+/// Ring semantics (from design doc §14.4):
+///   Ring 0 — Kernel-core    (ID, timestamp, signature, origin LSN)
+///   Ring 1 — System trusted (level, message, host info, tracing, exception)
+///   Ring 2 — Verified plugin fields (not yet represented in schema — future)
+///   Ring 3 — Untrusted dynamic fields, carried as a bounded KV envelope
+///
+/// All fields are optional (FlatBuffers `table` semantics) so the schema can
+/// evolve without breaking existing consumers.  Missing fields default to
+/// zero / empty as documented per field.
+table Record {
+  // =========================================================================
+  // Ring 0 — Kernel-Core Fields (always present, immutable by plugins)
+  // =========================================================================
+
+  /// Globally unique record ID (modified snowflake algorithm).
+  /// Stored as two uint64 halves because FlatBuffers lacks native u128.
+  /// id_hi: milliseconds since custom epoch (high 64 bits)
+  id_hi:uint64 = 0;
+
+  /// Low 64 bits of the 128-bit record ID.
+  /// id_lo: sequence number + worker-id + datacentre-id (low 64 bits)
+  id_lo:uint64 = 0;
+
+  /// Nanosecond-precision UTC timestamp.
+  /// Stored as two uint64 halves (seconds since UNIX epoch, nanoseconds).
+  /// timestamp_hi: whole seconds since UNIX epoch
+  timestamp_hi:uint64 = 0;
+
+  /// Fractional nanoseconds component of the timestamp.
+  /// timestamp_lo: nanoseconds (0..999_999_999)
+  timestamp_lo:uint64 = 0;
+
+  /// Ed25519 signature covering Ring 0 + Ring 1 fields.
+  /// 64 bytes; absent until the record is signed by the core engine.
+  signature:[ubyte] (required, length:64);
+
+  /// Origin LSN (Log Sequence Number) if this record was forwarded from
+  /// another DoLogger node in a multi-node deployment.  0 = local record.
+  origin_lsn:uint64 = 0;
+
+  // =========================================================================
+  // Ring 1 — System Trusted Fields
+  // =========================================================================
+
+  /// Log level (see LogLevel enum in record/mod.rs):
+  ///   0 = Trace, 1 = Debug, 2 = Info, 3 = Warn,
+  ///   4 = Error, 5 = Fatal, 6 = Audit
+  level:uint8 = 2;   // default = Info
+
+  /// Log message body (UTF-8).  May be truncated by the RecordString
+  /// inline buffer to 255 bytes in the in-memory representation;
+  /// SIF preserves the full message when available.
+  message:string;
+
+  // -- Source location -------------------------------------------------------
+
+  /// Source file path (e.g. "src/main.rs") — optional.
+  source_file:string;
+
+  /// Source function name — optional.
+  source_function:string;
+
+  /// Source line number (1-based).
+  source_line:uint32 = 0;
+
+  /// Source column number (1-based).
+  source_column:uint32 = 0;
+
+  // -- Thread / process / host identity -------------------------------------
+
+  /// OS thread ID (platform-specific; on Linux this is the tid).
+  thread_id:uint64 = 0;
+
+  /// Human-readable thread name (may be set via pthread_setname_np or similar).
+  thread_name:string;
+
+  /// OS process ID.
+  process_id:uint32 = 0;
+
+  /// Process name (argv[0] or /proc/self/comm equivalent).
+  process_name:string;
+
+  /// Host name (FQDN when available).
+  host_name:string;
+
+  /// Container ID (Docker / Kubernetes container ID, when running containerised).
+  container_id:string;
+
+  // -- Application metadata --------------------------------------------------
+
+  /// Application name (e.g. "my-service").
+  app_name:string;
+
+  /// Application version (SemVer string, e.g. "1.2.3").
+  app_version:string;
+
+  /// Deployment environment: "dev", "test", "staging", "prod".
+  environment:string;
+
+  // -- User / session / tracing (OpenTelemetry-compatible) -------------------
+
+  /// Authenticated user identifier (e.g. UUID or email).
+  user_id:string;
+
+  /// Session identifier for correlating records within a single user session.
+  session_id:string;
+
+  /// Request identifier (W3C Trace Context / OpenTelemetry compatible).
+  request_id:string;
+
+  /// Distributed trace ID (W3C Trace Context / OpenTelemetry compatible).
+  trace_id:string;
+
+  /// Span ID within a distributed trace.
+  span_id:string;
+
+  /// Coroutine / async-task identifier (tokio::task::Id, goroutine id, etc.).
+  coroutine_id:uint64 = 0;
+
+  // -- Exception (captured when level >= Error) -----------------------------
+
+  /// Exception type name (e.g. "std::runtime_error", "panic", "anyhow::Error").
+  exception_type:string;
+
+  /// Exception detail message.
+  exception_message:string;
+
+  /// Exception stack trace (multi-line string).
+  exception_stacktrace:string;
+
+  /// Platform-specific error code (errno, HRESULT, exit code).
+  exception_code:int32 = 0;
+
+  // =========================================================================
+  // Ring 1 — Labels (key-value metadata)
+  // =========================================================================
+
+  /// JSON object string of key-value labels attached to this record.
+  /// Example: {"request_size": 1024, "endpoint": "/api/v1/users"}
+  labels:string;
+
+  // =========================================================================
+  // Ring 1 — Security / Audit Fields
+  // =========================================================================
+
+  /// Log Sequence Number — monotonically increasing counter.
+  /// Required for audit trail integrity verification.
+  lsn:uint64 = 0;
+
+  /// SHA-256 hash of the previous audit record's (LSN || Signature).
+  /// 32 bytes; forms a cryptographically-linked chain for audit records.
+  prev_hash:[ubyte] (required, length:32);
+
+  /// WORM LSN gap marker.  true when a gap in the LSN sequence has been
+  /// detected (e.g. due to ring buffer overflow), breaking the audit chain.
+  security_gap:bool = false;
+
+  // =========================================================================
+  // Ring 1 — Audit Tags
+  // =========================================================================
+
+  /// JSON-encoded array tracking all Ring 2 field modifications.
+  /// Each entry records plugin_id, version, field name, value, and timestamp.
+  /// Example: [{"plugin":"enricher","ver":"1.0","field":"verified.user_role","val":"admin","ts":1718123456789}]
+  audit_tags:string;
+
+  // =========================================================================
+  // Ring 3 — Dynamic KV envelope
+  // =========================================================================
+
+  /// Base64 text envelope containing the current Record KV entries.
+  /// The envelope preserves raw values and field names for backend round-trip.
+  ext_data:string;
+
+  /// Retained for compatibility with older external producers.
+  ext_crc32c:uint32 = 0;
+
+  // =========================================================================
+  // Internal Bookkeeping (not serialised by default — present for
+  // round-trip fidelity when snapshotting the in-memory representation)
+  // =========================================================================
+
+  /// Slot index in the object pool.  Used by the pool to return the record
+  /// after the sink has consumed it.  Zero when not pooled.
+  pool_index:uint32 = 0;
+
+  /// Record flags bitfield:
+  ///   0x01 — in_use (slot is allocated)
+  ///   0x02 — signed (Ed25519 signature populated)
+  ///   0x04 — audit  (record level is Audit; WORM chain applies)
+  flags:uint32 = 0;
+
+  // =========================================================================
+  // Audit chain (ADR-002 A.3 / A.6)
+  // =========================================================================
+
+  /// SHA-256 canonical-serialization hash (A.3) of the record content.
+  /// 32 bytes; nonzero for AUDIT records (part of the tamper-evident chain).
+  /// Absent on records written before this field existed (schema evolution).
+  content_hash:[ubyte] (length:32);
+}
+
+// =============================================================================
+// Future extensions (not yet wired)
+// =============================================================================
+
+/// A batch of records for efficient bulk transfer.
+/// Use when the Sink supports vectorised I/O (e.g. writev, sendmmsg).
+/// Intended for Milestone 2+.
+// table RecordBatch {
+//   records:[Record];
+// }
+
+/// Ring 2 verified plugin fields.
+/// Each entry pairs a field name (under the "verified." namespace) with its
+/// string value.  Future schema versions may add a dedicated table.
+// table VerifiedField {
+//   key:string (required);
+//   value:string;
+// }
+
+// =============================================================================
+// Root type
+// =============================================================================
+
+// Declared after the `Record` table definition — flatc 25.x does not accept a
+// `root_type` forward reference.
+root_type Record;

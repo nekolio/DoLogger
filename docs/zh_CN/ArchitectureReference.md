@@ -662,7 +662,7 @@ DoLogger 将内存中的 Record 模型与字节边界分开。Record 包含固�
 KV 字段和原始消息字节。SIF（**Standard Intermediate Format**）把这个模型
 序列化为一个有边界、跨平台的通信与存储帧。
 
-### 由 KV 构建的 SIF 帧
+### SIF 后端
 
 `core::sif` 提供规范字节边界：
 
@@ -671,10 +671,16 @@ KV 字段和原始消息字节。SIF（**Standard Intermediate Format**）把这
 - `validate_frame_with(&[u8], DecodeOptions)` 只做校验，不构造 Record；
 - `FrameScanner` 处理长度前缀分片输入，不信任伪造长度，也不进行无界分配。
 
-帧由固定头、Record 固定元数据、原始消息字节和重复 KV 条目组成。在构造
+默认帧由固定头、Record 固定元数据、原始消息字节和重复 KV 条目组成。在构造
 Record 前校验 magic、头部和总长度、字段名、封闭类型集合、重复标签、字段/消息
 预算、原始消息类型以及可选内容哈希。持久化 SIF 和审计字节不会经过展示代码页
 策略转换。
+
+同一个边界还提供显式 FlatBuffers 后端：
+`encode_record_flatbuffers`、`decode_record_flatbuffers` 和
+`validate_frame_flatbuffers`。它由 schema 驱动，适合零拷贝读取、跨语言集成和
+已有 FlatBuffers 宿主；它不是默认编解码器，进程内 `Record` 视图足够时任何 Sink
+都不必使用它。KV 仍然是 Record 的字段模型，FlatBuffers 只是 SIF 的一种实现。
 
 SIF 适用于 SHM、文件、插件、C ABI、跨进程和跨语言边界。进程内 Sink 可以直接
 消费 Record，不必支付 SIF 序列化开销。

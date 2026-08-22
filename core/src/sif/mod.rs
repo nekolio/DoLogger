@@ -11,6 +11,9 @@
 
 mod codec;
 
+/// Explicit SIF backend implementations.
+pub mod backends;
+
 pub use codec::{
     decode_record, decode_record_with, encode_length_prefixed, encode_record, entries,
     validate_frame, validate_frame_with, DecodeOptions, FrameScanner, KvEntry, ReusableEncoder,
@@ -18,3 +21,16 @@ pub use codec::{
     MAX_MESSAGE_SIZE, SIF_FIXED_LEN, SIF_HASH_OFFSET, SIF_HEADER_LEN, SIF_MAGIC,
     SIF_MESSAGE_LEN_OFFSET,
 };
+
+/// Decode one frame using the explicit FlatBuffers SIF backend.
+pub use backends::flatbuffers::decode_record as decode_record_flatbuffers;
+/// Encode one record using the explicit FlatBuffers SIF backend.
+pub use backends::flatbuffers::encode_record_checked as encode_record_flatbuffers;
+/// Validate one frame using the explicit FlatBuffers SIF backend.
+pub use backends::flatbuffers::validate_frame as validate_frame_flatbuffers;
+/// FlatBuffers backend compatibility report.
+pub use backends::flatbuffers::FlatbuffersCompatibility;
+/// FlatBuffers backend error type.
+pub use backends::flatbuffers::FlatbuffersError;
+/// FlatBuffers backend frame header.
+pub use backends::flatbuffers::FlatbuffersHeader;
