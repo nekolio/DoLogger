@@ -213,4 +213,35 @@ mod tests {
         assert!(r5 == r2 || r5 == r1); // Reuses freed slot
         assert!(pool.alloc().is_none());
     }
+
+    #[test]
+    fn test_reuse_clears_all_record_hot_fields() {
+        let pool = RecordPool::new(1);
+        let record_ptr = pool.alloc().expect("record should allocate");
+
+        // SAFETY: record_ptr is exclusively owned by this test until free().
+        unsafe {
+            (*record_ptr).timestamp = 1_700_000_000_000_000_000;
+            (*record_ptr).level = crate::record::LogLevel::Audit;
+            (*record_ptr).process_id = 42;
+            (*record_ptr).thread_id = 7;
+            (*record_ptr).lsn = 99;
+            (*record_ptr).flags = 0x55;
+            (*record_ptr).message.set("stale payload");
+            pool.free(record_ptr);
+        }
+
+        let reused = pool.alloc().expect("record should be reusable");
+        // SAFETY: reused is exclusively owned by this test.
+        unsafe {
+            assert_eq!((*reused).timestamp, 0);
+            assert_eq!((*reused).level, crate::record::LogLevel::Info);
+            assert_eq!((*reused).process_id, 0);
+            assert_eq!((*reused).thread_id, 0);
+            assert_eq!((*reused).lsn, 0);
+            assert_eq!((*reused).flags, 0);
+            assert!((*reused).message.is_empty());
+            pool.free(reused);
+        }
+    }
 }

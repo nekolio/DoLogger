@@ -611,6 +611,10 @@ impl Record {
 
     /// Reset the record to empty state (called by pool before reuse).
     pub(crate) fn reset(&mut self) {
+        self.timestamp = 0;
+        self.level = LogLevel::Info;
+        self.process_id = 0;
+        self.thread_id = 0;
         self.flags = 0;
         self.lsn = 0;
         self.content_hash = [0u8; 32];
