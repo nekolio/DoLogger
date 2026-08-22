@@ -16,7 +16,7 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 toml = "0.8"
 libloading = "0.8"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 rand = "0.8"
 sha2 = "0.10"
 hmac = "0.12"
